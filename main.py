@@ -1,9 +1,13 @@
+import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import FastAPI, Header, HTTPException, status
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from google.cloud import storage
+from google.oauth2 import service_account
 from pydantic import BaseModel
 
 
@@ -29,6 +33,10 @@ class SoundEvent(BaseModel):
 
 def current_time_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def current_date_yyyymmdd() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d")
 
 
 def get_connection() -> sqlite3.Connection:
@@ -68,6 +76,50 @@ def verify_upload_token(upload_token: Optional[str]) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid upload token",
         )
+
+
+def safe_path_part(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return cleaned.strip("._") or "unknown"
+
+
+def get_gcs_bucket() -> storage.Bucket:
+    bucket_name = os.getenv("GCS_BUCKET_NAME")
+    credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+
+    if not bucket_name:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GCS_BUCKET_NAME is not configured",
+        )
+
+    if not credentials_json:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GOOGLE_APPLICATION_CREDENTIALS_JSON is not configured",
+        )
+
+    try:
+        credentials_info = json.loads(credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            credentials_info
+        )
+        client = storage.Client(
+            credentials=credentials,
+            project=credentials_info.get("project_id"),
+        )
+        return client.bucket(bucket_name)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Google service account JSON is not valid",
+        ) from exc
+
+
+def build_audio_path(device_id: str, event_id: str) -> str:
+    safe_device_id = safe_path_part(device_id)
+    safe_event_id = safe_path_part(event_id)
+    return f"audio/{safe_device_id}/{current_date_yyyymmdd()}/{safe_event_id}.wav"
 
 
 init_db()
@@ -171,4 +223,46 @@ def list_events():
         "status": "success",
         "count": len(rows),
         "events": [dict(row) for row in rows],
+    }
+
+
+@app.post("/upload-audio")
+def upload_audio(
+    event_id: str = Form(...),
+    device_id: str = Form(...),
+    file: UploadFile = File(...),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+
+    if not file.filename or not file.filename.lower().endswith(".wav"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .wav files are allowed",
+        )
+
+    audio_path = build_audio_path(device_id=device_id, event_id=event_id)
+    bucket = get_gcs_bucket()
+    blob = bucket.blob(audio_path)
+
+    try:
+        file.file.seek(0)
+        blob.upload_from_file(
+            file.file,
+            content_type=file.content_type or "audio/wav",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload audio file",
+        ) from exc
+    finally:
+        file.file.close()
+
+    return {
+        "status": "success",
+        "message": "Audio uploaded",
+        "event_id": event_id,
+        "device_id": device_id,
+        "audio_path": audio_path,
     }
