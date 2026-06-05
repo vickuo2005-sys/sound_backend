@@ -4,8 +4,10 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi.responses import HTMLResponse
 from google.cloud import storage
 from google.oauth2 import service_account
 from pydantic import BaseModel
@@ -224,6 +226,211 @@ def list_events():
         "count": len(rows),
         "events": [dict(row) for row in rows],
     }
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+    if not maps_api_key:
+        return HTMLResponse(
+            content="""
+            <!doctype html>
+            <html lang="zh-Hant">
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>聲音事件地圖 Dashboard</title>
+                <style>
+                    body {
+                        margin: 0;
+                        font-family: Arial, "Noto Sans TC", sans-serif;
+                        background: #f6f7f9;
+                        color: #202124;
+                    }
+                    header {
+                        padding: 16px 20px;
+                        background: #ffffff;
+                        border-bottom: 1px solid #dfe3e8;
+                        font-size: 22px;
+                        font-weight: 700;
+                    }
+                    main {
+                        padding: 20px;
+                    }
+                    .message {
+                        max-width: 720px;
+                        padding: 16px;
+                        background: #ffffff;
+                        border: 1px solid #dfe3e8;
+                        border-radius: 8px;
+                    }
+                </style>
+            </head>
+            <body>
+                <header>聲音事件地圖 Dashboard</header>
+                <main>
+                    <div class="message">
+                        GOOGLE_MAPS_API_KEY 尚未設定，請先到 Render Environment Variables 新增這個環境變數。
+                    </div>
+                </main>
+            </body>
+            </html>
+            """,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    maps_script_url = (
+        "https://maps.googleapis.com/maps/api/js"
+        f"?key={quote(maps_api_key, safe='')}&callback=initMap"
+    )
+
+    html = f"""
+    <!doctype html>
+    <html lang="zh-Hant">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>聲音事件地圖 Dashboard</title>
+        <style>
+            html,
+            body {{
+                height: 100%;
+                margin: 0;
+                font-family: Arial, "Noto Sans TC", sans-serif;
+                background: #f6f7f9;
+                color: #202124;
+            }}
+
+            body {{
+                display: flex;
+                flex-direction: column;
+            }}
+
+            header {{
+                padding: 16px 20px;
+                background: #ffffff;
+                border-bottom: 1px solid #dfe3e8;
+                font-size: 22px;
+                font-weight: 700;
+            }}
+
+            #map {{
+                flex: 1;
+                min-height: 480px;
+            }}
+
+            .info-window {{
+                min-width: 240px;
+                line-height: 1.5;
+                font-size: 14px;
+            }}
+
+            .info-window strong {{
+                display: inline-block;
+                min-width: 92px;
+            }}
+        </style>
+    </head>
+    <body>
+        <header>聲音事件地圖 Dashboard</header>
+        <div id="map"></div>
+
+        <script>
+            let map;
+            let infoWindow;
+
+            function formatValue(value) {{
+                if (value === null || value === undefined || value === "") {{
+                    return "無資料";
+                }}
+                return String(value).replace(/[&<>"']/g, (char) => ({{
+                    "&": "&amp;",
+                    "<": "&lt;",
+                    ">": "&gt;",
+                    '"': "&quot;",
+                    "'": "&#39;",
+                }}[char]));
+            }}
+
+            function buildInfoContent(event) {{
+                const audioValue = event.audio_path || event.audio_file_name || "";
+                return `
+                    <div class="info-window">
+                        <div><strong>event_id</strong>${{formatValue(event.event_id)}}</div>
+                        <div><strong>device_id</strong>${{formatValue(event.device_id)}}</div>
+                        <div><strong>timestamp</strong>${{formatValue(event.timestamp)}}</div>
+                        <div><strong>rms_peak</strong>${{formatValue(event.rms_peak)}}</div>
+                        <div><strong>label</strong>${{formatValue(event.label)}}</div>
+                        <div><strong>audio</strong>${{formatValue(audioValue)}}</div>
+                    </div>
+                `;
+            }}
+
+            async function loadEvents() {{
+                const response = await fetch("/events");
+                if (!response.ok) {{
+                    throw new Error("Failed to load events");
+                }}
+                const data = await response.json();
+                return data.events || [];
+            }}
+
+            window.initMap = async function initMap() {{
+                const defaultCenter = {{ lat: 23.6978, lng: 120.9605 }};
+                map = new google.maps.Map(document.getElementById("map"), {{
+                    center: defaultCenter,
+                    zoom: 7,
+                    mapTypeControl: false,
+                    streetViewControl: false,
+                }});
+                infoWindow = new google.maps.InfoWindow();
+
+                try {{
+                    const events = await loadEvents();
+                    const bounds = new google.maps.LatLngBounds();
+                    let markerCount = 0;
+
+                    events.forEach((event) => {{
+                        const lat = Number(event.latitude);
+                        const lng = Number(event.longitude);
+
+                        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {{
+                            return;
+                        }}
+
+                        const position = {{ lat, lng }};
+                        const marker = new google.maps.Marker({{
+                            position,
+                            map,
+                            title: event.event_id || event.device_id || "sound event",
+                        }});
+
+                        marker.addListener("click", () => {{
+                            infoWindow.setContent(buildInfoContent(event));
+                            infoWindow.open({{ anchor: marker, map }});
+                        }});
+
+                        bounds.extend(position);
+                        markerCount += 1;
+                    }});
+
+                    if (markerCount === 1) {{
+                        map.setCenter(bounds.getCenter());
+                        map.setZoom(15);
+                    }} else if (markerCount > 1) {{
+                        map.fitBounds(bounds);
+                    }}
+                }} catch (error) {{
+                    console.error(error);
+                }}
+            }};
+        </script>
+        <script async defer src="{maps_script_url}"></script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 @app.post("/upload-audio")
