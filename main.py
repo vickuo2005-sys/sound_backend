@@ -392,10 +392,25 @@ def dashboard():
                     let markerCount = 0;
 
                     events.forEach((event) => {{
+                        const hasLatitude = (
+                            event.latitude !== null &&
+                            event.latitude !== undefined &&
+                            event.latitude !== ""
+                        );
+                        const hasLongitude = (
+                            event.longitude !== null &&
+                            event.longitude !== undefined &&
+                            event.longitude !== ""
+                        );
                         const lat = Number(event.latitude);
                         const lng = Number(event.longitude);
 
-                        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {{
+                        if (
+                            !hasLatitude ||
+                            !hasLongitude ||
+                            !Number.isFinite(lat) ||
+                            !Number.isFinite(lng)
+                        ) {{
                             return;
                         }}
 
