@@ -240,7 +240,7 @@ def dashboard():
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>聲音事件地圖 Dashboard</title>
+                <title>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</title>
                 <style>
                     body {
                         margin: 0;
@@ -268,10 +268,10 @@ def dashboard():
                 </style>
             </head>
             <body>
-                <header>聲音事件地圖 Dashboard</header>
+                <header>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</header>
                 <main>
                     <div class="message">
-                        GOOGLE_MAPS_API_KEY 尚未設定，請先到 Render Environment Variables 新增這個環境變數。
+                        GOOGLE_MAPS_API_KEY \u5c1a\u672a\u8a2d\u5b9a\uff0c\u8acb\u5148\u5728 Render Environment Variables \u65b0\u589e\u9019\u500b\u74b0\u5883\u8b8a\u6578\u3002
                     </div>
                 </main>
             </body>
@@ -285,166 +285,188 @@ def dashboard():
         f"?key={quote(maps_api_key, safe='')}&callback=initMap"
     )
 
-    html = f"""
+    html = """
     <!doctype html>
     <html lang="zh-Hant">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>聲音事件地圖 Dashboard</title>
+        <title>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</title>
         <style>
             html,
-            body {{
+            body {
                 height: 100%;
                 margin: 0;
                 font-family: Arial, "Noto Sans TC", sans-serif;
                 background: #f6f7f9;
                 color: #202124;
-            }}
+            }
 
-            body {{
+            body {
                 display: flex;
                 flex-direction: column;
-            }}
+            }
 
-            header {{
+            header {
                 padding: 16px 20px;
                 background: #ffffff;
                 border-bottom: 1px solid #dfe3e8;
                 font-size: 22px;
                 font-weight: 700;
-            }}
+            }
 
-            #map {{
+            #status-message {
+                display: none;
+                padding: 12px 20px;
+                background: #fff7d6;
+                border-bottom: 1px solid #ead48a;
+                color: #4d3b00;
+                font-size: 15px;
+            }
+
+            #map {
                 flex: 1;
                 min-height: 480px;
-            }}
+            }
 
-            .info-window {{
-                min-width: 240px;
+            .info-window {
+                min-width: 280px;
                 line-height: 1.5;
                 font-size: 14px;
-            }}
+            }
 
-            .info-window strong {{
+            .info-window strong {
                 display: inline-block;
-                min-width: 92px;
-            }}
+                min-width: 112px;
+            }
         </style>
     </head>
     <body>
-        <header>聲音事件地圖 Dashboard</header>
+        <header>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</header>
+        <div id="status-message"></div>
         <div id="map"></div>
 
         <script>
             let map;
             let infoWindow;
 
-            function formatValue(value) {{
-                if (value === null || value === undefined || value === "") {{
-                    return "無資料";
-                }}
-                return String(value).replace(/[&<>"']/g, (char) => ({{
+            function showStatusMessage(message) {
+                const element = document.getElementById("status-message");
+                element.textContent = message;
+                element.style.display = "block";
+            }
+
+            function formatValue(value) {
+                if (value === null || value === undefined || value === "") {
+                    return "\u7121\u8cc7\u6599";
+                }
+                return String(value).replace(/[&<>"']/g, (char) => ({
                     "&": "&amp;",
                     "<": "&lt;",
                     ">": "&gt;",
                     '"': "&quot;",
                     "'": "&#39;",
-                }}[char]));
-            }}
+                }[char]));
+            }
 
-            function buildInfoContent(event) {{
-                const audioValue = event.audio_path || event.audio_file_name || "";
+            function buildInfoContent(event) {
+                const audioPathValue = event.audio_path || event.local_audio_path || "";
                 return `
                     <div class="info-window">
-                        <div><strong>event_id</strong>${{formatValue(event.event_id)}}</div>
-                        <div><strong>device_id</strong>${{formatValue(event.device_id)}}</div>
-                        <div><strong>timestamp</strong>${{formatValue(event.timestamp)}}</div>
-                        <div><strong>rms_peak</strong>${{formatValue(event.rms_peak)}}</div>
-                        <div><strong>label</strong>${{formatValue(event.label)}}</div>
-                        <div><strong>audio</strong>${{formatValue(audioValue)}}</div>
+                        <div><strong>event_id</strong>${formatValue(event.event_id)}</div>
+                        <div><strong>device_id</strong>${formatValue(event.device_id)}</div>
+                        <div><strong>timestamp</strong>${formatValue(event.timestamp)}</div>
+                        <div><strong>latitude</strong>${formatValue(event.latitude)}</div>
+                        <div><strong>longitude</strong>${formatValue(event.longitude)}</div>
+                        <div><strong>rms_peak</strong>${formatValue(event.rms_peak)}</div>
+                        <div><strong>label</strong>${formatValue(event.label)}</div>
+                        <div><strong>audio_file_name</strong>${formatValue(event.audio_file_name)}</div>
+                        <div><strong>audio_path</strong>${formatValue(audioPathValue)}</div>
                     </div>
                 `;
-            }}
+            }
 
-            async function loadEvents() {{
+            function hasCoordinate(value) {
+                return (
+                    value !== null &&
+                    value !== undefined &&
+                    value !== "" &&
+                    Number.isFinite(Number(value))
+                );
+            }
+
+            async function loadEvents() {
                 const response = await fetch("/events");
-                if (!response.ok) {{
+                if (!response.ok) {
                     throw new Error("Failed to load events");
-                }}
+                }
                 const data = await response.json();
                 return data.events || [];
-            }}
+            }
 
-            window.initMap = async function initMap() {{
-                const defaultCenter = {{ lat: 23.6978, lng: 120.9605 }};
-                map = new google.maps.Map(document.getElementById("map"), {{
+            window.initMap = async function initMap() {
+                const defaultCenter = { lat: 25.033, lng: 121.565 };
+                map = new google.maps.Map(document.getElementById("map"), {
                     center: defaultCenter,
-                    zoom: 7,
+                    zoom: 12,
                     mapTypeControl: false,
                     streetViewControl: false,
-                }});
+                });
                 infoWindow = new google.maps.InfoWindow();
 
-                try {{
+                try {
                     const events = await loadEvents();
                     const bounds = new google.maps.LatLngBounds();
                     let markerCount = 0;
 
-                    events.forEach((event) => {{
-                        const hasLatitude = (
-                            event.latitude !== null &&
-                            event.latitude !== undefined &&
-                            event.latitude !== ""
-                        );
-                        const hasLongitude = (
-                            event.longitude !== null &&
-                            event.longitude !== undefined &&
-                            event.longitude !== ""
-                        );
-                        const lat = Number(event.latitude);
-                        const lng = Number(event.longitude);
-
+                    events.forEach((event) => {
                         if (
-                            !hasLatitude ||
-                            !hasLongitude ||
-                            !Number.isFinite(lat) ||
-                            !Number.isFinite(lng)
-                        ) {{
+                            !hasCoordinate(event.latitude) ||
+                            !hasCoordinate(event.longitude)
+                        ) {
                             return;
-                        }}
+                        }
 
-                        const position = {{ lat, lng }};
-                        const marker = new google.maps.Marker({{
+                        const position = {
+                            lat: Number(event.latitude),
+                            lng: Number(event.longitude),
+                        };
+                        const marker = new google.maps.Marker({
                             position,
                             map,
                             title: event.event_id || event.device_id || "sound event",
-                        }});
+                        });
 
-                        marker.addListener("click", () => {{
+                        marker.addListener("click", () => {
                             infoWindow.setContent(buildInfoContent(event));
-                            infoWindow.open({{ anchor: marker, map }});
-                        }});
+                            infoWindow.open({ anchor: marker, map });
+                        });
 
                         bounds.extend(position);
                         markerCount += 1;
-                    }});
+                    });
 
-                    if (markerCount === 1) {{
+                    if (markerCount === 0) {
+                        showStatusMessage(
+                            "\u76ee\u524d\u6c92\u6709\u53ef\u986f\u793a\u65bc\u5730\u5716\u4e0a\u7684\u4e8b\u4ef6\u8cc7\u6599"
+                        );
+                    } else if (markerCount === 1) {
                         map.setCenter(bounds.getCenter());
                         map.setZoom(15);
-                    }} else if (markerCount > 1) {{
+                    } else {
                         map.fitBounds(bounds);
-                    }}
-                }} catch (error) {{
+                    }
+                } catch (error) {
                     console.error(error);
-                }}
-            }};
+                    showStatusMessage("\u4e8b\u4ef6\u8cc7\u6599\u8f09\u5165\u5931\u6557");
+                }
+            };
         </script>
-        <script async defer src="{maps_script_url}"></script>
+        <script async defer src="__MAPS_SCRIPT_URL__"></script>
     </body>
     </html>
     """
+    html = html.replace("__MAPS_SCRIPT_URL__", maps_script_url)
     return HTMLResponse(content=html)
 
 
