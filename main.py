@@ -30,6 +30,7 @@ class SoundEvent(BaseModel):
     label: Optional[str] = None
     audio_file_name: Optional[str] = None
     local_audio_path: Optional[str] = None
+    audio_path: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -41,14 +42,73 @@ def current_date_yyyymmdd() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d")
 
 
-def get_connection() -> sqlite3.Connection:
+EVENT_COLUMNS = [
+    "id",
+    "event_id",
+    "device_id",
+    "timestamp",
+    "latitude",
+    "longitude",
+    "duration_s",
+    "rms_peak",
+    "label",
+    "audio_file_name",
+    "local_audio_path",
+    "audio_path",
+    "note",
+    "created_at",
+]
+
+
+def get_database_url() -> str:
+    database_url = os.getenv("DATABASE_URL", "").strip()
+    if not database_url:
+        return ""
+
+    if "sslmode=" not in database_url:
+        separator = "&" if "?" in database_url else "?"
+        database_url = f"{database_url}{separator}sslmode=require"
+
+    return database_url
+
+
+def use_postgres() -> bool:
+    return bool(get_database_url())
+
+
+def get_postgres_connection():
+    import psycopg2
+    import psycopg2.extras
+
+    return psycopg2.connect(
+        get_database_url(),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+
+
+def get_sqlite_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(DB_NAME)
     connection.row_factory = sqlite3.Row
     return connection
 
 
-def init_db() -> None:
-    with get_connection() as connection:
+def add_sqlite_column_if_missing(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_definition: str,
+) -> None:
+    columns = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    existing_columns = {column["name"] for column in columns}
+
+    if column_name not in existing_columns:
+        connection.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+        )
+
+
+def init_sqlite_db() -> None:
+    with get_sqlite_connection() as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS events (
@@ -63,12 +123,264 @@ def init_db() -> None:
                 label TEXT,
                 audio_file_name TEXT,
                 local_audio_path TEXT,
+                audio_path TEXT,
                 note TEXT,
                 created_at TEXT
             )
             """
         )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="events",
+            column_name="audio_path",
+            column_definition="TEXT",
+        )
         connection.commit()
+
+
+def init_postgres_db() -> None:
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS events (
+                        id BIGSERIAL PRIMARY KEY,
+                        event_id TEXT NOT NULL,
+                        device_id TEXT,
+                        timestamp TEXT,
+                        latitude DOUBLE PRECISION,
+                        longitude DOUBLE PRECISION,
+                        duration_s DOUBLE PRECISION,
+                        rms_peak DOUBLE PRECISION,
+                        label TEXT,
+                        audio_file_name TEXT,
+                        local_audio_path TEXT,
+                        audio_path TEXT,
+                        note TEXT,
+                        created_at TEXT
+                    )
+                    """
+                )
+                cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_id TEXT")
+                cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS device_id TEXT")
+                cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS timestamp TEXT")
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION"
+                )
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION"
+                )
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS duration_s DOUBLE PRECISION"
+                )
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak DOUBLE PRECISION"
+                )
+                cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS label TEXT")
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_file_name TEXT"
+                )
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS local_audio_path TEXT"
+                )
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_path TEXT"
+                )
+                cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS note TEXT")
+                cursor.execute(
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS created_at TEXT"
+                )
+                cursor.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_key
+                    ON events (event_id)
+                    """
+                )
+    finally:
+        connection.close()
+
+
+def init_db() -> None:
+    if use_postgres():
+        init_postgres_db()
+    else:
+        init_sqlite_db()
+
+
+def event_values(event: SoundEvent, created_at: str) -> tuple:
+    return (
+        event.event_id,
+        event.device_id,
+        event.timestamp,
+        event.latitude,
+        event.longitude,
+        event.duration_s,
+        event.rms_peak,
+        event.label,
+        event.audio_file_name,
+        event.local_audio_path,
+        event.audio_path,
+        event.note,
+        created_at,
+    )
+
+
+def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO events (
+                        event_id,
+                        device_id,
+                        timestamp,
+                        latitude,
+                        longitude,
+                        duration_s,
+                        rms_peak,
+                        label,
+                        audio_file_name,
+                        local_audio_path,
+                        audio_path,
+                        note,
+                        created_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (event_id) DO UPDATE SET
+                        device_id = EXCLUDED.device_id,
+                        timestamp = EXCLUDED.timestamp,
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        duration_s = EXCLUDED.duration_s,
+                        rms_peak = EXCLUDED.rms_peak,
+                        label = EXCLUDED.label,
+                        audio_file_name = EXCLUDED.audio_file_name,
+                        local_audio_path = EXCLUDED.local_audio_path,
+                        audio_path = EXCLUDED.audio_path,
+                        note = EXCLUDED.note,
+                        created_at = EXCLUDED.created_at
+                    RETURNING id
+                    """,
+                    event_values(event, created_at),
+                )
+                row = cursor.fetchone()
+                return int(row["id"])
+    finally:
+        connection.close()
+
+
+def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
+    with get_sqlite_connection() as connection:
+        existing = connection.execute(
+            "SELECT id FROM events WHERE event_id = ? LIMIT 1",
+            (event.event_id,),
+        ).fetchone()
+
+        if existing:
+            db_id = int(existing["id"])
+            connection.execute(
+                """
+                UPDATE events
+                SET
+                    device_id = ?,
+                    timestamp = ?,
+                    latitude = ?,
+                    longitude = ?,
+                    duration_s = ?,
+                    rms_peak = ?,
+                    label = ?,
+                    audio_file_name = ?,
+                    local_audio_path = ?,
+                    audio_path = ?,
+                    note = ?,
+                    created_at = ?
+                WHERE id = ?
+                """,
+                (
+                    event.device_id,
+                    event.timestamp,
+                    event.latitude,
+                    event.longitude,
+                    event.duration_s,
+                    event.rms_peak,
+                    event.label,
+                    event.audio_file_name,
+                    event.local_audio_path,
+                    event.audio_path,
+                    event.note,
+                    created_at,
+                    db_id,
+                ),
+            )
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO events (
+                    event_id,
+                    device_id,
+                    timestamp,
+                    latitude,
+                    longitude,
+                    duration_s,
+                    rms_peak,
+                    label,
+                    audio_file_name,
+                    local_audio_path,
+                    audio_path,
+                    note,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                event_values(event, created_at),
+            )
+            db_id = int(cursor.lastrowid)
+
+        connection.commit()
+        return db_id
+
+
+def save_event(event: SoundEvent, created_at: str) -> int:
+    if use_postgres():
+        return upsert_event_postgres(event, created_at)
+    return upsert_event_sqlite(event, created_at)
+
+
+def list_recent_events() -> list[dict]:
+    columns = ", ".join(EVENT_COLUMNS)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT {columns}
+                        FROM events
+                        ORDER BY id DESC
+                        LIMIT 50
+                        """
+                    )
+                    return [dict(row) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {columns}
+            FROM events
+            ORDER BY id DESC
+            LIMIT 50
+            """
+        ).fetchall()
+
+    return [dict(row) for row in rows]
 
 
 def verify_upload_token(upload_token: Optional[str]) -> None:
@@ -150,43 +462,7 @@ def create_event(
 ):
     verify_upload_token(upload_token)
     created_at = current_time_iso()
-
-    with get_connection() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO events (
-                event_id,
-                device_id,
-                timestamp,
-                latitude,
-                longitude,
-                duration_s,
-                rms_peak,
-                label,
-                audio_file_name,
-                local_audio_path,
-                note,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.event_id,
-                event.device_id,
-                event.timestamp,
-                event.latitude,
-                event.longitude,
-                event.duration_s,
-                event.rms_peak,
-                event.label,
-                event.audio_file_name,
-                event.local_audio_path,
-                event.note,
-                created_at,
-            ),
-        )
-        connection.commit()
-        db_id = cursor.lastrowid
+    db_id = save_event(event, created_at)
 
     return {
         "status": "success",
@@ -198,33 +474,12 @@ def create_event(
 
 @app.get("/events")
 def list_events():
-    with get_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT
-                id,
-                event_id,
-                device_id,
-                timestamp,
-                latitude,
-                longitude,
-                duration_s,
-                rms_peak,
-                label,
-                audio_file_name,
-                local_audio_path,
-                note,
-                created_at
-            FROM events
-            ORDER BY id DESC
-            LIMIT 50
-            """
-        ).fetchall()
+    events = list_recent_events()
 
     return {
         "status": "success",
-        "count": len(rows),
-        "events": [dict(row) for row in rows],
+        "count": len(events),
+        "events": events,
     }
 
 
