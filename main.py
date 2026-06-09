@@ -315,6 +315,30 @@ def dashboard():
                 font-weight: 700;
             }
 
+            #legend {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                padding: 10px 20px;
+                background: #ffffff;
+                border-bottom: 1px solid #dfe3e8;
+                font-size: 14px;
+            }
+
+            .legend-item {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                white-space: nowrap;
+            }
+
+            .legend-dot {
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                border: 1px solid rgba(0, 0, 0, 0.25);
+            }
+
             #status-message {
                 display: none;
                 padding: 12px 20px;
@@ -343,6 +367,28 @@ def dashboard():
     </head>
     <body>
         <header>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</header>
+        <div id="legend">
+            <span class="legend-item">
+                <span class="legend-dot" style="background: #d93025;"></span>
+                \u7d05\u8272\uff1anode_A01
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background: #1a73e8;"></span>
+                \u85cd\u8272\uff1anode_A02
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background: #188038;"></span>
+                \u7da0\u8272\uff1anode_A03
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background: #f29900;"></span>
+                \u6a58\u8272\uff1anode_A04
+            </span>
+            <span class="legend-item">
+                <span class="legend-dot" style="background: #80868b;"></span>
+                \u7070\u8272\uff1a\u5176\u4ed6
+            </span>
+        </div>
         <div id="status-message"></div>
         <div id="map"></div>
 
@@ -404,6 +450,31 @@ def dashboard():
                 return data.events || [];
             }
 
+            function getDeviceMarkerColor(deviceId) {
+                const colorMap = {
+                    node_A01: "#d93025",
+                    node_A02: "#1a73e8",
+                    node_A03: "#188038",
+                    node_A04: "#f29900",
+                };
+                return colorMap[deviceId] || "#80868b";
+            }
+
+            function buildMarkerIcon(deviceId) {
+                const color = getDeviceMarkerColor(deviceId);
+                const svg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="44" viewBox="0 0 32 44">
+                        <path fill="${color}" stroke="white" stroke-width="2" d="M16 2C8.3 2 2 8.3 2 16c0 10.5 14 26 14 26s14-15.5 14-26C30 8.3 23.7 2 16 2z"/>
+                        <circle cx="16" cy="16" r="5" fill="white"/>
+                    </svg>
+                `;
+                return {
+                    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+                    scaledSize: new google.maps.Size(32, 44),
+                    anchor: new google.maps.Point(16, 44),
+                };
+            }
+
             window.initMap = async function initMap() {
                 const defaultCenter = { lat: 25.033, lng: 121.565 };
                 map = new google.maps.Map(document.getElementById("map"), {
@@ -434,7 +505,8 @@ def dashboard():
                         const marker = new google.maps.Marker({
                             position,
                             map,
-                            title: event.event_id || event.device_id || "sound event",
+                            icon: buildMarkerIcon(event.device_id),
+                            title: `${event.device_id || "unknown_device"} - ${event.event_id || "unknown_event"}`,
                         });
 
                         marker.addListener("click", () => {
