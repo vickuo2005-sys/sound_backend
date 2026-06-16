@@ -6,7 +6,17 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -17,6 +27,33 @@ app = FastAPI()
 
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = "test-token-123"
+
+
+class DashboardConnectionManager:
+    def __init__(self) -> None:
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket) -> None:
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket) -> None:
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict) -> None:
+        disconnected = []
+        for websocket in list(self.active_connections):
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.append(websocket)
+
+        for websocket in disconnected:
+            self.disconnect(websocket)
+
+
+dashboard_manager = DashboardConnectionManager()
 
 
 class SoundEvent(BaseModel):
@@ -158,6 +195,55 @@ def init_sqlite_db() -> None:
             table_name="events",
             column_name="audio_path",
             column_definition="TEXT",
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_status (
+                device_id TEXT PRIMARY KEY,
+                latitude REAL,
+                longitude REAL,
+                last_seen TEXT,
+                last_event_id TEXT,
+                last_event_at TEXT,
+                status TEXT DEFAULT 'online'
+            )
+            """
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="latitude",
+            column_definition="REAL",
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="longitude",
+            column_definition="REAL",
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="last_seen",
+            column_definition="TEXT",
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="last_event_id",
+            column_definition="TEXT",
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="last_event_at",
+            column_definition="TEXT",
+        )
+        add_sqlite_column_if_missing(
+            connection=connection,
+            table_name="device_status",
+            column_name="status",
+            column_definition="TEXT DEFAULT 'online'",
         )
         connection.commit()
 
@@ -452,8 +538,39 @@ def upsert_device_location(
     device_id: str,
     latitude: float,
     longitude: float,
-) -> None:
-    require_postgres()
+) -> dict:
+    if not use_postgres():
+        last_seen = current_time_iso()
+        with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO device_status (
+                    device_id,
+                    latitude,
+                    longitude,
+                    last_seen,
+                    status
+                )
+                VALUES (?, ?, ?, ?, 'online')
+                ON CONFLICT(device_id) DO UPDATE SET
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
+                    last_seen = excluded.last_seen,
+                    status = 'online'
+                """,
+                (device_id, latitude, longitude, last_seen),
+            )
+            connection.commit()
+            row = connection.execute(
+                f"""
+                SELECT {", ".join(DEVICE_STATUS_COLUMNS)}
+                FROM device_status
+                WHERE device_id = ?
+                """,
+                (device_id,),
+            ).fetchone()
+            return dict(row)
+
     connection = get_postgres_connection()
     try:
         with connection:
@@ -473,19 +590,69 @@ def upsert_device_location(
                         longitude = EXCLUDED.longitude,
                         last_seen = now(),
                         status = 'online'
+                    RETURNING
+                        device_id,
+                        latitude,
+                        longitude,
+                        last_seen,
+                        last_event_id,
+                        last_event_at,
+                        status
                     """,
                     (device_id, latitude, longitude),
                 )
+                row = cursor.fetchone()
+                return serialize_db_row(dict(row))
     finally:
         connection.close()
 
 
-def upsert_device_event_status(event: SoundEvent) -> None:
-    if not use_postgres():
-        return
-
+def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     if not event.device_id or event.latitude is None or event.longitude is None:
-        return
+        return None
+
+    if not use_postgres():
+        now = current_time_iso()
+        with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO device_status (
+                    device_id,
+                    latitude,
+                    longitude,
+                    last_seen,
+                    last_event_id,
+                    last_event_at,
+                    status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 'event')
+                ON CONFLICT(device_id) DO UPDATE SET
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
+                    last_seen = excluded.last_seen,
+                    last_event_id = excluded.last_event_id,
+                    last_event_at = excluded.last_event_at,
+                    status = 'event'
+                """,
+                (
+                    event.device_id,
+                    event.latitude,
+                    event.longitude,
+                    now,
+                    event.event_id,
+                    now,
+                ),
+            )
+            connection.commit()
+            row = connection.execute(
+                f"""
+                SELECT {", ".join(DEVICE_STATUS_COLUMNS)}
+                FROM device_status
+                WHERE device_id = ?
+                """,
+                (event.device_id,),
+            ).fetchone()
+            return dict(row)
 
     connection = get_postgres_connection()
     try:
@@ -510,6 +677,14 @@ def upsert_device_event_status(event: SoundEvent) -> None:
                         last_event_id = EXCLUDED.last_event_id,
                         last_event_at = now(),
                         status = 'event'
+                    RETURNING
+                        device_id,
+                        latitude,
+                        longitude,
+                        last_seen,
+                        last_event_id,
+                        last_event_at,
+                        status
                     """,
                     (
                         event.device_id,
@@ -518,13 +693,25 @@ def upsert_device_event_status(event: SoundEvent) -> None:
                         event.event_id,
                     ),
                 )
+                row = cursor.fetchone()
+                return serialize_db_row(dict(row))
     finally:
         connection.close()
 
 
 def list_device_status_rows() -> list[dict]:
-    require_postgres()
     columns = ", ".join(DEVICE_STATUS_COLUMNS)
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM device_status
+                ORDER BY device_id ASC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     connection = get_postgres_connection()
     try:
         with connection:
@@ -614,14 +801,28 @@ def health():
 
 
 @app.post("/events")
-def create_event(
+async def create_event(
     event: SoundEvent,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
     verify_upload_token(upload_token)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
-    upsert_device_event_status(event)
+    device_row = upsert_device_event_status(event)
+
+    if device_row:
+        await dashboard_manager.broadcast(
+            {
+                "type": "event_trigger",
+                "device_id": event.device_id,
+                "event_id": event.event_id,
+                "latitude": event.latitude,
+                "longitude": event.longitude,
+                "last_event_at": device_row.get("last_event_at"),
+                "status": "event",
+                "rms_peak": event.rms_peak,
+            }
+        )
 
     return {
         "status": "success",
@@ -643,11 +844,22 @@ def list_events():
 
 
 @app.post("/location-update")
-def update_location(location: LocationUpdate):
-    upsert_device_location(
+async def update_location(location: LocationUpdate):
+    device_row = upsert_device_location(
         device_id=location.device_id,
         latitude=location.latitude,
         longitude=location.longitude,
+    )
+
+    await dashboard_manager.broadcast(
+        {
+            "type": "location_update",
+            "device_id": device_row.get("device_id"),
+            "latitude": device_row.get("latitude"),
+            "longitude": device_row.get("longitude"),
+            "last_seen": device_row.get("last_seen"),
+            "status": device_row.get("status"),
+        }
     )
 
     return {
@@ -667,6 +879,16 @@ def device_status():
         "count": len(devices),
         "devices": devices,
     }
+
+
+@app.websocket("/ws/dashboard")
+async def dashboard_websocket(websocket: WebSocket):
+    await dashboard_manager.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        dashboard_manager.disconnect(websocket)
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -1026,7 +1248,13 @@ def dashboard():
                     node_A03: "A03",
                     node_A04: "A04",
                 };
-                return labelMap[deviceId] || "\u5176\u4ed6";
+                if (labelMap[deviceId]) {
+                    return labelMap[deviceId];
+                }
+                if (!deviceId) {
+                    return "?";
+                }
+                return String(deviceId).replace(/^node_/, "").slice(0, 8);
             }
 
             function isRecentEvent(lastEventAt) {
@@ -1116,44 +1344,42 @@ def dashboard():
                 };
             }
 
-            async function refreshDeviceMarkers() {
+            function upsertDeviceMarker(device) {
+                if (
+                    !device.device_id ||
+                    !hasCoordinate(device.latitude) ||
+                    !hasCoordinate(device.longitude)
+                ) {
+                    return false;
+                }
+
+                if (deviceMarkers.has(device.device_id)) {
+                    const existingDevice = deviceMarkers.get(device.device_id).device || {};
+                    const mergedDevice = { ...existingDevice, ...device };
+                    deviceMarkers.get(device.device_id).update(mergedDevice);
+                } else {
+                    const marker = new DeviceMarker(device);
+                    marker.setMap(map);
+                    deviceMarkers.set(device.device_id, marker);
+                }
+
+                return true;
+            }
+
+            async function loadInitialDeviceMarkers() {
                 try {
                     const devices = await loadDeviceStatus();
                     const bounds = new google.maps.LatLngBounds();
-                    const seenDeviceIds = new Set();
                     let markerCount = 0;
 
                     devices.forEach((device) => {
-                        if (
-                            !device.device_id ||
-                            !hasCoordinate(device.latitude) ||
-                            !hasCoordinate(device.longitude)
-                        ) {
-                            return;
-                        }
-
-                        seenDeviceIds.add(device.device_id);
-
-                        if (deviceMarkers.has(device.device_id)) {
-                            deviceMarkers.get(device.device_id).update(device);
-                        } else {
-                            const marker = new DeviceMarker(device);
-                            marker.setMap(map);
-                            deviceMarkers.set(device.device_id, marker);
-                        }
+                        if (!upsertDeviceMarker(device)) return;
 
                         bounds.extend({
                             lat: Number(device.latitude),
                             lng: Number(device.longitude),
                         });
                         markerCount += 1;
-                    });
-
-                    deviceMarkers.forEach((marker, deviceId) => {
-                        if (!seenDeviceIds.has(deviceId)) {
-                            marker.setMap(null);
-                            deviceMarkers.delete(deviceId);
-                        }
                     });
 
                     if (markerCount === 0) {
@@ -1180,6 +1406,65 @@ def dashboard():
                 }
             }
 
+            function handleDashboardMessage(message) {
+                if (message.type === "location_update") {
+                    upsertDeviceMarker({
+                        device_id: message.device_id,
+                        latitude: message.latitude,
+                        longitude: message.longitude,
+                        last_seen: message.last_seen,
+                        status: message.status,
+                    });
+                    hideStatusMessage();
+                    return;
+                }
+
+                if (message.type === "event_trigger") {
+                    upsertDeviceMarker({
+                        device_id: message.device_id,
+                        latitude: message.latitude,
+                        longitude: message.longitude,
+                        last_event_id: message.event_id,
+                        last_event_at: message.last_event_at,
+                        status: message.status,
+                    });
+                    hideStatusMessage();
+                }
+            }
+
+            function connectDashboardWebSocket() {
+                const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+                const wsUrl = `${protocol}//${window.location.host}/ws/dashboard`;
+                const socket = new WebSocket(wsUrl);
+
+                socket.addEventListener("open", () => {
+                    hideStatusMessage();
+                });
+
+                socket.addEventListener("message", (event) => {
+                    try {
+                        handleDashboardMessage(JSON.parse(event.data));
+                    } catch (error) {
+                        console.error(error);
+                    }
+                });
+
+                socket.addEventListener("close", () => {
+                    showStatusMessage("\u5373\u6642\u9023\u7dda\u4e2d\u65b7\uff0c\u6b63\u5728\u91cd\u65b0\u9023\u7dda");
+                    window.setTimeout(connectDashboardWebSocket, 3000);
+                });
+
+                socket.addEventListener("error", () => {
+                    socket.close();
+                });
+            }
+
+            function refreshMarkerAnimations() {
+                deviceMarkers.forEach((marker) => {
+                    marker.render();
+                });
+            }
+
             window.initMap = function initMap() {
                 const defaultCenter = { lat: 25.033, lng: 121.565 };
                 map = new google.maps.Map(document.getElementById("map"), {
@@ -1191,8 +1476,9 @@ def dashboard():
                 infoWindow = new google.maps.InfoWindow();
                 DeviceMarker = createDeviceMarkerClass();
 
-                refreshDeviceMarkers();
-                window.setInterval(refreshDeviceMarkers, 3000);
+                loadInitialDeviceMarkers();
+                connectDashboardWebSocket();
+                window.setInterval(refreshMarkerAnimations, 1000);
             };
         </script>
         <script async defer src="__MAPS_SCRIPT_URL__"></script>
