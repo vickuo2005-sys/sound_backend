@@ -34,6 +34,12 @@ class SoundEvent(BaseModel):
     note: Optional[str] = None
 
 
+class LocationUpdate(BaseModel):
+    device_id: str
+    latitude: float
+    longitude: float
+
+
 def current_time_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -59,6 +65,16 @@ EVENT_COLUMNS = [
     "created_at",
 ]
 
+DEVICE_STATUS_COLUMNS = [
+    "device_id",
+    "latitude",
+    "longitude",
+    "last_seen",
+    "last_event_id",
+    "last_event_at",
+    "status",
+]
+
 
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL", "").strip()
@@ -74,6 +90,14 @@ def get_database_url() -> str:
 
 def use_postgres() -> bool:
     return bool(get_database_url())
+
+
+def require_postgres() -> None:
+    if not use_postgres():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DATABASE_URL is not configured",
+        )
 
 
 def get_postgres_connection():
@@ -197,6 +221,37 @@ def init_postgres_db() -> None:
                     CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_key
                     ON events (event_id)
                     """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS device_status (
+                        device_id TEXT PRIMARY KEY,
+                        latitude DOUBLE PRECISION,
+                        longitude DOUBLE PRECISION,
+                        last_seen TIMESTAMPTZ DEFAULT now(),
+                        last_event_id TEXT,
+                        last_event_at TIMESTAMPTZ,
+                        status TEXT DEFAULT 'online'
+                    )
+                    """
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION"
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION"
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ DEFAULT now()"
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_event_id TEXT"
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_event_at TIMESTAMPTZ"
+                )
+                cursor.execute(
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'online'"
                 )
     finally:
         connection.close()
@@ -383,6 +438,109 @@ def list_recent_events() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def serialize_db_row(row: dict) -> dict:
+    serialized = {}
+    for key, value in row.items():
+        if hasattr(value, "isoformat"):
+            serialized[key] = value.isoformat()
+        else:
+            serialized[key] = value
+    return serialized
+
+
+def upsert_device_location(
+    device_id: str,
+    latitude: float,
+    longitude: float,
+) -> None:
+    require_postgres()
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO device_status (
+                        device_id,
+                        latitude,
+                        longitude,
+                        last_seen,
+                        status
+                    )
+                    VALUES (%s, %s, %s, now(), 'online')
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        last_seen = now(),
+                        status = 'online'
+                    """,
+                    (device_id, latitude, longitude),
+                )
+    finally:
+        connection.close()
+
+
+def upsert_device_event_status(event: SoundEvent) -> None:
+    if not use_postgres():
+        return
+
+    if not event.device_id or event.latitude is None or event.longitude is None:
+        return
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO device_status (
+                        device_id,
+                        latitude,
+                        longitude,
+                        last_seen,
+                        last_event_id,
+                        last_event_at,
+                        status
+                    )
+                    VALUES (%s, %s, %s, now(), %s, now(), 'event')
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        last_seen = now(),
+                        last_event_id = EXCLUDED.last_event_id,
+                        last_event_at = now(),
+                        status = 'event'
+                    """,
+                    (
+                        event.device_id,
+                        event.latitude,
+                        event.longitude,
+                        event.event_id,
+                    ),
+                )
+    finally:
+        connection.close()
+
+
+def list_device_status_rows() -> list[dict]:
+    require_postgres()
+    columns = ", ".join(DEVICE_STATUS_COLUMNS)
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_status
+                    ORDER BY device_id ASC
+                    """
+                )
+                return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+
 def verify_upload_token(upload_token: Optional[str]) -> None:
     expected_token = os.getenv("UPLOAD_TOKEN", DEFAULT_UPLOAD_TOKEN)
     if upload_token != expected_token:
@@ -463,6 +621,7 @@ def create_event(
     verify_upload_token(upload_token)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
+    upsert_device_event_status(event)
 
     return {
         "status": "success",
@@ -483,6 +642,33 @@ def list_events():
     }
 
 
+@app.post("/location-update")
+def update_location(location: LocationUpdate):
+    upsert_device_location(
+        device_id=location.device_id,
+        latitude=location.latitude,
+        longitude=location.longitude,
+    )
+
+    return {
+        "status": "success",
+        "device_id": location.device_id,
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+    }
+
+
+@app.get("/device-status")
+def device_status():
+    devices = list_device_status_rows()
+
+    return {
+        "status": "success",
+        "count": len(devices),
+        "devices": devices,
+    }
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
     maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
@@ -495,7 +681,7 @@ def dashboard():
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</title>
+                <title>\u624b\u6a5f\u5373\u6642\u5b9a\u4f4d Dashboard</title>
                 <style>
                     body {
                         margin: 0;
@@ -523,7 +709,7 @@ def dashboard():
                 </style>
             </head>
             <body>
-                <header>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</header>
+                <header>\u624b\u6a5f\u5373\u6642\u5b9a\u4f4d Dashboard</header>
                 <main>
                     <div class="message">
                         GOOGLE_MAPS_API_KEY \u5c1a\u672a\u8a2d\u5b9a\uff0c\u8acb\u5148\u5728 Render Environment Variables \u65b0\u589e\u9019\u500b\u74b0\u5883\u8b8a\u6578\u3002
@@ -546,7 +732,7 @@ def dashboard():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</title>
+        <title>\u624b\u6a5f\u5373\u6642\u5b9a\u4f4d Dashboard</title>
         <style>
             html,
             body {
@@ -573,7 +759,7 @@ def dashboard():
             #legend {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 12px;
+                gap: 14px;
                 padding: 10px 20px;
                 background: #ffffff;
                 border-bottom: 1px solid #dfe3e8;
@@ -587,11 +773,12 @@ def dashboard():
                 white-space: nowrap;
             }
 
-            .legend-dot {
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                border: 1px solid rgba(0, 0, 0, 0.25);
+            .legend-shape {
+                display: inline-block;
+                min-width: 18px;
+                text-align: center;
+                font-size: 18px;
+                line-height: 1;
             }
 
             #status-message {
@@ -618,30 +805,141 @@ def dashboard():
                 display: inline-block;
                 min-width: 112px;
             }
+
+            .device-marker {
+                position: absolute;
+                transform: translate(-50%, -50%);
+                cursor: pointer;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                pointer-events: auto;
+                user-select: none;
+            }
+
+            .marker-visual {
+                width: 38px;
+                height: 38px;
+                background: #ffffff;
+                border: 3px solid #202124;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-sizing: border-box;
+            }
+
+            .marker-label {
+                color: #202124;
+                font-size: 11px;
+                font-weight: 800;
+                line-height: 1;
+                text-align: center;
+            }
+
+            .shape-circle .marker-visual {
+                border-radius: 50%;
+            }
+
+            .shape-square .marker-visual {
+                border-radius: 4px;
+            }
+
+            .shape-triangle .marker-visual {
+                clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+                padding-top: 10px;
+            }
+
+            .shape-diamond .marker-visual {
+                clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+            }
+
+            .shape-diamond .marker-label {
+                transform: rotate(-45deg);
+            }
+
+            .shape-diamond .marker-visual {
+                transform: rotate(45deg);
+            }
+
+            .shape-hexagon .marker-visual {
+                clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+            }
+
+            .recent-event::before {
+                content: "";
+                position: absolute;
+                top: -9px;
+                left: 50%;
+                width: 54px;
+                height: 54px;
+                border: 3px solid #202124;
+                border-radius: 50%;
+                transform: translateX(-50%);
+                animation: pulse-ring 1.25s ease-out infinite;
+                z-index: -1;
+            }
+
+            .recent-event .marker-visual {
+                animation: marker-pop 0.7s ease-in-out infinite alternate;
+            }
+
+            @keyframes pulse-ring {
+                0% {
+                    opacity: 0.85;
+                    transform: translateX(-50%) scale(0.55);
+                }
+                100% {
+                    opacity: 0;
+                    transform: translateX(-50%) scale(1.35);
+                }
+            }
+
+            @keyframes marker-pop {
+                0% {
+                    transform: scale(1);
+                }
+                100% {
+                    transform: scale(1.16);
+                }
+            }
+
+            .shape-diamond.recent-event .marker-visual {
+                animation: marker-pop-diamond 0.7s ease-in-out infinite alternate;
+            }
+
+            @keyframes marker-pop-diamond {
+                0% {
+                    transform: rotate(45deg) scale(1);
+                }
+                100% {
+                    transform: rotate(45deg) scale(1.16);
+                }
+            }
         </style>
     </head>
     <body>
-        <header>\u8072\u97f3\u4e8b\u4ef6\u5730\u5716 Dashboard</header>
+        <header>\u624b\u6a5f\u5373\u6642\u5b9a\u4f4d Dashboard</header>
         <div id="legend">
             <span class="legend-item">
-                <span class="legend-dot" style="background: #d93025;"></span>
-                \u7d05\u8272\uff1anode_A01
+                <span class="legend-shape">\u25cb</span>
+                node_A01
             </span>
             <span class="legend-item">
-                <span class="legend-dot" style="background: #1a73e8;"></span>
-                \u85cd\u8272\uff1anode_A02
+                <span class="legend-shape">\u25a1</span>
+                node_A02
             </span>
             <span class="legend-item">
-                <span class="legend-dot" style="background: #188038;"></span>
-                \u7da0\u8272\uff1anode_A03
+                <span class="legend-shape">\u25b3</span>
+                node_A03
             </span>
             <span class="legend-item">
-                <span class="legend-dot" style="background: #f29900;"></span>
-                \u6a58\u8272\uff1anode_A04
+                <span class="legend-shape">\u25c7</span>
+                node_A04
             </span>
             <span class="legend-item">
-                <span class="legend-dot" style="background: #80868b;"></span>
-                \u7070\u8272\uff1a\u5176\u4ed6
+                <span class="legend-shape">\u2b21</span>
+                \u5176\u4ed6
             </span>
         </div>
         <div id="status-message"></div>
@@ -650,11 +948,20 @@ def dashboard():
         <script>
             let map;
             let infoWindow;
+            let DeviceMarker;
+            let hasFitInitialBounds = false;
+            const deviceMarkers = new Map();
 
             function showStatusMessage(message) {
                 const element = document.getElementById("status-message");
                 element.textContent = message;
                 element.style.display = "block";
+            }
+
+            function hideStatusMessage() {
+                const element = document.getElementById("status-message");
+                element.textContent = "";
+                element.style.display = "none";
             }
 
             function formatValue(value) {
@@ -670,19 +977,16 @@ def dashboard():
                 }[char]));
             }
 
-            function buildInfoContent(event) {
-                const audioPathValue = event.audio_path || event.local_audio_path || "";
+            function buildInfoContent(device) {
                 return `
                     <div class="info-window">
-                        <div><strong>event_id</strong>${formatValue(event.event_id)}</div>
-                        <div><strong>device_id</strong>${formatValue(event.device_id)}</div>
-                        <div><strong>timestamp</strong>${formatValue(event.timestamp)}</div>
-                        <div><strong>latitude</strong>${formatValue(event.latitude)}</div>
-                        <div><strong>longitude</strong>${formatValue(event.longitude)}</div>
-                        <div><strong>rms_peak</strong>${formatValue(event.rms_peak)}</div>
-                        <div><strong>label</strong>${formatValue(event.label)}</div>
-                        <div><strong>audio_file_name</strong>${formatValue(event.audio_file_name)}</div>
-                        <div><strong>audio_path</strong>${formatValue(audioPathValue)}</div>
+                        <div><strong>device_id</strong>${formatValue(device.device_id)}</div>
+                        <div><strong>latitude</strong>${formatValue(device.latitude)}</div>
+                        <div><strong>longitude</strong>${formatValue(device.longitude)}</div>
+                        <div><strong>last_seen</strong>${formatValue(device.last_seen)}</div>
+                        <div><strong>last_event_id</strong>${formatValue(device.last_event_id)}</div>
+                        <div><strong>last_event_at</strong>${formatValue(device.last_event_at)}</div>
+                        <div><strong>status</strong>${formatValue(device.status)}</div>
                     </div>
                 `;
             }
@@ -696,41 +1000,187 @@ def dashboard():
                 );
             }
 
-            async function loadEvents() {
-                const response = await fetch("/events");
+            async function loadDeviceStatus() {
+                const response = await fetch("/device-status");
                 if (!response.ok) {
-                    throw new Error("Failed to load events");
+                    throw new Error("Failed to load device status");
                 }
                 const data = await response.json();
-                return data.events || [];
+                return data.devices || [];
             }
 
-            function getDeviceMarkerColor(deviceId) {
-                const colorMap = {
-                    node_A01: "#d93025",
-                    node_A02: "#1a73e8",
-                    node_A03: "#188038",
-                    node_A04: "#f29900",
+            function getDeviceShape(deviceId) {
+                const shapeMap = {
+                    node_A01: "circle",
+                    node_A02: "square",
+                    node_A03: "triangle",
+                    node_A04: "diamond",
                 };
-                return colorMap[deviceId] || "#80868b";
+                return shapeMap[deviceId] || "hexagon";
             }
 
-            function buildMarkerIcon(deviceId) {
-                const color = getDeviceMarkerColor(deviceId);
-                const svg = `
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="44" viewBox="0 0 32 44">
-                        <path fill="${color}" stroke="white" stroke-width="2" d="M16 2C8.3 2 2 8.3 2 16c0 10.5 14 26 14 26s14-15.5 14-26C30 8.3 23.7 2 16 2z"/>
-                        <circle cx="16" cy="16" r="5" fill="white"/>
-                    </svg>
-                `;
-                return {
-                    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
-                    scaledSize: new google.maps.Size(32, 44),
-                    anchor: new google.maps.Point(16, 44),
+            function getDeviceLabel(deviceId) {
+                const labelMap = {
+                    node_A01: "A01",
+                    node_A02: "A02",
+                    node_A03: "A03",
+                    node_A04: "A04",
+                };
+                return labelMap[deviceId] || "\u5176\u4ed6";
+            }
+
+            function isRecentEvent(lastEventAt) {
+                if (!lastEventAt) {
+                    return false;
+                }
+                const eventTime = new Date(lastEventAt).getTime();
+                if (!Number.isFinite(eventTime)) {
+                    return false;
+                }
+                return Date.now() - eventTime <= 15000;
+            }
+
+            function createDeviceMarkerClass() {
+                return class extends google.maps.OverlayView {
+                    constructor(device) {
+                        super();
+                        this.device = device;
+                        this.position = new google.maps.LatLng(
+                            Number(device.latitude),
+                            Number(device.longitude)
+                        );
+                        this.div = null;
+                    }
+
+                    onAdd() {
+                        this.div = document.createElement("div");
+                        this.div.addEventListener("click", () => {
+                            infoWindow.setContent(buildInfoContent(this.device));
+                            infoWindow.setPosition(this.position);
+                            infoWindow.open(map);
+                        });
+                        this.render();
+                        this.getPanes().overlayMouseTarget.appendChild(this.div);
+                    }
+
+                    draw() {
+                        if (!this.div) {
+                            return;
+                        }
+
+                        const point = this.getProjection().fromLatLngToDivPixel(this.position);
+                        if (!point) {
+                            return;
+                        }
+
+                        this.div.style.left = `${point.x}px`;
+                        this.div.style.top = `${point.y}px`;
+                    }
+
+                    onRemove() {
+                        if (this.div?.parentNode) {
+                            this.div.parentNode.removeChild(this.div);
+                        }
+                        this.div = null;
+                    }
+
+                    update(device) {
+                        this.device = device;
+                        this.position = new google.maps.LatLng(
+                            Number(device.latitude),
+                            Number(device.longitude)
+                        );
+                        this.render();
+                        this.draw();
+                    }
+
+                    render() {
+                        if (!this.div) {
+                            return;
+                        }
+
+                        const shape = getDeviceShape(this.device.device_id);
+                        const label = getDeviceLabel(this.device.device_id);
+                        const recentClass = isRecentEvent(this.device.last_event_at)
+                            ? "recent-event"
+                            : "";
+
+                        this.div.className = `device-marker shape-${shape} ${recentClass}`;
+                        this.div.title = this.device.device_id || "unknown_device";
+                        this.div.innerHTML = `
+                            <div class="marker-visual">
+                                <span class="marker-label">${formatValue(label)}</span>
+                            </div>
+                        `;
+                    }
                 };
             }
 
-            window.initMap = async function initMap() {
+            async function refreshDeviceMarkers() {
+                try {
+                    const devices = await loadDeviceStatus();
+                    const bounds = new google.maps.LatLngBounds();
+                    const seenDeviceIds = new Set();
+                    let markerCount = 0;
+
+                    devices.forEach((device) => {
+                        if (
+                            !device.device_id ||
+                            !hasCoordinate(device.latitude) ||
+                            !hasCoordinate(device.longitude)
+                        ) {
+                            return;
+                        }
+
+                        seenDeviceIds.add(device.device_id);
+
+                        if (deviceMarkers.has(device.device_id)) {
+                            deviceMarkers.get(device.device_id).update(device);
+                        } else {
+                            const marker = new DeviceMarker(device);
+                            marker.setMap(map);
+                            deviceMarkers.set(device.device_id, marker);
+                        }
+
+                        bounds.extend({
+                            lat: Number(device.latitude),
+                            lng: Number(device.longitude),
+                        });
+                        markerCount += 1;
+                    });
+
+                    deviceMarkers.forEach((marker, deviceId) => {
+                        if (!seenDeviceIds.has(deviceId)) {
+                            marker.setMap(null);
+                            deviceMarkers.delete(deviceId);
+                        }
+                    });
+
+                    if (markerCount === 0) {
+                        showStatusMessage(
+                            "\u76ee\u524d\u6c92\u6709\u53ef\u986f\u793a\u65bc\u5730\u5716\u4e0a\u7684\u624b\u6a5f\u4f4d\u7f6e"
+                        );
+                        return;
+                    }
+
+                    hideStatusMessage();
+
+                    if (!hasFitInitialBounds) {
+                        if (markerCount === 1) {
+                            map.setCenter(bounds.getCenter());
+                            map.setZoom(16);
+                        } else {
+                            map.fitBounds(bounds);
+                        }
+                        hasFitInitialBounds = true;
+                    }
+                } catch (error) {
+                    console.error(error);
+                    showStatusMessage("\u88dd\u7f6e\u4f4d\u7f6e\u8cc7\u6599\u8f09\u5165\u5931\u6557");
+                }
+            }
+
+            window.initMap = function initMap() {
                 const defaultCenter = { lat: 25.033, lng: 121.565 };
                 map = new google.maps.Map(document.getElementById("map"), {
                     center: defaultCenter,
@@ -739,54 +1189,10 @@ def dashboard():
                     streetViewControl: false,
                 });
                 infoWindow = new google.maps.InfoWindow();
+                DeviceMarker = createDeviceMarkerClass();
 
-                try {
-                    const events = await loadEvents();
-                    const bounds = new google.maps.LatLngBounds();
-                    let markerCount = 0;
-
-                    events.forEach((event) => {
-                        if (
-                            !hasCoordinate(event.latitude) ||
-                            !hasCoordinate(event.longitude)
-                        ) {
-                            return;
-                        }
-
-                        const position = {
-                            lat: Number(event.latitude),
-                            lng: Number(event.longitude),
-                        };
-                        const marker = new google.maps.Marker({
-                            position,
-                            map,
-                            icon: buildMarkerIcon(event.device_id),
-                            title: `${event.device_id || "unknown_device"} - ${event.event_id || "unknown_event"}`,
-                        });
-
-                        marker.addListener("click", () => {
-                            infoWindow.setContent(buildInfoContent(event));
-                            infoWindow.open({ anchor: marker, map });
-                        });
-
-                        bounds.extend(position);
-                        markerCount += 1;
-                    });
-
-                    if (markerCount === 0) {
-                        showStatusMessage(
-                            "\u76ee\u524d\u6c92\u6709\u53ef\u986f\u793a\u65bc\u5730\u5716\u4e0a\u7684\u4e8b\u4ef6\u8cc7\u6599"
-                        );
-                    } else if (markerCount === 1) {
-                        map.setCenter(bounds.getCenter());
-                        map.setZoom(15);
-                    } else {
-                        map.fitBounds(bounds);
-                    }
-                } catch (error) {
-                    console.error(error);
-                    showStatusMessage("\u4e8b\u4ef6\u8cc7\u6599\u8f09\u5165\u5931\u6557");
-                }
+                refreshDeviceMarkers();
+                window.setInterval(refreshDeviceMarkers, 3000);
             };
         </script>
         <script async defer src="__MAPS_SCRIPT_URL__"></script>
