@@ -1242,7 +1242,7 @@ def dashboard():
             let DeviceMarker;
             let hasFitInitialBounds = false;
             const deviceMarkers = new Map();
-            const ACTIVE_ALERT_WINDOW_MS = 3000;
+            const ACTIVE_ALERT_WINDOW_MS = 7000;
 
             function showStatusMessage(message) {
                 const element = document.getElementById("status-message");
@@ -1338,9 +1338,18 @@ def dashboard():
                 return Date.now() - eventTime <= ACTIVE_ALERT_WINDOW_MS;
             }
 
+            function alertUntilFromLastEvent(lastEventAt) {
+                if (!isRecentEvent(lastEventAt)) {
+                    return 0;
+                }
+                const eventTime = new Date(lastEventAt).getTime();
+                const remainingMs = ACTIVE_ALERT_WINDOW_MS - (Date.now() - eventTime);
+                return remainingMs > 0 ? Date.now() + remainingMs : 0;
+            }
+
             function createDeviceMarkerClass() {
                 return class extends google.maps.OverlayView {
-                    constructor(device) {
+                    constructor(device, options = {}) {
                         super();
                         this.device = device;
                         this.position = new google.maps.LatLng(
@@ -1348,6 +1357,12 @@ def dashboard():
                             Number(device.longitude)
                         );
                         this.div = null;
+                        this.alertUntil = options.triggerAlert
+                            ? Date.now() + ACTIVE_ALERT_WINDOW_MS
+                            : options.useLastEventAlert
+                                ? alertUntilFromLastEvent(device.last_event_at)
+                                : 0;
+                        this.lastRenderKey = "";
                     }
 
                     onAdd() {
@@ -1382,12 +1397,15 @@ def dashboard():
                         this.div = null;
                     }
 
-                    update(device) {
+                    update(device, options = {}) {
                         this.device = device;
                         this.position = new google.maps.LatLng(
                             Number(device.latitude),
                             Number(device.longitude)
                         );
+                        if (options.triggerAlert) {
+                            this.alertUntil = Date.now() + ACTIVE_ALERT_WINDOW_MS;
+                        }
                         this.render();
                         this.draw();
                     }
@@ -1399,22 +1417,24 @@ def dashboard():
 
                         const shape = getDeviceShape(this.device.device_id);
                         const label = getDeviceLabel(this.device.device_id);
-                        const recentClass = isRecentEvent(this.device.last_event_at)
-                            ? "recent-event"
-                            : "";
+                        const recentClass = Date.now() <= this.alertUntil ? "recent-event" : "";
+                        const renderKey = `${shape}|${label}|${recentClass}`;
 
-                        this.div.className = `device-marker shape-${shape} ${recentClass}`;
                         this.div.title = this.device.device_id || "unknown_device";
-                        this.div.innerHTML = `
-                            <div class="marker-visual">
-                                <span class="marker-label">${formatValue(label)}</span>
-                            </div>
-                        `;
+                        if (renderKey !== this.lastRenderKey) {
+                            this.div.className = `device-marker shape-${shape} ${recentClass}`;
+                            this.div.innerHTML = `
+                                <div class="marker-visual">
+                                    <span class="marker-label">${formatValue(label)}</span>
+                                </div>
+                            `;
+                            this.lastRenderKey = renderKey;
+                        }
                     }
                 };
             }
 
-            function upsertDeviceMarker(device) {
+            function upsertDeviceMarker(device, options = {}) {
                 if (
                     !device.device_id ||
                     !hasCoordinate(device.latitude) ||
@@ -1426,9 +1446,9 @@ def dashboard():
                 if (deviceMarkers.has(device.device_id)) {
                     const existingDevice = deviceMarkers.get(device.device_id).device || {};
                     const mergedDevice = { ...existingDevice, ...device };
-                    deviceMarkers.get(device.device_id).update(mergedDevice);
+                    deviceMarkers.get(device.device_id).update(mergedDevice, options);
                 } else {
-                    const marker = new DeviceMarker(device);
+                    const marker = new DeviceMarker(device, options);
                     marker.setMap(map);
                     deviceMarkers.set(device.device_id, marker);
                 }
@@ -1443,7 +1463,7 @@ def dashboard():
                     let markerCount = 0;
 
                     devices.forEach((device) => {
-                        if (!upsertDeviceMarker(device)) return;
+                        if (!upsertDeviceMarker(device, { useLastEventAlert: true })) return;
 
                         bounds.extend({
                             lat: Number(device.latitude),
@@ -1499,7 +1519,7 @@ def dashboard():
                         last_event_id: message.event_id,
                         last_event_at: message.last_event_at,
                         status: message.status,
-                    });
+                    }, { triggerAlert: true });
                     hideStatusMessage();
                 }
             }
