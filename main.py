@@ -491,6 +491,36 @@ def save_event(event: SoundEvent, created_at: str) -> int:
     return upsert_event_sqlite(event, created_at)
 
 
+def update_event_audio_path(event_id: str, audio_path: str) -> None:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE events
+                        SET audio_path = %s
+                        WHERE event_id = %s
+                        """,
+                        (audio_path, event_id),
+                    )
+        finally:
+            connection.close()
+        return
+
+    with get_sqlite_connection() as connection:
+        connection.execute(
+            """
+            UPDATE events
+            SET audio_path = ?
+            WHERE event_id = ?
+            """,
+            (audio_path, event_id),
+        )
+        connection.commit()
+
+
 def list_recent_events() -> list[dict]:
     columns = ", ".join(EVENT_COLUMNS)
 
@@ -737,6 +767,12 @@ def verify_upload_token(upload_token: Optional[str]) -> None:
         )
 
 
+def is_alert_event_label(label: Optional[str]) -> bool:
+    if not label:
+        return False
+    return label.strip().lower() in {"aircraft", "drone"}
+
+
 def safe_path_part(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return cleaned.strip("._") or "unknown"
@@ -775,10 +811,38 @@ def get_gcs_bucket() -> storage.Bucket:
         ) from exc
 
 
-def build_audio_path(device_id: str, event_id: str) -> str:
+def audio_category_folder(
+    label: Optional[str] = None,
+    category: Optional[str] = None,
+) -> str:
+    normalized_category = (category or "").strip().lower()
+    normalized_label = (label or "").strip().lower()
+
+    if normalized_category in {"drone", "target"}:
+        return "drone"
+
+    if normalized_category in {"other", "non_target", "non-target"}:
+        return "other"
+
+    if normalized_label in {"aircraft", "drone"}:
+        return "drone"
+
+    return "other"
+
+
+def build_audio_path(
+    device_id: str,
+    event_id: str,
+    label: Optional[str] = None,
+    category: Optional[str] = None,
+) -> str:
+    category_folder = audio_category_folder(label=label, category=category)
     safe_device_id = safe_path_part(device_id)
     safe_event_id = safe_path_part(event_id)
-    return f"audio/{safe_device_id}/{current_date_yyyymmdd()}/{safe_event_id}.wav"
+    return (
+        f"audio/{category_folder}/"
+        f"{safe_device_id}/{current_date_yyyymmdd()}/{safe_event_id}.wav"
+    )
 
 
 init_db()
@@ -808,7 +872,10 @@ async def create_event(
     verify_upload_token(upload_token)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
-    device_row = upsert_device_event_status(event)
+    device_row = None
+
+    if is_alert_event_label(event.label):
+        device_row = upsert_device_event_status(event)
 
     if device_row:
         await dashboard_manager.broadcast(
@@ -858,6 +925,8 @@ async def update_location(location: LocationUpdate):
             "latitude": device_row.get("latitude"),
             "longitude": device_row.get("longitude"),
             "last_seen": device_row.get("last_seen"),
+            "last_event_id": device_row.get("last_event_id"),
+            "last_event_at": device_row.get("last_event_at"),
             "status": device_row.get("status"),
         }
     )
@@ -1173,6 +1242,7 @@ def dashboard():
             let DeviceMarker;
             let hasFitInitialBounds = false;
             const deviceMarkers = new Map();
+            const ACTIVE_ALERT_WINDOW_MS = 3000;
 
             function showStatusMessage(message) {
                 const element = document.getElementById("status-message");
@@ -1265,7 +1335,7 @@ def dashboard():
                 if (!Number.isFinite(eventTime)) {
                     return false;
                 }
-                return Date.now() - eventTime <= 15000;
+                return Date.now() - eventTime <= ACTIVE_ALERT_WINDOW_MS;
             }
 
             function createDeviceMarkerClass() {
@@ -1413,6 +1483,8 @@ def dashboard():
                         latitude: message.latitude,
                         longitude: message.longitude,
                         last_seen: message.last_seen,
+                        last_event_id: message.last_event_id,
+                        last_event_at: message.last_event_at,
                         status: message.status,
                     });
                     hideStatusMessage();
@@ -1493,6 +1565,8 @@ def dashboard():
 def upload_audio(
     event_id: str = Form(...),
     device_id: str = Form(...),
+    label: Optional[str] = Form(default=None),
+    category: Optional[str] = Form(default=None),
     file: UploadFile = File(...),
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
@@ -1504,7 +1578,13 @@ def upload_audio(
             detail="Only .wav files are allowed",
         )
 
-    audio_path = build_audio_path(device_id=device_id, event_id=event_id)
+    category_folder = audio_category_folder(label=label, category=category)
+    audio_path = build_audio_path(
+        device_id=device_id,
+        event_id=event_id,
+        label=label,
+        category=category,
+    )
     bucket = get_gcs_bucket()
     blob = bucket.blob(audio_path)
 
@@ -1514,6 +1594,7 @@ def upload_audio(
             file.file,
             content_type=file.content_type or "audio/wav",
         )
+        update_event_audio_path(event_id=event_id, audio_path=audio_path)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1527,5 +1608,7 @@ def upload_audio(
         "message": "Audio uploaded",
         "event_id": event_id,
         "device_id": device_id,
+        "label": label,
+        "category": category_folder,
         "audio_path": audio_path,
     }
