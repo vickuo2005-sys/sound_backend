@@ -1019,6 +1019,17 @@ def create_device_command(command: DeviceCommandCreate) -> dict:
     if not use_postgres():
         created_at = current_time_iso()
         with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                UPDATE device_commands
+                SET status = 'expired',
+                    executed_at = ?,
+                    ack_message = 'superseded by newer dashboard command'
+                WHERE device_id = ?
+                  AND status = 'pending'
+                """,
+                (created_at, command.device_id),
+            )
             cursor = connection.execute(
                 """
                 INSERT INTO device_commands (
@@ -1050,6 +1061,17 @@ def create_device_command(command: DeviceCommandCreate) -> dict:
     try:
         with connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE device_commands
+                    SET status = 'expired',
+                        executed_at = now(),
+                        ack_message = 'superseded by newer dashboard command'
+                    WHERE device_id = %s
+                      AND status = 'pending'
+                    """,
+                    (command.device_id,),
+                )
                 cursor.execute(
                     """
                     INSERT INTO device_commands (
