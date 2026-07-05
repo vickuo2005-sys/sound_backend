@@ -1811,6 +1811,8 @@ def event_audio_url(event_id: str):
             version="v4",
             expiration=timedelta(minutes=10),
             method="GET",
+            response_type="audio/wav",
+            response_disposition=f'inline; filename="{event_id}.wav"',
         )
     except Exception as exc:
         raise HTTPException(
