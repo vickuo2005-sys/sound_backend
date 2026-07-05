@@ -1856,7 +1856,7 @@ def dashboard():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>Sound Detector V2.1 Command Center</title>
+        <title>聲音偵測戰情室 V2.1</title>
         <style>
             :root {
                 --bg: #101419;
@@ -2095,53 +2095,53 @@ def dashboard():
     <body>
         <header>
             <div>
-                <h1>Sound Detector Command Center V2.1</h1>
-                <div class="subtitle">Remote node control, live alerts, event reports, and CSV export</div>
+                <h1>聲音偵測戰情室 V2.1</h1>
+                <div class="subtitle">遠端節點控制、即時警示、事件報表與 CSV 匯出</div>
             </div>
-            <a class="link-button" href="/events/export.csv">Export CSV</a>
+            <a class="link-button" href="/events/export.csv">匯出 CSV</a>
         </header>
 
         <section class="topbar">
-            <div class="stat"><div class="label">Online Nodes</div><div class="value" id="onlineCount">0</div></div>
-            <div class="stat"><div class="label">Active Alerts</div><div class="value" id="activeAlertCount">0</div></div>
-            <div class="stat"><div class="label">Today Drone Events</div><div class="value" id="todayDroneCount">0</div></div>
-            <div class="stat"><div class="label">Upload Status</div><div class="value" id="uploadSummary">-</div></div>
-            <div class="stat"><div class="label">System Status</div><div class="value" id="systemStatus">Loading</div></div>
+            <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
+            <div class="stat"><div class="label">警示中</div><div class="value" id="activeAlertCount">0</div></div>
+            <div class="stat"><div class="label">今日目標事件</div><div class="value" id="todayDroneCount">0</div></div>
+            <div class="stat"><div class="label">音檔上傳</div><div class="value" id="uploadSummary">-</div></div>
+            <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
         </section>
 
         <main class="layout">
             <section class="panel">
-                <h2>Node Control</h2>
+                <h2>節點控制</h2>
                 <div class="panel-body" id="nodeList"></div>
             </section>
 
             <section class="panel map-panel">
-                <h2>Live Map</h2>
+                <h2>即時地圖</h2>
                 <div id="map"></div>
-                <div class="map-note">Only aircraft / drone events trigger pulse alerts. GPS updates keep node position alive.</div>
+                <div class="map-note">只有 aircraft / drone 事件會觸發閃爍警示；GPS 更新只用來維持節點位置。</div>
             </section>
 
             <section class="panel">
-                <h2>Audio Playback</h2>
+                <h2>音檔播放</h2>
                 <div class="audio-player" id="audioPlayerBox">
-                    <div class="title" id="audioPlayerTitle">Select an event to play audio</div>
+                    <div class="title" id="audioPlayerTitle">請選擇事件播放音檔</div>
                     <audio id="eventAudioPlayer" controls></audio>
                 </div>
-                <h2>Live Alerts</h2>
+                <h2>即時警示</h2>
                 <div class="panel-body right-scroll" id="alertList"></div>
-                <h2>Reports</h2>
+                <h2>統計報表</h2>
                 <div class="panel-body right-scroll reports-scroll">
                     <div class="reports-grid" id="reportsGrid"></div>
                 </div>
             </section>
 
             <section class="panel timeline">
-                <h2>Event Timeline</h2>
+                <h2>事件時間軸</h2>
                 <div class="panel-body">
                     <div class="filters">
-                        <button onclick="setFilter('all')">All</button>
-                        <button onclick="setFilter('drone')">Drone only</button>
-                        <button onclick="setFilter('other')">Other only</button>
+                        <button onclick="setFilter('all')">全部</button>
+                        <button onclick="setFilter('drone')">只看目標聲</button>
+                        <button onclick="setFilter('other')">只看其他聲音</button>
                     </div>
                     <div id="timelineList"></div>
                 </div>
@@ -2173,6 +2173,33 @@ def dashboard():
 
             function isOnlineDevice(device) {
                 return device.status === 'online' || device.status === 'event';
+            }
+
+            function displayStatus(status) {
+                const value = String(status || '').toLowerCase();
+                if (value === 'online') return '在線';
+                if (value === 'event') return '警示中';
+                if (value === 'offline') return '離線';
+                return safe(status);
+            }
+
+            function displayMode(mode) {
+                const value = String(mode || '').toLowerCase();
+                if (value === 'detection') return '偵測模式';
+                if (value === 'collection') return '蒐集模式';
+                return safe(mode);
+            }
+
+            function displayEventLabel(label) {
+                const value = String(label || '').toLowerCase();
+                if (value === 'aircraft' || value === 'drone') return '目標聲';
+                if (value === 'non_aircraft' || value === 'other') return '非目標聲';
+                if (value === 'sound_event') return '聲音事件';
+                return safe(label);
+            }
+
+            function yesNo(value) {
+                return value ? '是' : '否';
             }
 
             function isTarget(label) {
@@ -2253,14 +2280,14 @@ def dashboard():
                     marker.addListener('click', () => {
                         infoWindow.setContent(`
                             <strong>${safe(device.device_id)}</strong><br>
-                            latitude: ${safe(device.latitude)}<br>
-                            longitude: ${safe(device.longitude)}<br>
-                            last_seen: ${safe(device.last_seen)}<br>
-                            last_event_id: ${safe(device.last_event_id)}<br>
-                            last_event_at: ${safe(device.last_event_at)}<br>
-                            status: ${safe(device.status)}<br>
-                            mode: ${safe(device.upload_mode)}<br>
-                            listening: ${safe(device.is_listening)}
+                            緯度：${safe(device.latitude)}<br>
+                            經度：${safe(device.longitude)}<br>
+                            最後連線：${safe(device.last_seen)}<br>
+                            最後事件 ID：${safe(device.last_event_id)}<br>
+                            最後事件時間：${safe(device.last_event_at)}<br>
+                            狀態：${displayStatus(device.status)}<br>
+                            模式：${displayMode(device.upload_mode)}<br>
+                            監聽中：${yesNo(device.is_listening)}
                         `);
                         infoWindow.open({ map, anchor: marker });
                     });
@@ -2291,18 +2318,18 @@ def dashboard():
                 const title = document.getElementById('audioPlayerTitle');
                 const player = document.getElementById('eventAudioPlayer');
                 try {
-                    title.textContent = `Loading audio: ${eventId}`;
+                    title.textContent = `音檔載入中：${eventId}`;
                     const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
                     player.onerror = () => {
-                        title.textContent = 'Audio load failed. Check GCS Object Viewer permission or whether the file exists.';
+                        title.textContent = '音檔載入失敗：請確認 GCS Object Viewer 權限或檔案是否存在。';
                     };
                     player.src = body.url;
-                    title.textContent = `Playing: ${eventId} - link expires in ${body.expires_in_seconds}s`;
+                    title.textContent = `正在播放：${eventId}，連結 ${body.expires_in_seconds} 秒後失效`;
                     await player.play();
                 } catch (error) {
-                    title.textContent = `Audio playback failed: ${error}`;
+                    title.textContent = `音檔播放失敗：${error}`;
                     player.removeAttribute('src');
                     player.load();
                 }
@@ -2322,10 +2349,10 @@ def dashboard():
                     });
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
-                    document.getElementById('systemStatus').textContent = `Command #${body.command_id}`;
+                    document.getElementById('systemStatus').textContent = `指令 #${body.command_id} 已送出`;
                 } catch (error) {
-                    document.getElementById('systemStatus').textContent = 'Command failed';
-                    alert(`Command failed: ${error}`);
+                    document.getElementById('systemStatus').textContent = '指令送出失敗';
+                    alert(`指令送出失敗：${error}`);
                 }
             }
 
@@ -2333,31 +2360,31 @@ def dashboard():
                 const list = document.getElementById('nodeList');
                 const values = visibleDeviceValues();
                 if (!values.length) {
-                    list.innerHTML = '<div class="subtitle">No node status yet</div>';
+                    list.innerHTML = '<div class="subtitle">目前沒有節點狀態</div>';
                     return;
                 }
                 list.innerHTML = values.map(device => `
                     <div class="node-card ${isOnlineDevice(device) ? 'online' : 'offline'}">
                         <div class="node-title">
                             <span>${safe(device.device_id)}</span>
-                            <span class="pill ${isOnlineDevice(device) ? 'online' : 'offline'}">${safe(device.status)}</span>
+                            <span class="pill ${isOnlineDevice(device) ? 'online' : 'offline'}">${displayStatus(device.status)}</span>
                         </div>
                         <div class="node-meta">
-                            <span class="mini-chip ${device.is_listening ? 'good' : ''}">Listening ${device.is_listening ? 'yes' : 'no'}</span>
-                            <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">Mode ${safe(device.upload_mode)}</span>
-                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? 'ok' : 'waiting'}</span>
+                            <span class="mini-chip ${device.is_listening ? 'good' : ''}">監聽 ${yesNo(device.is_listening)}</span>
+                            <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
+                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '等待中'}</span>
                         </div>
                         <div class="kv">
-                            <span>Battery</span><strong>${safe(device.battery)}</strong>
+                            <span>電量</span><strong>${safe(device.battery)}</strong>
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
-                            <span>Last seen</span><strong>${safe(device.last_seen)}</strong>
-                            <span>Last event</span><strong>${safe(device.last_event_at)}</strong>
+                            <span>最後連線</span><strong>${safe(device.last_seen)}</strong>
+                            <span>最後事件</span><strong>${safe(device.last_event_at)}</strong>
                         </div>
                         <div class="actions">
-                            <button class="primary" onclick="sendCommand('${device.device_id}', 'start_listening')">Start</button>
-                            <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">Stop</button>
-                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">Detection</button>
-                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">Collection</button>
+                            <button class="primary" onclick="sendCommand('${device.device_id}', 'start_listening')">開始</button>
+                            <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">停止</button>
+                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">偵測模式</button>
+                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">蒐集模式</button>
                         </div>
                     </div>
                 `).join('');
@@ -2370,15 +2397,15 @@ def dashboard():
                     <div class="event-row target">
                         <div class="event-grid">
                             <div>
-                                <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
-                                <div class="event-detail">prob ${noteValue(event.note, 'probability_aircraft')} / conf ${noteValue(event.note, 'confidence')}</div>
+                                <div class="event-detail">目標機率 ${noteValue(event.note, 'probability_aircraft')} / 信心值 ${noteValue(event.note, 'confidence')}</div>
                                 <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
                             </div>
-                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play</button>` : '<span class="mini-chip warn">pending</span>'}</div>
+                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">播放</button>` : '<span class="mini-chip warn">待上傳</span>'}</div>
                         </div>
                     </div>
-                `).join('') : '<div class="subtitle">No target alerts yet</div>';
+                `).join('') : '<div class="subtitle">目前沒有目標聲警示</div>';
             }
 
             function noteValue(note, key) {
@@ -2397,14 +2424,14 @@ def dashboard():
                     <div class="event-row ${isTarget(event.label) ? 'target' : ''}">
                         <div class="event-grid">
                             <div>
-                                <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
-                                <div class="event-detail">confidence ${noteValue(event.note, 'confidence')} / mode ${noteValue(event.note, 'upload_mode')}</div>
+                                <div class="event-detail">信心值 ${noteValue(event.note, 'confidence')} / 模式 ${noteValue(event.note, 'upload_mode')}</div>
                             </div>
-                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play</button>` : '<span class="mini-chip warn">audio pending</span>'}</div>
+                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">播放</button>` : '<span class="mini-chip warn">音檔待上傳</span>'}</div>
                         </div>
                     </div>
-                `).join('') : '<div class="subtitle">No events yet</div>';
+                `).join('') : '<div class="subtitle">目前沒有事件</div>';
             }
 
             function renderReports() {
@@ -2417,11 +2444,11 @@ def dashboard():
                     byNode[event.device_id || 'unknown'] = (byNode[event.device_id || 'unknown'] || 0) + 1;
                 });
                 document.getElementById('reportsGrid').innerHTML = `
-                    <div class="report-box"><div class="label">Today drone</div><div class="value">${drone.length}</div></div>
-                    <div class="report-box"><div class="label">Today other</div><div class="value">${other.length}</div></div>
-                    <div class="report-box"><div class="label">Drone ratio</div><div class="value">${todayEvents.length ? Math.round(drone.length / todayEvents.length * 100) : 0}%</div></div>
-                    <div class="report-box"><div class="label">Audio uploaded</div><div class="value">${uploaded.length}</div></div>
-                    <div class="report-box" style="grid-column:1/-1"><div class="label">By node</div><div>${Object.entries(byNode).map(([k,v]) => `${k}: ${v}`).join('<br>') || '-'}</div></div>
+                    <div class="report-box"><div class="label">今日目標聲</div><div class="value">${drone.length}</div></div>
+                    <div class="report-box"><div class="label">今日其他聲音</div><div class="value">${other.length}</div></div>
+                    <div class="report-box"><div class="label">目標聲比例</div><div class="value">${todayEvents.length ? Math.round(drone.length / todayEvents.length * 100) : 0}%</div></div>
+                    <div class="report-box"><div class="label">已上傳音檔</div><div class="value">${uploaded.length}</div></div>
+                    <div class="report-box" style="grid-column:1/-1"><div class="label">依節點統計</div><div>${Object.entries(byNode).map(([k,v]) => `${k}: ${v}`).join('<br>') || '-'}</div></div>
                 `;
                 document.getElementById('todayDroneCount').textContent = drone.length;
                 document.getElementById('uploadSummary').textContent = `${uploaded.length}/${todayEvents.length}`;
@@ -2433,7 +2460,7 @@ def dashboard():
                 const active = values.filter(device => isAlertActive(device.device_id)).length;
                 document.getElementById('onlineCount').textContent = online;
                 document.getElementById('activeAlertCount').textContent = active;
-                document.getElementById('systemStatus').textContent = values.length ? 'Live' : 'Waiting';
+                document.getElementById('systemStatus').textContent = values.length ? '即時運作' : '等待資料';
             }
 
             function renderAll() {
@@ -2461,7 +2488,7 @@ def dashboard():
                     events.splice(0, events.length, ...(eventsData.events || []));
                     renderAll();
                 } catch (error) {
-                    document.getElementById('systemStatus').textContent = 'Fetch error';
+                    document.getElementById('systemStatus').textContent = '資料讀取失敗';
                 }
             }
 
@@ -2481,7 +2508,7 @@ def dashboard():
                         refreshAll();
                     }
                     if (data.type === 'device_command_ack') {
-                        document.getElementById('systemStatus').textContent = `Ack ${data.status}`;
+                        document.getElementById('systemStatus').textContent = `指令回報 ${data.status}`;
                         refreshAll();
                     }
                 };
