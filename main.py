@@ -1892,7 +1892,7 @@ def dashboard():
                 display: grid;
                 grid-template-columns: repeat(5, minmax(120px, 1fr));
                 gap: 10px;
-                padding: 12px 18px;
+                padding: 10px 14px;
             }
             .stat, .panel, .node-card, .event-row {
                 background: var(--panel);
@@ -1904,19 +1904,19 @@ def dashboard():
             .stat .value { font-size: 22px; font-weight: 800; margin-top: 4px; }
             .layout {
                 display: grid;
-                grid-template-columns: 320px minmax(360px, 1fr) 340px;
-                grid-template-rows: minmax(420px, 56vh) auto;
-                gap: 12px;
-                padding: 0 18px 18px;
+                grid-template-columns: 340px minmax(520px, 1fr) 380px;
+                grid-template-rows: minmax(440px, calc(100vh - 306px)) minmax(220px, 30vh);
+                gap: 10px;
+                padding: 0 14px 14px;
             }
             .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
             .panel h2 {
                 font-size: 15px;
                 margin: 0;
-                padding: 12px;
+                padding: 10px 12px;
                 border-bottom: 1px solid var(--line);
             }
-            .panel-body { padding: 12px; overflow: auto; }
+            .panel-body { padding: 10px; overflow: auto; }
             #map {
                 height: 100%;
                 min-height: 420px;
@@ -1935,7 +1935,9 @@ def dashboard():
                 font-size: 12px;
                 color: var(--muted);
             }
-            .node-card { padding: 12px; margin-bottom: 10px; }
+            .node-card { padding: 10px; margin-bottom: 8px; }
+            .node-card.online { border-color: rgba(69,196,134,.45); }
+            .node-card.offline { opacity: .8; }
             .node-title {
                 display: flex;
                 justify-content: space-between;
@@ -1957,14 +1959,34 @@ def dashboard():
             .pill.offline { color: var(--bad); border-color: rgba(240,103,103,.45); }
             .kv {
                 display: grid;
-                grid-template-columns: 110px 1fr;
-                gap: 5px 8px;
+                grid-template-columns: 82px 1fr;
+                gap: 4px 8px;
                 font-size: 12px;
-                margin: 10px 0;
+                margin: 8px 0;
                 color: var(--muted);
             }
             .kv strong { color: var(--text); font-weight: 600; }
-            .actions { display: flex; flex-wrap: wrap; gap: 7px; }
+            .node-meta {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin: 7px 0 8px;
+            }
+            .mini-chip {
+                border: 1px solid var(--line);
+                border-radius: 999px;
+                color: var(--muted);
+                padding: 3px 7px;
+                font-size: 11px;
+                white-space: nowrap;
+            }
+            .mini-chip.good { color: var(--good); border-color: rgba(69,196,134,.45); }
+            .mini-chip.warn { color: var(--warn); border-color: rgba(240,184,77,.55); }
+            .actions {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 7px;
+            }
             button, .link-button {
                 border: 1px solid #415060;
                 background: var(--panel-2);
@@ -1981,9 +2003,17 @@ def dashboard():
             button:hover, .link-button:hover { border-color: var(--accent); }
             button.primary { background: #174365; border-color: #2e83c5; }
             button.danger { background: #4a2228; border-color: #9d4853; }
-            .event-row { padding: 10px; margin-bottom: 8px; font-size: 12px; }
+            button.active { border-color: var(--good); color: var(--good); }
+            .event-row { padding: 9px 10px; margin-bottom: 8px; font-size: 12px; }
             .event-row.target { border-color: rgba(240,184,77,.65); }
             .event-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
+            .event-grid {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                align-items: center;
+            }
+            .event-detail { color: var(--muted); line-height: 1.35; }
             .timeline { grid-column: 1 / span 3; }
             .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
             .reports-grid {
@@ -1992,11 +2022,12 @@ def dashboard():
                 gap: 8px;
             }
             .audio-player {
-                margin: 0 12px 12px;
+                margin: 10px;
                 padding: 10px;
                 background: #111820;
                 border: 1px solid var(--line);
                 border-radius: 8px;
+                flex: 0 0 auto;
             }
             .audio-player .title {
                 color: var(--muted);
@@ -2005,6 +2036,7 @@ def dashboard():
             }
             .audio-player audio {
                 width: 100%;
+                height: 40px;
             }
             .report-box {
                 background: #111820;
@@ -2014,6 +2046,13 @@ def dashboard():
             }
             .report-box .label { color: var(--muted); font-size: 12px; }
             .report-box .value { font-size: 20px; font-weight: 800; margin-top: 4px; }
+            .right-scroll {
+                flex: 1 1 0;
+                min-height: 0;
+                overflow: auto;
+                border-top: 1px solid var(--line);
+            }
+            .reports-scroll { flex: 0 0 150px; }
             .marker-label {
                 color: #111;
                 background: #fff;
@@ -2056,8 +2095,8 @@ def dashboard():
     <body>
         <header>
             <div>
-                <h1>聲音偵測戰情室 V2.1</h1>
-                <div class="subtitle">遠端節點管理、即時警示、事件報表與 CSV 匯出</div>
+                <h1>Sound Detector Command Center V2.1</h1>
+                <div class="subtitle">Remote node control, live alerts, event reports, and CSV export</div>
             </div>
             <a class="link-button" href="/events/export.csv">Export CSV</a>
         </header>
@@ -2072,31 +2111,32 @@ def dashboard():
 
         <main class="layout">
             <section class="panel">
-                <h2>節點管理</h2>
+                <h2>Node Control</h2>
                 <div class="panel-body" id="nodeList"></div>
             </section>
 
             <section class="panel map-panel">
-                <h2>節點地圖</h2>
+                <h2>Live Map</h2>
                 <div id="map"></div>
-                <div class="map-note">只有 aircraft / drone 事件會觸發 7 秒閃爍，GPS 更新不會清掉警示。</div>
+                <div class="map-note">Only aircraft / drone events trigger pulse alerts. GPS updates keep node position alive.</div>
             </section>
 
             <section class="panel">
-                <h2>即時警示</h2>
-                <div class="panel-body" id="alertList"></div>
-                <div class="audio-player" id="audioPlayerBox" style="display:none">
-                    <div class="title" id="audioPlayerTitle">Audio playback</div>
+                <h2>Audio Playback</h2>
+                <div class="audio-player" id="audioPlayerBox">
+                    <div class="title" id="audioPlayerTitle">Select an event to play audio</div>
                     <audio id="eventAudioPlayer" controls></audio>
                 </div>
+                <h2>Live Alerts</h2>
+                <div class="panel-body right-scroll" id="alertList"></div>
                 <h2>Reports</h2>
-                <div class="panel-body">
+                <div class="panel-body right-scroll reports-scroll">
                     <div class="reports-grid" id="reportsGrid"></div>
                 </div>
             </section>
 
             <section class="panel timeline">
-                <h2>事件時間軸</h2>
+                <h2>Event Timeline</h2>
                 <div class="panel-body">
                     <div class="filters">
                         <button onclick="setFilter('all')">All</button>
@@ -2119,6 +2159,20 @@ def dashboard():
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : value;
+            }
+
+            function isDiagnosticDevice(deviceId) {
+                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK/i.test(String(deviceId || ''));
+            }
+
+            function visibleDeviceValues() {
+                return Array.from(devices.values())
+                    .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                    .sort((a, b) => String(a.device_id).localeCompare(String(b.device_id)));
+            }
+
+            function isOnlineDevice(device) {
+                return device.status === 'online' || device.status === 'event';
             }
 
             function isTarget(label) {
@@ -2218,23 +2272,34 @@ def dashboard():
                 }
             }
 
+            function cleanupHiddenMarkers() {
+                const visibleIds = new Set(visibleDeviceValues().map(device => device.device_id));
+                markers.forEach((marker, deviceId) => {
+                    if (!visibleIds.has(deviceId)) {
+                        marker.setMap(null);
+                        markers.delete(deviceId);
+                    }
+                });
+            }
+
             function setFilter(filter) {
                 currentFilter = filter;
                 renderTimeline();
             }
 
             async function playAudio(eventId) {
-                const box = document.getElementById('audioPlayerBox');
                 const title = document.getElementById('audioPlayerTitle');
                 const player = document.getElementById('eventAudioPlayer');
                 try {
                     title.textContent = `Loading audio: ${eventId}`;
-                    box.style.display = 'block';
                     const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
+                    player.onerror = () => {
+                        title.textContent = 'Audio load failed. Check GCS Object Viewer permission or whether the file exists.';
+                    };
                     player.src = body.url;
-                    title.textContent = `Playing: ${eventId} · link expires in ${body.expires_in_seconds}s`;
+                    title.textContent = `Playing: ${eventId} - link expires in ${body.expires_in_seconds}s`;
                     await player.play();
                 } catch (error) {
                     title.textContent = `Audio playback failed: ${error}`;
@@ -2266,21 +2331,23 @@ def dashboard():
 
             function renderNodes() {
                 const list = document.getElementById('nodeList');
-                const values = Array.from(devices.values());
+                const values = visibleDeviceValues();
                 if (!values.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有節點狀態</div>';
+                    list.innerHTML = '<div class="subtitle">No node status yet</div>';
                     return;
                 }
                 list.innerHTML = values.map(device => `
-                    <div class="node-card">
+                    <div class="node-card ${isOnlineDevice(device) ? 'online' : 'offline'}">
                         <div class="node-title">
                             <span>${safe(device.device_id)}</span>
-                            <span class="pill ${device.status === 'online' || device.status === 'event' ? 'online' : 'offline'}">${safe(device.status)}</span>
+                            <span class="pill ${isOnlineDevice(device) ? 'online' : 'offline'}">${safe(device.status)}</span>
+                        </div>
+                        <div class="node-meta">
+                            <span class="mini-chip ${device.is_listening ? 'good' : ''}">Listening ${device.is_listening ? 'yes' : 'no'}</span>
+                            <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">Mode ${safe(device.upload_mode)}</span>
+                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? 'ok' : 'waiting'}</span>
                         </div>
                         <div class="kv">
-                            <span>Listening</span><strong>${device.is_listening ? 'yes' : 'no'}</strong>
-                            <span>Mode</span><strong>${safe(device.upload_mode)}</strong>
-                            <span>GPS</span><strong>${device.latitude && device.longitude ? 'ok' : 'waiting'}</strong>
                             <span>Battery</span><strong>${safe(device.battery)}</strong>
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
                             <span>Last seen</span><strong>${safe(device.last_seen)}</strong>
@@ -2289,8 +2356,8 @@ def dashboard():
                         <div class="actions">
                             <button class="primary" onclick="sendCommand('${device.device_id}', 'start_listening')">Start</button>
                             <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">Stop</button>
-                            <button onclick="sendCommand('${device.device_id}', 'set_detection_mode')">Detection</button>
-                            <button onclick="sendCommand('${device.device_id}', 'set_collection_mode')">Collection</button>
+                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">Detection</button>
+                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">Collection</button>
                         </div>
                     </div>
                 `).join('');
@@ -2301,13 +2368,17 @@ def dashboard():
                 const list = document.getElementById('alertList');
                 list.innerHTML = targetEvents.length ? targetEvents.map(event => `
                     <div class="event-row target">
-                        <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
-                        <div>${safe(event.timestamp)}</div>
-                        <div>prob ${noteValue(event.note, 'probability_aircraft')} / conf ${noteValue(event.note, 'confidence')}</div>
-                        <div>${safe(event.latitude)}, ${safe(event.longitude)}</div>
-                        ${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play audio</button>` : ''}
+                        <div class="event-grid">
+                            <div>
+                                <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-detail">${safe(event.timestamp)}</div>
+                                <div class="event-detail">prob ${noteValue(event.note, 'probability_aircraft')} / conf ${noteValue(event.note, 'confidence')}</div>
+                                <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
+                            </div>
+                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play</button>` : '<span class="mini-chip warn">pending</span>'}</div>
+                        </div>
                     </div>
-                `).join('') : '<div class="subtitle">目前沒有 target 警示</div>';
+                `).join('') : '<div class="subtitle">No target alerts yet</div>';
             }
 
             function noteValue(note, key) {
@@ -2324,11 +2395,16 @@ def dashboard():
                 }).slice(0, 50);
                 list.innerHTML = filtered.length ? filtered.map(event => `
                     <div class="event-row ${isTarget(event.label) ? 'target' : ''}">
-                        <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
-                        <div>${safe(event.timestamp)}</div>
-                        <div>confidence ${noteValue(event.note, 'confidence')} · mode ${noteValue(event.note, 'upload_mode')} · ${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play audio</button>` : 'audio pending'}</div>
+                        <div class="event-grid">
+                            <div>
+                                <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-detail">${safe(event.timestamp)}</div>
+                                <div class="event-detail">confidence ${noteValue(event.note, 'confidence')} / mode ${noteValue(event.note, 'upload_mode')}</div>
+                            </div>
+                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play</button>` : '<span class="mini-chip warn">audio pending</span>'}</div>
+                        </div>
                     </div>
-                `).join('') : '<div class="subtitle">目前沒有事件</div>';
+                `).join('') : '<div class="subtitle">No events yet</div>';
             }
 
             function renderReports() {
@@ -2352,8 +2428,8 @@ def dashboard():
             }
 
             function renderSummary() {
-                const values = Array.from(devices.values());
-                const online = values.filter(device => device.status === 'online' || device.status === 'event').length;
+                const values = visibleDeviceValues();
+                const online = values.filter(isOnlineDevice).length;
                 const active = values.filter(device => isAlertActive(device.device_id)).length;
                 document.getElementById('onlineCount').textContent = online;
                 document.getElementById('activeAlertCount').textContent = active;
@@ -2361,7 +2437,8 @@ def dashboard():
             }
 
             function renderAll() {
-                Array.from(devices.values()).forEach(updateMapMarker);
+                cleanupHiddenMarkers();
+                visibleDeviceValues().forEach(updateMapMarker);
                 renderNodes();
                 renderAlerts();
                 renderTimeline();
@@ -2377,7 +2454,10 @@ def dashboard():
                     ]);
                     const statusData = await statusResponse.json();
                     const eventsData = await eventsResponse.json();
-                    (statusData.devices || []).forEach(device => devices.set(device.device_id, device));
+                    devices.clear();
+                    (statusData.devices || [])
+                        .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                        .forEach(device => devices.set(device.device_id, device));
                     events.splice(0, events.length, ...(eventsData.events || []));
                     renderAll();
                 } catch (error) {
@@ -2390,6 +2470,7 @@ def dashboard():
                 const ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
                 ws.onmessage = event => {
                     const data = JSON.parse(event.data);
+                    if (data.device_id && isDiagnosticDevice(data.device_id)) return;
                     if (data.type === 'location_update') {
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
                         renderAll();
