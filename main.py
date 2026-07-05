@@ -1267,6 +1267,7 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Command not found")
             command_name = command_row["command"] if command_row else ""
+            state_command_name = command_name if normalized_status == "done" else ""
             connection.execute(
                 """
                 INSERT INTO device_status (
@@ -1328,20 +1329,20 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
                 (
                     ack.device_id,
                     executed_at,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
                     ack.command_id,
                     executed_at,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
-                    command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
+                    state_command_name,
                 ),
             )
             return {
@@ -1375,6 +1376,7 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
                 if not row:
                     raise HTTPException(status_code=404, detail="Command not found")
                 command_name = row["command"]
+                state_command_name = command_name if normalized_status == "done" else ""
                 cursor.execute(
                     """
                     INSERT INTO device_status (
@@ -1435,19 +1437,19 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
                     """,
                     (
                         ack.device_id,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
                         ack.command_id,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
-                        command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
+                        state_command_name,
                     ),
                 )
                 return {
