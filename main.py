@@ -1141,6 +1141,28 @@ def get_pending_device_command(device_id: str) -> Optional[dict]:
 
     if not use_postgres():
         with get_sqlite_connection() as connection:
+            now = current_time_iso()
+            connection.execute(
+                """
+                INSERT INTO device_status (
+                    device_id,
+                    last_seen,
+                    status,
+                    backend_status,
+                    app_status,
+                    updated_at
+                )
+                VALUES (?, ?, 'online', 'connected', 'polling', ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    status = 'online',
+                    backend_status = 'connected',
+                    app_status = COALESCE(device_status.app_status, 'polling'),
+                    updated_at = excluded.updated_at
+                """,
+                (device_id, now, now),
+            )
+            connection.commit()
             row = connection.execute(
                 f"""
                 SELECT {columns}
@@ -1158,6 +1180,26 @@ def get_pending_device_command(device_id: str) -> Optional[dict]:
     try:
         with connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO device_status (
+                        device_id,
+                        last_seen,
+                        status,
+                        backend_status,
+                        app_status,
+                        updated_at
+                    )
+                    VALUES (%s, now(), 'online', 'connected', 'polling', now())
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        last_seen = now(),
+                        status = 'online',
+                        backend_status = 'connected',
+                        app_status = COALESCE(device_status.app_status, 'polling'),
+                        updated_at = now()
+                    """,
+                    (device_id,),
+                )
                 cursor.execute(
                     f"""
                     SELECT {columns}
@@ -1186,6 +1228,16 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
     if not use_postgres():
         executed_at = current_time_iso()
         with get_sqlite_connection() as connection:
+            command_row = connection.execute(
+                """
+                SELECT command
+                FROM device_commands
+                WHERE id = ?
+                  AND device_id = ?
+                LIMIT 1
+                """,
+                (ack.command_id, ack.device_id),
+            ).fetchone()
             cursor = connection.execute(
                 """
                 UPDATE device_commands
@@ -1214,6 +1266,84 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
             connection.commit()
             if cursor.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Command not found")
+            command_name = command_row["command"] if command_row else ""
+            connection.execute(
+                """
+                INSERT INTO device_status (
+                    device_id,
+                    last_seen,
+                    status,
+                    backend_status,
+                    app_status,
+                    is_listening,
+                    upload_mode,
+                    last_command_id,
+                    updated_at
+                )
+                VALUES (
+                    ?,
+                    ?,
+                    'online',
+                    'connected',
+                    CASE
+                        WHEN ? = 'start_listening' THEN 'listening'
+                        WHEN ? = 'stop_listening' THEN 'stopped'
+                        ELSE 'polling'
+                    END,
+                    CASE
+                        WHEN ? = 'start_listening' THEN 1
+                        WHEN ? = 'stop_listening' THEN 0
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN ? = 'set_detection_mode' THEN 'detection'
+                        WHEN ? = 'set_collection_mode' THEN 'collection'
+                        ELSE NULL
+                    END,
+                    ?,
+                    ?
+                )
+                ON CONFLICT(device_id) DO UPDATE SET
+                    last_seen = excluded.last_seen,
+                    status = 'online',
+                    backend_status = 'connected',
+                    app_status = CASE
+                        WHEN ? = 'start_listening' THEN 'listening'
+                        WHEN ? = 'stop_listening' THEN 'stopped'
+                        ELSE device_status.app_status
+                    END,
+                    is_listening = CASE
+                        WHEN ? = 'start_listening' THEN 1
+                        WHEN ? = 'stop_listening' THEN 0
+                        ELSE device_status.is_listening
+                    END,
+                    upload_mode = CASE
+                        WHEN ? = 'set_detection_mode' THEN 'detection'
+                        WHEN ? = 'set_collection_mode' THEN 'collection'
+                        ELSE device_status.upload_mode
+                    END,
+                    last_command_id = excluded.last_command_id,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    ack.device_id,
+                    executed_at,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                    ack.command_id,
+                    executed_at,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                    command_name,
+                ),
+            )
             return {
                 "ok": True,
                 "command_id": ack.command_id,
@@ -1232,7 +1362,7 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
                         ack_message = %s
                     WHERE id = %s
                       AND device_id = %s
-                    RETURNING id, status
+                    RETURNING id, status, command
                     """,
                     (
                         normalized_status,
@@ -1244,13 +1374,81 @@ def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
                 row = cursor.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="Command not found")
+                command_name = row["command"]
                 cursor.execute(
                     """
-                    UPDATE device_status
-                    SET last_command_id = %s, updated_at = now()
-                    WHERE device_id = %s
+                    INSERT INTO device_status (
+                        device_id,
+                        last_seen,
+                        status,
+                        backend_status,
+                        app_status,
+                        is_listening,
+                        upload_mode,
+                        last_command_id,
+                        updated_at
+                    )
+                    VALUES (
+                        %s,
+                        now(),
+                        'online',
+                        'connected',
+                        CASE
+                            WHEN %s = 'start_listening' THEN 'listening'
+                            WHEN %s = 'stop_listening' THEN 'stopped'
+                            ELSE 'polling'
+                        END,
+                        CASE
+                            WHEN %s = 'start_listening' THEN TRUE
+                            WHEN %s = 'stop_listening' THEN FALSE
+                            ELSE NULL
+                        END,
+                        CASE
+                            WHEN %s = 'set_detection_mode' THEN 'detection'
+                            WHEN %s = 'set_collection_mode' THEN 'collection'
+                            ELSE NULL
+                        END,
+                        %s,
+                        now()
+                    )
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        last_seen = now(),
+                        status = 'online',
+                        backend_status = 'connected',
+                        app_status = CASE
+                            WHEN %s = 'start_listening' THEN 'listening'
+                            WHEN %s = 'stop_listening' THEN 'stopped'
+                            ELSE device_status.app_status
+                        END,
+                        is_listening = CASE
+                            WHEN %s = 'start_listening' THEN TRUE
+                            WHEN %s = 'stop_listening' THEN FALSE
+                            ELSE device_status.is_listening
+                        END,
+                        upload_mode = CASE
+                            WHEN %s = 'set_detection_mode' THEN 'detection'
+                            WHEN %s = 'set_collection_mode' THEN 'collection'
+                            ELSE device_status.upload_mode
+                        END,
+                        last_command_id = EXCLUDED.last_command_id,
+                        updated_at = now()
                     """,
-                    (ack.command_id, ack.device_id),
+                    (
+                        ack.device_id,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                        ack.command_id,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                        command_name,
+                    ),
                 )
                 return {
                     "ok": True,
