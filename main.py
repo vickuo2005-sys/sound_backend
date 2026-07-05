@@ -717,6 +717,41 @@ def list_recent_events() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_event_by_event_id(event_id: str) -> Optional[dict]:
+    columns = ", ".join(EVENT_COLUMNS)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT {columns}
+                        FROM events
+                        WHERE event_id = %s
+                        LIMIT 1
+                        """,
+                        (event_id,),
+                    )
+                    row = cursor.fetchone()
+                    return serialize_db_row(dict(row)) if row else None
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        row = connection.execute(
+            f"""
+            SELECT {columns}
+            FROM events
+            WHERE event_id = ?
+            LIMIT 1
+            """,
+            (event_id,),
+        ).fetchone()
+        return serialize_db_row(dict(row)) if row else None
+
+
 def serialize_db_row(row: dict) -> dict:
     serialized = {}
     for key, value in row.items():
@@ -1559,6 +1594,39 @@ def export_events_csv():
     )
 
 
+@app.get("/events/{event_id}/audio-url")
+def event_audio_url(event_id: str):
+    event = get_event_by_event_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    audio_path = event.get("audio_path")
+    if not audio_path:
+        raise HTTPException(status_code=404, detail="Audio file is not uploaded")
+
+    try:
+        bucket = get_gcs_bucket()
+        blob = bucket.blob(audio_path)
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=10),
+            method="GET",
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create audio playback URL",
+        ) from exc
+
+    return {
+        "status": "success",
+        "event_id": event_id,
+        "audio_path": audio_path,
+        "expires_in_seconds": 600,
+        "url": signed_url,
+    }
+
+
 @app.websocket("/ws/dashboard")
 async def dashboard_websocket(websocket: WebSocket):
     await dashboard_manager.connect(websocket)
@@ -1721,6 +1789,21 @@ def dashboard():
                 grid-template-columns: repeat(2, minmax(120px, 1fr));
                 gap: 8px;
             }
+            .audio-player {
+                margin: 0 12px 12px;
+                padding: 10px;
+                background: #111820;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+            }
+            .audio-player .title {
+                color: var(--muted);
+                font-size: 12px;
+                margin-bottom: 8px;
+            }
+            .audio-player audio {
+                width: 100%;
+            }
             .report-box {
                 background: #111820;
                 border: 1px solid var(--line);
@@ -1800,6 +1883,10 @@ def dashboard():
             <section class="panel">
                 <h2>即時警示</h2>
                 <div class="panel-body" id="alertList"></div>
+                <div class="audio-player" id="audioPlayerBox" style="display:none">
+                    <div class="title" id="audioPlayerTitle">Audio playback</div>
+                    <audio id="eventAudioPlayer" controls></audio>
+                </div>
                 <h2>Reports</h2>
                 <div class="panel-body">
                     <div class="reports-grid" id="reportsGrid"></div>
@@ -1934,6 +2021,26 @@ def dashboard():
                 renderTimeline();
             }
 
+            async function playAudio(eventId) {
+                const box = document.getElementById('audioPlayerBox');
+                const title = document.getElementById('audioPlayerTitle');
+                const player = document.getElementById('eventAudioPlayer');
+                try {
+                    title.textContent = `Loading audio: ${eventId}`;
+                    box.style.display = 'block';
+                    const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
+                    const body = await response.json();
+                    if (!response.ok) throw new Error(body.detail || response.statusText);
+                    player.src = body.url;
+                    title.textContent = `Playing: ${eventId} · link expires in ${body.expires_in_seconds}s`;
+                    await player.play();
+                } catch (error) {
+                    title.textContent = `Audio playback failed: ${error}`;
+                    player.removeAttribute('src');
+                    player.load();
+                }
+            }
+
             async function sendCommand(deviceId, command) {
                 try {
                     const response = await fetch('/device-command', {
@@ -1996,7 +2103,7 @@ def dashboard():
                         <div>${safe(event.timestamp)}</div>
                         <div>prob ${noteValue(event.note, 'probability_aircraft')} / conf ${noteValue(event.note, 'confidence')}</div>
                         <div>${safe(event.latitude)}, ${safe(event.longitude)}</div>
-                        ${event.audio_path ? `<a class="link-button" href="#" onclick="return false;">audio ready</a>` : ''}
+                        ${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play audio</button>` : ''}
                     </div>
                 `).join('') : '<div class="subtitle">目前沒有 target 警示</div>';
             }
@@ -2017,7 +2124,7 @@ def dashboard():
                     <div class="event-row ${isTarget(event.label) ? 'target' : ''}">
                         <div class="event-title"><span>${safe(event.label)}</span><span>${safe(event.device_id)}</span></div>
                         <div>${safe(event.timestamp)}</div>
-                        <div>confidence ${noteValue(event.note, 'confidence')} · mode ${noteValue(event.note, 'upload_mode')} · ${event.audio_path ? 'audio uploaded' : 'audio pending'}</div>
+                        <div>confidence ${noteValue(event.note, 'confidence')} · mode ${noteValue(event.note, 'upload_mode')} · ${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">Play audio</button>` : 'audio pending'}</div>
                     </div>
                 `).join('') : '<div class="subtitle">目前沒有事件</div>';
             }
