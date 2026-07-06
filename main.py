@@ -851,7 +851,7 @@ def upsert_device_location(
         with connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO device_status (
                         device_id,
                         latitude,
