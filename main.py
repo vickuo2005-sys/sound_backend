@@ -2229,7 +2229,7 @@ def dashboard():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK/i.test(String(deviceId || ''));
+                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG_CHECK/i.test(String(deviceId || ''));
             }
 
             function visibleDeviceValues() {
