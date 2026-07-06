@@ -1859,62 +1859,78 @@ def dashboard():
         <title>聲音偵測戰情室 V2.1</title>
         <style>
             :root {
-                --bg: #101419;
-                --panel: #171e26;
-                --panel-2: #1f2833;
-                --line: #2f3a45;
-                --text: #eef4f8;
-                --muted: #a8b3bd;
-                --good: #45c486;
-                --warn: #f0b84d;
-                --bad: #f06767;
-                --accent: #6bb8ff;
+                --bg: #0f1115;
+                --panel: #171a20;
+                --panel-2: #20242b;
+                --panel-3: #111419;
+                --line: #303743;
+                --text: #f4f7fb;
+                --muted: #aab3bd;
+                --good: #2ec27e;
+                --warn: #f6c85f;
+                --bad: #ff6b6b;
+                --accent: #4aa3ff;
+                --accent-2: #60d394;
             }
             * { box-sizing: border-box; }
             body {
                 margin: 0;
                 font-family: Arial, "Noto Sans TC", sans-serif;
-                background: var(--bg);
+                background: linear-gradient(180deg, #11151b 0%, var(--bg) 42%, #0c0e12 100%);
                 color: var(--text);
+                min-height: 100vh;
             }
             header {
-                padding: 14px 18px;
+                padding: 16px 20px;
                 border-bottom: 1px solid var(--line);
-                background: #0d1116;
+                background: rgba(13, 16, 21, .96);
                 display: flex;
                 justify-content: space-between;
                 gap: 12px;
                 align-items: center;
             }
-            h1 { margin: 0; font-size: 20px; }
+            h1 { margin: 0; font-size: 22px; letter-spacing: .02em; }
             .subtitle { color: var(--muted); font-size: 13px; margin-top: 3px; }
+            .header-actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: flex-end;
+            }
             .topbar {
                 display: grid;
                 grid-template-columns: repeat(5, minmax(120px, 1fr));
-                gap: 10px;
-                padding: 10px 14px;
+                gap: 12px;
+                padding: 12px 16px;
             }
             .stat, .panel, .node-card, .event-row {
                 background: var(--panel);
                 border: 1px solid var(--line);
-                border-radius: 8px;
+                border-radius: 12px;
             }
-            .stat { padding: 12px; }
+            .stat {
+                padding: 13px 14px;
+                min-height: 80px;
+                background: linear-gradient(180deg, #1a1e25, #151920);
+            }
             .stat .label { color: var(--muted); font-size: 12px; }
-            .stat .value { font-size: 22px; font-weight: 800; margin-top: 4px; }
+            .stat .value { font-size: 24px; font-weight: 900; margin-top: 6px; }
             .layout {
                 display: grid;
-                grid-template-columns: 340px minmax(520px, 1fr) 380px;
-                grid-template-rows: minmax(440px, calc(100vh - 306px)) minmax(220px, 30vh);
-                gap: 10px;
-                padding: 0 14px 14px;
+                grid-template-columns: minmax(300px, 360px) minmax(520px, 1fr) minmax(320px, 390px);
+                grid-template-rows: minmax(440px, calc(100vh - 330px)) minmax(240px, 31vh);
+                gap: 12px;
+                padding: 0 16px 16px;
             }
             .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
             .panel h2 {
                 font-size: 15px;
                 margin: 0;
-                padding: 10px 12px;
+                padding: 12px 14px;
                 border-bottom: 1px solid var(--line);
+                background: var(--panel-3);
+                letter-spacing: .03em;
             }
             .panel-body { padding: 10px; overflow: auto; }
             #map {
@@ -1928,14 +1944,19 @@ def dashboard():
                 left: 12px;
                 bottom: 12px;
                 z-index: 2;
-                background: rgba(13,17,22,.86);
+                background: rgba(13,17,22,.90);
                 border: 1px solid var(--line);
                 padding: 8px 10px;
                 border-radius: 8px;
                 font-size: 12px;
                 color: var(--muted);
+                max-width: calc(100% - 24px);
             }
-            .node-card { padding: 10px; margin-bottom: 8px; }
+            .node-card {
+                padding: 12px;
+                margin-bottom: 10px;
+                background: linear-gradient(180deg, #1a1e25, #151920);
+            }
             .node-card.online { border-color: rgba(69,196,134,.45); }
             .node-card.offline { opacity: .8; }
             .node-title {
@@ -1959,13 +1980,18 @@ def dashboard():
             .pill.offline { color: var(--bad); border-color: rgba(240,103,103,.45); }
             .kv {
                 display: grid;
-                grid-template-columns: 82px 1fr;
+                grid-template-columns: 78px minmax(0, 1fr);
                 gap: 4px 8px;
                 font-size: 12px;
                 margin: 8px 0;
                 color: var(--muted);
             }
-            .kv strong { color: var(--text); font-weight: 600; }
+            .kv strong {
+                color: var(--text);
+                font-weight: 650;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
             .node-meta {
                 display: flex;
                 flex-wrap: wrap;
@@ -1991,7 +2017,7 @@ def dashboard():
                 border: 1px solid #415060;
                 background: var(--panel-2);
                 color: var(--text);
-                border-radius: 7px;
+                border-radius: 8px;
                 padding: 7px 9px;
                 font-size: 12px;
                 cursor: pointer;
@@ -2004,18 +2030,34 @@ def dashboard():
             button.primary { background: #174365; border-color: #2e83c5; }
             button.danger { background: #4a2228; border-color: #9d4853; }
             button.active { border-color: var(--good); color: var(--good); }
-            .event-row { padding: 9px 10px; margin-bottom: 8px; font-size: 12px; }
+            .event-row {
+                padding: 10px 11px;
+                margin-bottom: 8px;
+                font-size: 12px;
+                background: #151920;
+            }
             .event-row.target { border-color: rgba(240,184,77,.65); }
             .event-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
+            .event-title span {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
             .event-grid {
                 display: grid;
                 grid-template-columns: 1fr auto;
                 gap: 8px;
                 align-items: center;
             }
-            .event-detail { color: var(--muted); line-height: 1.35; }
+            .event-detail {
+                color: var(--muted);
+                line-height: 1.35;
+                overflow-wrap: anywhere;
+            }
             .timeline { grid-column: 1 / span 3; }
             .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+            .filters button.active { color: var(--accent-2); border-color: rgba(96,211,148,.65); }
             .reports-grid {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(120px, 1fr));
@@ -2024,7 +2066,7 @@ def dashboard():
             .audio-player {
                 margin: 10px;
                 padding: 10px;
-                background: #111820;
+                background: var(--panel-3);
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 flex: 0 0 auto;
@@ -2039,7 +2081,7 @@ def dashboard():
                 height: 40px;
             }
             .report-box {
-                background: #111820;
+                background: var(--panel-3);
                 border: 1px solid var(--line);
                 border-radius: 8px;
                 padding: 10px;
@@ -2074,6 +2116,7 @@ def dashboard():
             }
             @media (max-width: 980px) {
                 header { align-items: flex-start; flex-direction: column; }
+                .header-actions { justify-content: flex-start; }
                 .topbar { grid-template-columns: repeat(3, 1fr); padding: 10px; }
                 .layout {
                     grid-template-columns: 1fr;
@@ -2085,10 +2128,13 @@ def dashboard():
                 .timeline { grid-column: auto; }
             }
             @media (max-width: 560px) {
+                header { padding: 14px; }
+                h1 { font-size: 20px; }
                 .topbar { grid-template-columns: 1fr 1fr; }
                 .stat .value { font-size: 18px; }
                 .kv { grid-template-columns: 92px 1fr; }
                 .actions button { flex: 1 1 45%; }
+                .event-grid { grid-template-columns: 1fr; }
             }
         </style>
     </head>
@@ -2096,16 +2142,18 @@ def dashboard():
         <header>
             <div>
                 <h1>聲音偵測戰情室 V2.1</h1>
-                <div class="subtitle">遠端節點控制、即時警示、事件報表與 CSV 匯出</div>
+                <div class="subtitle">多節點聲音偵測、即時定位、遠端控制與事件追蹤</div>
             </div>
-            <a class="link-button" href="/events/export.csv">匯出 CSV</a>
+            <div class="header-actions">
+                <a class="link-button" href="/events/export.csv">匯出事件 CSV</a>
+            </div>
         </header>
 
         <section class="topbar">
             <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
-            <div class="stat"><div class="label">警示中</div><div class="value" id="activeAlertCount">0</div></div>
-            <div class="stat"><div class="label">今日目標事件</div><div class="value" id="todayDroneCount">0</div></div>
-            <div class="stat"><div class="label">音檔上傳</div><div class="value" id="uploadSummary">-</div></div>
+            <div class="stat"><div class="label">目前警示</div><div class="value" id="activeAlertCount">0</div></div>
+            <div class="stat"><div class="label">今日目標聲</div><div class="value" id="todayDroneCount">0</div></div>
+            <div class="stat"><div class="label">今日音檔</div><div class="value" id="uploadSummary">-</div></div>
             <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
         </section>
 
@@ -2139,9 +2187,9 @@ def dashboard():
                 <h2>事件時間軸</h2>
                 <div class="panel-body">
                     <div class="filters">
-                        <button onclick="setFilter('all')">全部</button>
-                        <button onclick="setFilter('drone')">只看目標聲</button>
-                        <button onclick="setFilter('other')">只看其他聲音</button>
+                        <button data-filter="all" class="active" onclick="setFilter('all')">全部</button>
+                        <button data-filter="drone" onclick="setFilter('drone')">只看目標聲</button>
+                        <button data-filter="other" onclick="setFilter('other')">只看其他聲音</button>
                     </div>
                     <div id="timelineList"></div>
                 </div>
@@ -2311,7 +2359,14 @@ def dashboard():
 
             function setFilter(filter) {
                 currentFilter = filter;
+                updateFilterButtons();
                 renderTimeline();
+            }
+
+            function updateFilterButtons() {
+                document.querySelectorAll('[data-filter]').forEach(button => {
+                    button.classList.toggle('active', button.dataset.filter === currentFilter);
+                });
             }
 
             async function playAudio(eventId) {
