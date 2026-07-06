@@ -1919,11 +1919,18 @@ def dashboard():
             .layout {
                 display: grid;
                 grid-template-columns: minmax(300px, 360px) minmax(520px, 1fr) minmax(320px, 390px);
-                grid-template-rows: minmax(440px, calc(100vh - 330px)) minmax(240px, 31vh);
+                grid-template-rows: minmax(560px, calc(100vh - 280px)) minmax(260px, 31vh);
                 gap: 12px;
                 padding: 0 16px 16px;
             }
             .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+            .side-stack {
+                min-height: 0;
+                display: grid;
+                grid-template-rows: minmax(142px, auto) minmax(220px, 1fr) minmax(180px, .75fr);
+                gap: 12px;
+            }
+            .side-stack .panel { height: 100%; }
             .panel h2 {
                 font-size: 15px;
                 margin: 0;
@@ -2092,9 +2099,8 @@ def dashboard():
                 flex: 1 1 0;
                 min-height: 0;
                 overflow: auto;
-                border-top: 1px solid var(--line);
             }
-            .reports-scroll { flex: 0 0 150px; }
+            .reports-scroll { flex: 1 1 0; }
             .marker-label {
                 color: #111;
                 background: #fff;
@@ -2124,8 +2130,12 @@ def dashboard():
                     padding: 0 10px 14px;
                 }
                 .map-panel { order: 2; }
+                .side-stack {
+                    order: 3;
+                    grid-template-rows: auto minmax(260px, 42vh) minmax(200px, auto);
+                }
                 #map { min-height: 300px; }
-                .timeline { grid-column: auto; }
+                .timeline { grid-column: auto; order: 4; }
             }
             @media (max-width: 560px) {
                 header { padding: 14px; }
@@ -2169,19 +2179,27 @@ def dashboard():
                 <div class="map-note">只有 aircraft / drone 事件會觸發閃爍警示；GPS 更新只用來維持節點位置。</div>
             </section>
 
-            <section class="panel">
-                <h2>音檔播放</h2>
-                <div class="audio-player" id="audioPlayerBox">
-                    <div class="title" id="audioPlayerTitle">請選擇事件播放音檔</div>
-                    <audio id="eventAudioPlayer" controls></audio>
-                </div>
-                <h2>即時警示</h2>
-                <div class="panel-body right-scroll" id="alertList"></div>
-                <h2>統計報表</h2>
-                <div class="panel-body right-scroll reports-scroll">
-                    <div class="reports-grid" id="reportsGrid"></div>
-                </div>
-            </section>
+            <aside class="side-stack">
+                <section class="panel">
+                    <h2>音檔播放</h2>
+                    <div class="audio-player" id="audioPlayerBox">
+                        <div class="title" id="audioPlayerTitle">請選擇事件播放音檔</div>
+                        <audio id="eventAudioPlayer" controls></audio>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>即時警示</h2>
+                    <div class="panel-body right-scroll" id="alertList"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>統計報表</h2>
+                    <div class="panel-body right-scroll reports-scroll">
+                        <div class="reports-grid" id="reportsGrid"></div>
+                    </div>
+                </section>
+            </aside>
 
             <section class="panel timeline">
                 <h2>事件時間軸</h2>
