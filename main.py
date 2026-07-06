@@ -850,6 +850,7 @@ def upsert_device_location(
     try:
         with connection:
             with connection.cursor() as cursor:
+                columns = ", ".join(DEVICE_STATUS_COLUMNS)
                 cursor.execute(
                     f"""
                     INSERT INTO device_status (
