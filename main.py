@@ -2037,6 +2037,7 @@ def dashboard():
             button:hover, .link-button:hover { border-color: var(--accent); }
             button.primary { background: #174365; border-color: #2e83c5; }
             button.danger { background: #4a2228; border-color: #9d4853; }
+            button.warn { background: #4b3415; border-color: #b7791f; color: #ffd68a; }
             button.active { border-color: var(--good); color: var(--good); }
             .event-row {
                 padding: 10px 11px;
@@ -2102,24 +2103,87 @@ def dashboard():
                 overflow: auto;
             }
             .reports-scroll { flex: 1 1 0; }
-            .marker-label {
-                color: #111;
+            .map-marker {
+                position: absolute;
+                transform: translate(-50%, -50%);
+                pointer-events: auto;
+                z-index: 4;
+            }
+            .node-marker {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                gap: 7px;
+                min-width: 76px;
+                min-height: 38px;
+                padding: 6px 10px;
+                color: #101820;
                 background: #fff;
-                border: 2px solid #111;
-                border-radius: 999px;
-                padding: 2px 6px;
-                font-weight: 800;
-                font-size: 12px;
-                box-shadow: 0 2px 8px rgba(0,0,0,.35);
+                border: 3px solid #101820;
+                border-radius: 12px;
+                font-size: 15px;
+                font-weight: 900;
+                line-height: 1;
+                white-space: nowrap;
+                box-shadow: 0 6px 18px rgba(0,0,0,.35);
+                cursor: pointer;
+                user-select: none;
             }
-            .pulse-label {
-                animation: pulse 900ms ease-in-out infinite;
-                outline: 3px solid rgba(255, 201, 87, .75);
+            .node-marker .shape {
+                width: 18px;
+                height: 18px;
+                background: #101820;
+                border: 2px solid #101820;
+                flex: 0 0 auto;
             }
-            @keyframes pulse {
-                0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 201, 87, .8); }
-                70% { transform: scale(1.12); box-shadow: 0 0 0 12px rgba(255, 201, 87, 0); }
-                100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 201, 87, 0); }
+            .node-marker.circle .shape { border-radius: 999px; }
+            .node-marker.square .shape { border-radius: 2px; }
+            .node-marker.triangle .shape {
+                width: 0;
+                height: 0;
+                background: transparent;
+                border-left: 10px solid transparent;
+                border-right: 10px solid transparent;
+                border-bottom: 18px solid #101820;
+            }
+            .node-marker.diamond .shape {
+                width: 16px;
+                height: 16px;
+                transform: rotate(45deg);
+            }
+            .node-marker.hexagon .shape {
+                clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+            }
+            .node-marker.alert {
+                border-color: #f59e0b;
+                background: #fff7e6;
+                animation: alert-bounce 780ms ease-in-out infinite;
+            }
+            .node-marker.alert .shape { background: #d97706; border-color: #d97706; }
+            .node-marker.alert.triangle .shape {
+                background: transparent;
+                border-bottom-color: #d97706;
+            }
+            .node-marker.alert::before,
+            .node-marker.alert::after {
+                content: "";
+                position: absolute;
+                inset: -12px;
+                border: 3px solid rgba(245, 158, 11, .72);
+                border-radius: 16px;
+                animation: alert-ripple 1.25s ease-out infinite;
+                pointer-events: none;
+            }
+            .node-marker.alert::after {
+                animation-delay: .45s;
+            }
+            @keyframes alert-bounce {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.08); }
+            }
+            @keyframes alert-ripple {
+                0% { opacity: .9; transform: scale(.86); }
+                100% { opacity: 0; transform: scale(1.45); }
             }
             @media (max-width: 980px) {
                 header { align-items: flex-start; flex-direction: column; }
@@ -2177,7 +2241,7 @@ def dashboard():
             <section class="panel map-panel">
                 <h2>即時地圖</h2>
                 <div id="map"></div>
-                <div class="map-note">只有 aircraft / drone 事件會觸發閃爍警示；GPS 更新只用來維持節點位置。</div>
+                <div class="map-note">只有 aircraft / drone 事件會觸發警示動畫；GPS 更新只用來維持節點位置。</div>
             </section>
 
             <aside class="side-stack">
@@ -2218,10 +2282,12 @@ def dashboard():
         <script>
             let map;
             let infoWindow;
+            let NodeOverlayMarker;
             const devices = new Map();
             const events = [];
             const markers = new Map();
             const alertUntil = new Map();
+            const alertDurationMs = 15000;
             let currentFilter = 'all';
 
             function safe(value, fallback = '-') {
@@ -2296,6 +2362,14 @@ def dashboard():
                 return '⬡';
             }
 
+            function markerShapeClass(deviceId) {
+                if (deviceId === 'node_A01') return 'circle';
+                if (deviceId === 'node_A02') return 'square';
+                if (deviceId === 'node_A03') return 'triangle';
+                if (deviceId === 'node_A04') return 'diamond';
+                return 'hexagon';
+            }
+
             window.initMap = function initMap() {
                 if (!window.google) return;
                 map = new google.maps.Map(document.getElementById('map'), {
@@ -2306,27 +2380,91 @@ def dashboard():
                     fullscreenControl: true,
                 });
                 infoWindow = new google.maps.InfoWindow();
+                ensureNodeOverlayMarkerClass();
                 refreshAll();
             };
-
-            function markerIcon(device) {
-                const active = isAlertActive(device.device_id);
-                const label = `${markerShape(device.device_id)} ${shortDeviceLabel(device.device_id)}`;
-                const html = `<div xmlns="http://www.w3.org/1999/xhtml" class="marker-label ${active ? 'pulse-label' : ''}">${label}</div>`;
-                return {
-                    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                        <svg xmlns="http://www.w3.org/2000/svg" width="92" height="38">
-                            <foreignObject width="92" height="38">${html}</foreignObject>
-                        </svg>
-                    `),
-                    scaledSize: new google.maps.Size(92, 38),
-                    anchor: new google.maps.Point(46, 19),
-                };
-            }
 
             function isAlertActive(deviceId) {
                 const until = alertUntil.get(deviceId);
                 return Boolean(until && Date.now() < until);
+            }
+
+            function ensureNodeOverlayMarkerClass() {
+                if (NodeOverlayMarker || !window.google) return;
+
+                NodeOverlayMarker = class extends google.maps.OverlayView {
+                    constructor(device) {
+                        super();
+                        this.device = device;
+                        this.position = new google.maps.LatLng(Number(device.latitude), Number(device.longitude));
+                        this.div = null;
+                        this.setMap(map);
+                    }
+
+                    onAdd() {
+                        this.div = document.createElement('div');
+                        this.div.className = 'map-marker';
+                        this.div.addEventListener('click', () => showDeviceInfo(this.device));
+                        this.getPanes().overlayMouseTarget.appendChild(this.div);
+                        this.render();
+                    }
+
+                    draw() {
+                        if (!this.div) return;
+                        const projection = this.getProjection();
+                        if (!projection) return;
+                        const point = projection.fromLatLngToDivPixel(this.position);
+                        this.div.style.left = `${point.x}px`;
+                        this.div.style.top = `${point.y}px`;
+                    }
+
+                    onRemove() {
+                        if (this.div?.parentNode) {
+                            this.div.parentNode.removeChild(this.div);
+                        }
+                        this.div = null;
+                    }
+
+                    update(device) {
+                        this.device = { ...this.device, ...device };
+                        this.position = new google.maps.LatLng(Number(this.device.latitude), Number(this.device.longitude));
+                        this.render();
+                        this.draw();
+                    }
+
+                    render() {
+                        if (!this.div) return;
+                        const shapeClass = markerShapeClass(this.device.device_id);
+                        const active = isAlertActive(this.device.device_id);
+                        const label = shortDeviceLabel(this.device.device_id);
+                        this.div.innerHTML = `
+                            <div class="node-marker ${shapeClass} ${active ? 'alert' : ''}" title="${safe(this.device.device_id)}">
+                                <span class="shape" aria-hidden="true"></span>
+                                <span>${label}</span>
+                            </div>
+                        `;
+                    }
+                };
+            }
+
+            function showDeviceInfo(device) {
+                const lat = Number(device.latitude);
+                const lng = Number(device.longitude);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+                infoWindow.setContent(`
+                    <strong>${safe(device.device_id)}</strong><br>
+                    緯度：${safe(device.latitude)}<br>
+                    經度：${safe(device.longitude)}<br>
+                    最後連線：${safe(device.last_seen)}<br>
+                    最後事件 ID：${safe(device.last_event_id)}<br>
+                    最後事件時間：${safe(device.last_event_at)}<br>
+                    狀態：${displayStatus(device.status)}<br>
+                    模式：${displayMode(device.upload_mode)}<br>
+                    監聽中：${yesNo(device.is_listening)}
+                `);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
             }
 
             function updateMapMarker(device) {
@@ -2334,35 +2472,15 @@ def dashboard():
                 const lat = Number(device.latitude);
                 const lng = Number(device.longitude);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                ensureNodeOverlayMarkerClass();
+                if (!NodeOverlayMarker) return;
 
-                const position = { lat, lng };
                 let marker = markers.get(device.device_id);
                 if (!marker) {
-                    marker = new google.maps.Marker({
-                        map,
-                        position,
-                        title: `${device.device_id} - ${safe(device.upload_mode)}`,
-                        icon: markerIcon(device),
-                    });
-                    marker.addListener('click', () => {
-                        infoWindow.setContent(`
-                            <strong>${safe(device.device_id)}</strong><br>
-                            緯度：${safe(device.latitude)}<br>
-                            經度：${safe(device.longitude)}<br>
-                            最後連線：${safe(device.last_seen)}<br>
-                            最後事件 ID：${safe(device.last_event_id)}<br>
-                            最後事件時間：${safe(device.last_event_at)}<br>
-                            狀態：${displayStatus(device.status)}<br>
-                            模式：${displayMode(device.upload_mode)}<br>
-                            監聽中：${yesNo(device.is_listening)}
-                        `);
-                        infoWindow.open({ map, anchor: marker });
-                    });
+                    marker = new NodeOverlayMarker(device);
                     markers.set(device.device_id, marker);
                 } else {
-                    marker.setPosition(position);
-                    marker.setTitle(`${device.device_id} - ${safe(device.upload_mode)}`);
-                    marker.setIcon(markerIcon(device));
+                    marker.update(device);
                 }
             }
 
@@ -2430,6 +2548,39 @@ def dashboard():
                 }
             }
 
+            function simulateAlert(deviceId) {
+                const device = devices.get(deviceId);
+                if (!device) return;
+
+                const now = new Date();
+                alertUntil.set(deviceId, Date.now() + alertDurationMs);
+                devices.set(deviceId, {
+                    ...device,
+                    status: 'event',
+                    last_event_id: `simulated_${Date.now()}`,
+                    last_event_at: now.toISOString(),
+                });
+
+                events.unshift({
+                    event_id: `simulated_${Date.now()}`,
+                    device_id: deviceId,
+                    timestamp: now.toLocaleString('zh-TW', { hour12: false }),
+                    created_at: now.toISOString(),
+                    latitude: device.latitude,
+                    longitude: device.longitude,
+                    label: 'drone',
+                    audio_path: null,
+                    note: 'probability_aircraft=1.000000, confidence=1.000000, upload_mode=simulation',
+                });
+
+                if (events.length > 80) {
+                    events.length = 80;
+                }
+
+                document.getElementById('systemStatus').textContent = `模擬警示：${deviceId}`;
+                renderAll();
+            }
+
             function renderNodes() {
                 const list = document.getElementById('nodeList');
                 const values = visibleDeviceValues();
@@ -2459,6 +2610,7 @@ def dashboard():
                             <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">停止</button>
                             <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">偵測模式</button>
                             <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">蒐集模式</button>
+                            <button class="warn" onclick="simulateAlert('${device.device_id}')">模擬警示</button>
                         </div>
                     </div>
                 `).join('');
@@ -2577,7 +2729,7 @@ def dashboard():
                         renderAll();
                     }
                     if (data.type === 'event_trigger') {
-                        alertUntil.set(data.device_id, Date.now() + 7000);
+                        alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
                         refreshAll();
                     }
