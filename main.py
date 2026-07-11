@@ -1901,7 +1901,7 @@ def dashboard():
             }
             .topbar {
                 display: grid;
-                grid-template-columns: repeat(5, minmax(120px, 1fr));
+                grid-template-columns: repeat(4, minmax(120px, 1fr));
                 gap: 12px;
                 padding: 12px 16px;
             }
@@ -2230,7 +2230,6 @@ def dashboard():
             <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
             <div class="stat"><div class="label">目前警示</div><div class="value" id="activeAlertCount">0</div></div>
             <div class="stat"><div class="label">今日目標聲</div><div class="value" id="todayDroneCount">0</div></div>
-            <div class="stat"><div class="label">今日總事件</div><div class="value" id="todayTotalCount">0</div></div>
             <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
         </section>
 
@@ -2694,13 +2693,11 @@ def dashboard():
                     byNode[event.device_id || 'unknown'] = (byNode[event.device_id || 'unknown'] || 0) + 1;
                 });
                 document.getElementById('reportsGrid').innerHTML = `
-                    <div class="report-box"><div class="label">今日總事件</div><div class="value">${todayEvents.length}</div></div>
                     <div class="report-box"><div class="label">今日目標聲</div><div class="value">${drone.length}</div></div>
                     <div class="report-box"><div class="label">目標聲比例</div><div class="value">${todayEvents.length ? Math.round(drone.length / todayEvents.length * 100) : 0}%</div></div>
                     <div class="report-box" style="grid-column:1/-1"><div class="label">依節點統計</div><div>${Object.entries(byNode).map(([k,v]) => `${k}: ${v}`).join('<br>') || '-'}</div></div>
                 `;
                 document.getElementById('todayDroneCount').textContent = drone.length;
-                document.getElementById('todayTotalCount').textContent = todayEvents.length;
             }
 
             function renderSummary() {
