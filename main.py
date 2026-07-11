@@ -2044,7 +2044,9 @@ def dashboard():
                 margin-bottom: 8px;
                 font-size: 12px;
                 background: #151920;
+                cursor: pointer;
             }
+            .event-row:hover { border-color: var(--accent); }
             .event-row.target { border-color: rgba(240,184,77,.65); }
             .event-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
             .event-title span {
@@ -2228,7 +2230,7 @@ def dashboard():
             <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
             <div class="stat"><div class="label">目前警示</div><div class="value" id="activeAlertCount">0</div></div>
             <div class="stat"><div class="label">今日目標聲</div><div class="value" id="todayDroneCount">0</div></div>
-            <div class="stat"><div class="label">今日音檔</div><div class="value" id="uploadSummary">-</div></div>
+            <div class="stat"><div class="label">今日總事件</div><div class="value" id="todayTotalCount">0</div></div>
             <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
         </section>
 
@@ -2248,7 +2250,7 @@ def dashboard():
                 <section class="panel">
                     <h2>音檔播放</h2>
                     <div class="audio-player" id="audioPlayerBox">
-                        <div class="title" id="audioPlayerTitle">請選擇事件播放音檔</div>
+                        <div class="title" id="audioPlayerTitle">請選擇事件查看音檔</div>
                         <audio id="eventAudioPlayer" controls></audio>
                     </div>
                 </section>
@@ -2506,11 +2508,31 @@ def dashboard():
                 });
             }
 
-            async function playAudio(eventId) {
+            function eventById(eventId) {
+                return events.find(event => event.event_id === eventId);
+            }
+
+            async function selectEventAudio(eventId) {
                 const title = document.getElementById('audioPlayerTitle');
                 const player = document.getElementById('eventAudioPlayer');
+                const event = eventById(eventId);
+
+                if (!event) {
+                    title.textContent = '找不到此事件';
+                    player.removeAttribute('src');
+                    player.load();
+                    return;
+                }
+
+                if (!event.audio_path) {
+                    title.textContent = `${event.event_id} 尚無音檔`;
+                    player.removeAttribute('src');
+                    player.load();
+                    return;
+                }
+
                 try {
-                    title.textContent = `音檔載入中：${eventId}`;
+                    title.textContent = `音檔載入中：${event.event_id}`;
                     const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
@@ -2518,13 +2540,17 @@ def dashboard():
                         title.textContent = '音檔載入失敗：請確認 GCS Object Viewer 權限或檔案是否存在。';
                     };
                     player.src = body.url;
-                    title.textContent = `正在播放：${eventId}，連結 ${body.expires_in_seconds} 秒後失效`;
+                    title.textContent = `${displayEventLabel(event.label)} / ${safe(event.device_id)} / ${safe(event.timestamp)}`;
                     await player.play();
                 } catch (error) {
                     title.textContent = `音檔播放失敗：${error}`;
                     player.removeAttribute('src');
                     player.load();
                 }
+            }
+
+            async function playAudio(eventId) {
+                await selectEventAudio(eventId);
             }
 
             async function sendCommand(deviceId, command) {
@@ -2620,7 +2646,7 @@ def dashboard():
                 const targetEvents = events.filter(event => isTarget(event.label)).slice(0, 12);
                 const list = document.getElementById('alertList');
                 list.innerHTML = targetEvents.length ? targetEvents.map(event => `
-                    <div class="event-row target">
+                    <div class="event-row target" onclick="selectEventAudio('${event.event_id}')">
                         <div class="event-grid">
                             <div>
                                 <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
@@ -2628,7 +2654,7 @@ def dashboard():
                                 <div class="event-detail">目標機率 ${noteValue(event.note, 'probability_aircraft')} / 信心值 ${noteValue(event.note, 'confidence')}</div>
                                 <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
                             </div>
-                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">播放</button>` : '<span class="mini-chip warn">待上傳</span>'}</div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">待上傳</span>'}</div>
                         </div>
                     </div>
                 `).join('') : '<div class="subtitle">目前沒有目標聲警示</div>';
@@ -2647,14 +2673,14 @@ def dashboard():
                     return true;
                 }).slice(0, 50);
                 list.innerHTML = filtered.length ? filtered.map(event => `
-                    <div class="event-row ${isTarget(event.label) ? 'target' : ''}">
+                    <div class="event-row ${isTarget(event.label) ? 'target' : ''}" onclick="selectEventAudio('${event.event_id}')">
                         <div class="event-grid">
                             <div>
                                 <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
                                 <div class="event-detail">信心值 ${noteValue(event.note, 'confidence')} / 模式 ${noteValue(event.note, 'upload_mode')}</div>
                             </div>
-                            <div>${event.audio_path ? `<button onclick="playAudio('${event.event_id}')">播放</button>` : '<span class="mini-chip warn">音檔待上傳</span>'}</div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">無音檔</span>'}</div>
                         </div>
                     </div>
                 `).join('') : '<div class="subtitle">目前沒有事件</div>';
@@ -2663,21 +2689,18 @@ def dashboard():
             function renderReports() {
                 const todayEvents = events.filter(event => isToday(event.created_at || event.timestamp));
                 const drone = todayEvents.filter(event => isTarget(event.label));
-                const other = todayEvents.filter(event => !isTarget(event.label));
-                const uploaded = todayEvents.filter(event => Boolean(event.audio_path));
                 const byNode = {};
                 todayEvents.forEach(event => {
                     byNode[event.device_id || 'unknown'] = (byNode[event.device_id || 'unknown'] || 0) + 1;
                 });
                 document.getElementById('reportsGrid').innerHTML = `
+                    <div class="report-box"><div class="label">今日總事件</div><div class="value">${todayEvents.length}</div></div>
                     <div class="report-box"><div class="label">今日目標聲</div><div class="value">${drone.length}</div></div>
-                    <div class="report-box"><div class="label">今日其他聲音</div><div class="value">${other.length}</div></div>
                     <div class="report-box"><div class="label">目標聲比例</div><div class="value">${todayEvents.length ? Math.round(drone.length / todayEvents.length * 100) : 0}%</div></div>
-                    <div class="report-box"><div class="label">已上傳音檔</div><div class="value">${uploaded.length}</div></div>
                     <div class="report-box" style="grid-column:1/-1"><div class="label">依節點統計</div><div>${Object.entries(byNode).map(([k,v]) => `${k}: ${v}`).join('<br>') || '-'}</div></div>
                 `;
                 document.getElementById('todayDroneCount').textContent = drone.length;
-                document.getElementById('uploadSummary').textContent = `${uploaded.length}/${todayEvents.length}`;
+                document.getElementById('todayTotalCount').textContent = todayEvents.length;
             }
 
             function renderSummary() {
