@@ -2853,6 +2853,8 @@ def dashboard():
                 box-shadow: 0 8px 22px rgba(0,0,0,.35);
                 cursor: pointer;
                 user-select: none;
+            }
+            .target-estimate-marker.active {
                 animation: target-box-pulse 1.1s ease-in-out infinite;
             }
             .target-estimate-marker .target-corner {
@@ -2947,8 +2949,12 @@ def dashboard():
                 inset: -18px;
                 border-radius: 12px;
                 border: 3px solid rgba(249,115,22,.48);
-                animation: alert-ripple 1.4s ease-out infinite;
+                opacity: 0;
                 pointer-events: none;
+            }
+            .target-estimate-marker.active::after {
+                opacity: 1;
+                animation: alert-ripple 1.4s ease-out infinite;
             }
             @keyframes alert-bounce {
                 0%, 100% { transform: scale(1); }
@@ -3081,6 +3087,7 @@ def dashboard():
             const targetEstimateCircles = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
+            const targetEstimateAlertMs = 15000;
             let currentFilter = 'all';
 
             function safe(value, fallback = '-') {
@@ -3180,6 +3187,17 @@ def dashboard():
             function isAlertActive(deviceId) {
                 const until = alertUntil.get(deviceId);
                 return Boolean(until && Date.now() < until);
+            }
+
+            function parseDashboardTime(value) {
+                if (!value) return NaN;
+                const parsed = Date.parse(value);
+                return Number.isFinite(parsed) ? parsed : NaN;
+            }
+
+            function isTargetEstimateActive(estimate) {
+                const timeMs = parseDashboardTime(estimate?.updated_at || estimate?.created_at);
+                return Number.isFinite(timeMs) && Date.now() - timeMs <= targetEstimateAlertMs;
             }
 
             function ensureNodeOverlayMarkerClass() {
@@ -3299,8 +3317,9 @@ def dashboard():
                         const radiusText = Number.isFinite(radius)
                             ? `${Math.round(radius)}m`
                             : '--';
+                        const active = isTargetEstimateActive(this.estimate);
                         this.div.innerHTML = `
-                            <div class="target-estimate-marker" title="聲源估測">
+                            <div class="target-estimate-marker ${active ? 'active' : ''}" title="聲源估測">
                                 <span class="target-corner tl"></span>
                                 <span class="target-corner tr"></span>
                                 <span class="target-corner bl"></span>
