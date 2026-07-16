@@ -2744,6 +2744,35 @@ def dashboard():
                 pointer-events: auto;
                 z-index: 4;
             }
+            .map-marker.target-estimate-anchor {
+                transform: translate(22px, -112px);
+                z-index: 8;
+            }
+            .map-marker.target-estimate-anchor::before {
+                content: "";
+                position: absolute;
+                left: -28px;
+                top: 105px;
+                width: 12px;
+                height: 12px;
+                border-radius: 999px;
+                border: 3px solid #fed7aa;
+                background: #f97316;
+                box-shadow: 0 0 0 5px rgba(249,115,22,.24), 0 4px 12px rgba(0,0,0,.35);
+                pointer-events: none;
+            }
+            .map-marker.target-estimate-anchor::after {
+                content: "";
+                position: absolute;
+                left: -18px;
+                top: 86px;
+                width: 34px;
+                height: 2px;
+                background: rgba(249,115,22,.8);
+                transform: rotate(-38deg);
+                transform-origin: left center;
+                pointer-events: none;
+            }
             .node-marker {
                 position: relative;
                 display: inline-flex;
@@ -2815,8 +2844,8 @@ def dashboard():
             .target-estimate-marker {
                 position: relative;
                 display: block;
-                width: 148px;
-                height: 92px;
+                width: 118px;
+                height: 74px;
                 border: 2px solid rgba(249,115,22,.95);
                 border-radius: 6px;
                 background: rgba(15,23,42,.14);
@@ -2861,8 +2890,8 @@ def dashboard():
                 position: absolute;
                 left: 50%;
                 top: 50%;
-                width: 34px;
-                height: 34px;
+                width: 28px;
+                height: 28px;
                 transform: translate(-50%, -50%);
                 border: 2px solid rgba(254,215,170,.92);
                 border-radius: 999px;
@@ -2876,15 +2905,15 @@ def dashboard():
             }
             .target-estimate-marker .target-cross::before {
                 left: 50%;
-                top: -10px;
+                top: -9px;
                 width: 2px;
-                height: 52px;
+                height: 44px;
                 transform: translateX(-50%);
             }
             .target-estimate-marker .target-cross::after {
-                left: -10px;
+                left: -9px;
                 top: 50%;
-                width: 52px;
+                width: 44px;
                 height: 2px;
                 transform: translateY(-50%);
             }
@@ -3228,7 +3257,7 @@ def dashboard():
 
                     onAdd() {
                         this.div = document.createElement('div');
-                        this.div.className = 'map-marker';
+                        this.div.className = 'map-marker target-estimate-anchor';
                         this.div.addEventListener('click', () => showTargetEstimateInfo(this.estimate));
                         this.getPanes().overlayMouseTarget.appendChild(this.div);
                         this.render();
@@ -3328,6 +3357,21 @@ def dashboard():
                     if (!visibleIds.has(deviceId)) {
                         marker.setMap(null);
                         markers.delete(deviceId);
+                    }
+                });
+            }
+
+            function cleanupTargetEstimateMarkers(activeGroupIds = new Set()) {
+                targetEstimateMarkers.forEach((marker, groupId) => {
+                    if (!activeGroupIds.has(groupId)) {
+                        marker.setMap(null);
+                        targetEstimateMarkers.delete(groupId);
+                    }
+                });
+                targetEstimateCircles.forEach((circle, groupId) => {
+                    if (!activeGroupIds.has(groupId)) {
+                        circle.setMap(null);
+                        targetEstimateCircles.delete(groupId);
                     }
                 });
             }
@@ -3631,7 +3675,16 @@ def dashboard():
             function renderAll() {
                 cleanupHiddenMarkers();
                 visibleDeviceValues().forEach(updateMapMarker);
-                targetEstimateValues().forEach(updateTargetEstimateOnMap);
+                const latestEstimate = targetEstimateValues()[0];
+                const activeEstimateIds = new Set();
+                if (latestEstimate) {
+                    const groupId = latestEstimate.group_id || latestEstimate.id;
+                    if (groupId) {
+                        activeEstimateIds.add(groupId);
+                        updateTargetEstimateOnMap(latestEstimate);
+                    }
+                }
+                cleanupTargetEstimateMarkers(activeEstimateIds);
                 renderNodes();
                 renderAlerts();
                 renderTargetEstimates();
@@ -3681,7 +3734,11 @@ def dashboard():
                     }
                     if (data.type === 'target_estimate') {
                         targetEstimates.set(data.group_id, data);
-                        updateTargetEstimateOnMap(data);
+                        const groupId = data.group_id || data.id;
+                        if (groupId) {
+                            cleanupTargetEstimateMarkers(new Set([groupId]));
+                            updateTargetEstimateOnMap(data);
+                        }
                         renderTargetEstimates();
                     }
                     if (data.type === 'device_command_ack') {
