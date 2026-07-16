@@ -1,8 +1,10 @@
 import json
+import math
 import os
 import re
 import sqlite3
 import csv
+import uuid
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from typing import Any, Optional
@@ -14,6 +16,7 @@ from fastapi import (
     Form,
     Header,
     HTTPException,
+    Query,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -29,6 +32,8 @@ app = FastAPI()
 
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = "test-token-123"
+EVENT_GROUP_WINDOW_SECONDS = 3.0
+TARGET_ESTIMATE_METHOD = "weighted_centroid"
 
 
 class DashboardConnectionManager:
@@ -202,6 +207,35 @@ DEVICE_COMMAND_COLUMNS = [
     "ack_message",
 ]
 
+EVENT_GROUP_COLUMNS = [
+    "id",
+    "group_label",
+    "start_time",
+    "end_time",
+    "node_count",
+    "estimated_lat",
+    "estimated_lng",
+    "confidence",
+    "uncertainty_radius_m",
+    "method",
+    "created_at",
+    "updated_at",
+]
+
+EVENT_GROUP_OBSERVATION_COLUMNS = [
+    "id",
+    "group_id",
+    "event_id",
+    "device_id",
+    "latitude",
+    "longitude",
+    "rms_peak",
+    "aircraft_probability",
+    "event_timestamp",
+    "weight",
+    "created_at",
+]
+
 
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL", "").strip()
@@ -364,6 +398,90 @@ def init_sqlite_db() -> None:
                 column_name=column_name,
                 column_definition=column_definition,
             )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS event_groups (
+                id TEXT PRIMARY KEY,
+                group_label TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                node_count INTEGER,
+                estimated_lat REAL,
+                estimated_lng REAL,
+                confidence REAL,
+                uncertainty_radius_m REAL,
+                method TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        for column_name, column_definition in [
+            ("group_label", "TEXT"),
+            ("start_time", "TEXT"),
+            ("end_time", "TEXT"),
+            ("node_count", "INTEGER"),
+            ("estimated_lat", "REAL"),
+            ("estimated_lng", "REAL"),
+            ("confidence", "REAL"),
+            ("uncertainty_radius_m", "REAL"),
+            ("method", "TEXT"),
+            ("created_at", "TEXT"),
+            ("updated_at", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="event_groups",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS event_group_observations (
+                id TEXT PRIMARY KEY,
+                group_id TEXT,
+                event_id TEXT,
+                device_id TEXT,
+                latitude REAL,
+                longitude REAL,
+                rms_peak REAL,
+                aircraft_probability REAL,
+                event_timestamp TEXT,
+                weight REAL,
+                created_at TEXT
+            )
+            """
+        )
+        for column_name, column_definition in [
+            ("group_id", "TEXT"),
+            ("event_id", "TEXT"),
+            ("device_id", "TEXT"),
+            ("latitude", "REAL"),
+            ("longitude", "REAL"),
+            ("rms_peak", "REAL"),
+            ("aircraft_probability", "REAL"),
+            ("event_timestamp", "TEXT"),
+            ("weight", "REAL"),
+            ("created_at", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="event_group_observations",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS event_groups_updated_at_idx
+            ON event_groups (updated_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS event_group_observations_group_idx
+            ON event_group_observations (group_id)
+            """
+        )
         connection.commit()
 
 
@@ -500,6 +618,86 @@ def init_postgres_db() -> None:
                     """
                     CREATE INDEX IF NOT EXISTS device_commands_pending_idx
                     ON device_commands (device_id, status, created_at)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_groups (
+                        id UUID PRIMARY KEY,
+                        group_label TEXT,
+                        start_time TIMESTAMPTZ,
+                        end_time TIMESTAMPTZ,
+                        node_count INTEGER,
+                        estimated_lat DOUBLE PRECISION,
+                        estimated_lng DOUBLE PRECISION,
+                        confidence DOUBLE PRECISION,
+                        uncertainty_radius_m DOUBLE PRECISION,
+                        method TEXT,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+                for statement in [
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS group_label TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS end_time TIMESTAMPTZ",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS node_count INTEGER",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lat DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lng DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS uncertainty_radius_m DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS method TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
+                ]:
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS event_group_observations (
+                        id UUID PRIMARY KEY,
+                        group_id UUID REFERENCES event_groups(id) ON DELETE CASCADE,
+                        event_id TEXT,
+                        device_id TEXT,
+                        latitude DOUBLE PRECISION,
+                        longitude DOUBLE PRECISION,
+                        rms_peak DOUBLE PRECISION,
+                        aircraft_probability DOUBLE PRECISION,
+                        event_timestamp TIMESTAMPTZ,
+                        weight DOUBLE PRECISION,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+                for statement in [
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS group_id UUID",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_id TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS device_id TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS rms_peak DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_timestamp TIMESTAMPTZ",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+                ]:
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS event_groups_updated_at_idx
+                    ON event_groups (updated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS event_group_observations_group_idx
+                    ON event_group_observations (group_id)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS event_group_observations_event_id_idx
+                    ON event_group_observations (event_id)
                     """
                 )
     finally:
@@ -1555,6 +1753,424 @@ def is_alert_event_label(label: Optional[str]) -> bool:
     return label.strip().lower() in {"aircraft", "drone"}
 
 
+def parse_float_value(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def event_aircraft_probability(row: dict) -> Optional[float]:
+    note = row.get("note")
+    probability = parse_float_value(parse_note_field(note, "probability_aircraft"))
+    if probability is None:
+        probability = parse_float_value(parse_note_field(note, "aircraft_probability"))
+    if probability is None:
+        return None
+    return max(0.0, min(1.0, probability))
+
+
+def event_timestamp_for_fusion(row: dict) -> Optional[datetime]:
+    return parse_datetime(row.get("timestamp")) or parse_datetime(row.get("created_at"))
+
+
+def fusion_weight(rms_peak: Any, aircraft_probability: Optional[float]) -> float:
+    rms_value = parse_float_value(rms_peak)
+    base_weight = 1.0 + math.log1p(max(rms_value or 0.0, 0.0))
+    if aircraft_probability is None:
+        return max(base_weight, 1e-6)
+    return max(base_weight * max(aircraft_probability, 1e-6), 1e-6)
+
+
+def fusion_confidence(node_count: int) -> float:
+    if node_count >= 4:
+        return 0.80
+    if node_count == 3:
+        return 0.65
+    return 0.45
+
+
+def fusion_uncertainty_radius(node_count: int) -> float:
+    if node_count >= 4:
+        return 40.0
+    if node_count == 3:
+        return 60.0
+    return 100.0
+
+
+def list_recent_target_events_for_fusion() -> list[dict]:
+    columns = ", ".join(EVENT_COLUMNS)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT {columns}
+                        FROM events
+                        WHERE LOWER(label) IN ('aircraft', 'drone')
+                          AND latitude IS NOT NULL
+                          AND longitude IS NOT NULL
+                        ORDER BY id DESC
+                        LIMIT 100
+                        """
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {columns}
+            FROM events
+            WHERE LOWER(label) IN ('aircraft', 'drone')
+              AND latitude IS NOT NULL
+              AND longitude IS NOT NULL
+            ORDER BY id DESC
+            LIMIT 100
+            """
+        ).fetchall()
+        return [serialize_db_row(dict(row)) for row in rows]
+
+
+def build_fusion_observations(event: SoundEvent, created_at: str) -> list[dict]:
+    if not is_alert_event_label(event.label):
+        return []
+    if event.latitude is None or event.longitude is None:
+        return []
+
+    reference_time = parse_datetime(event.timestamp) or parse_datetime(created_at)
+    if reference_time is None:
+        reference_time = datetime.now(timezone.utc)
+
+    window = timedelta(seconds=EVENT_GROUP_WINDOW_SECONDS)
+    selected_by_device: dict[str, dict] = {}
+
+    for row in list_recent_target_events_for_fusion():
+        event_time = event_timestamp_for_fusion(row)
+        if event_time is None:
+            continue
+        if event_time < reference_time - window or event_time > reference_time + window:
+            continue
+        if row.get("device_id") is None:
+            continue
+        if row.get("latitude") is None or row.get("longitude") is None:
+            continue
+
+        device_id = str(row.get("device_id"))
+        probability = event_aircraft_probability(row)
+        weight = fusion_weight(row.get("rms_peak"), probability)
+        candidate = {
+            "event_id": row.get("event_id"),
+            "device_id": device_id,
+            "latitude": float(row.get("latitude")),
+            "longitude": float(row.get("longitude")),
+            "rms_peak": parse_float_value(row.get("rms_peak")),
+            "aircraft_probability": probability,
+            "event_timestamp": event_time,
+            "weight": weight,
+            "label": row.get("label") or "aircraft",
+        }
+
+        existing = selected_by_device.get(device_id)
+        if existing is None:
+            selected_by_device[device_id] = candidate
+            continue
+
+        existing_time = existing.get("event_timestamp")
+        if isinstance(existing_time, datetime) and event_time > existing_time:
+            selected_by_device[device_id] = candidate
+
+    observations = list(selected_by_device.values())
+    observations.sort(key=lambda item: item["device_id"])
+    return observations
+
+
+def target_estimate_from_observations(observations: list[dict]) -> Optional[dict]:
+    if len(observations) < 2:
+        return None
+
+    total_weight = sum(max(float(item.get("weight") or 0.0), 1e-6) for item in observations)
+    if total_weight <= 0:
+        return None
+
+    estimated_lat = sum(item["latitude"] * item["weight"] for item in observations) / total_weight
+    estimated_lng = sum(item["longitude"] * item["weight"] for item in observations) / total_weight
+    event_times = [item["event_timestamp"] for item in observations if item.get("event_timestamp")]
+    node_count = len({item["device_id"] for item in observations})
+    labels = [str(item.get("label") or "").lower() for item in observations]
+    group_label = "drone" if "drone" in labels else "aircraft"
+    now = current_time_iso()
+
+    return {
+        "id": str(uuid.uuid4()),
+        "group_label": group_label,
+        "start_time": min(event_times).isoformat() if event_times else now,
+        "end_time": max(event_times).isoformat() if event_times else now,
+        "node_count": node_count,
+        "estimated_lat": estimated_lat,
+        "estimated_lng": estimated_lng,
+        "confidence": fusion_confidence(node_count),
+        "uncertainty_radius_m": fusion_uncertainty_radius(node_count),
+        "method": TARGET_ESTIMATE_METHOD,
+        "created_at": now,
+        "updated_at": now,
+        "devices": [item["device_id"] for item in observations],
+        "observations": observations,
+    }
+
+
+def store_target_estimate(estimate: dict) -> dict:
+    group_id = estimate["id"]
+    observations = estimate.get("observations", [])
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO event_groups (
+                            id,
+                            group_label,
+                            start_time,
+                            end_time,
+                            node_count,
+                            estimated_lat,
+                            estimated_lng,
+                            confidence,
+                            uncertainty_radius_m,
+                            method,
+                            created_at,
+                            updated_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            group_id,
+                            estimate["group_label"],
+                            estimate["start_time"],
+                            estimate["end_time"],
+                            estimate["node_count"],
+                            estimate["estimated_lat"],
+                            estimate["estimated_lng"],
+                            estimate["confidence"],
+                            estimate["uncertainty_radius_m"],
+                            estimate["method"],
+                            estimate["created_at"],
+                            estimate["updated_at"],
+                        ),
+                    )
+                    for item in observations:
+                        cursor.execute(
+                            """
+                            INSERT INTO event_group_observations (
+                                id,
+                                group_id,
+                                event_id,
+                                device_id,
+                                latitude,
+                                longitude,
+                                rms_peak,
+                                aircraft_probability,
+                                event_timestamp,
+                                weight,
+                                created_at
+                            )
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                str(uuid.uuid4()),
+                                group_id,
+                                item.get("event_id"),
+                                item.get("device_id"),
+                                item.get("latitude"),
+                                item.get("longitude"),
+                                item.get("rms_peak"),
+                                item.get("aircraft_probability"),
+                                item.get("event_timestamp").isoformat()
+                                if hasattr(item.get("event_timestamp"), "isoformat")
+                                else item.get("event_timestamp"),
+                                item.get("weight"),
+                                estimate["created_at"],
+                            ),
+                        )
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO event_groups (
+                    id,
+                    group_label,
+                    start_time,
+                    end_time,
+                    node_count,
+                    estimated_lat,
+                    estimated_lng,
+                    confidence,
+                    uncertainty_radius_m,
+                    method,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    group_id,
+                    estimate["group_label"],
+                    estimate["start_time"],
+                    estimate["end_time"],
+                    estimate["node_count"],
+                    estimate["estimated_lat"],
+                    estimate["estimated_lng"],
+                    estimate["confidence"],
+                    estimate["uncertainty_radius_m"],
+                    estimate["method"],
+                    estimate["created_at"],
+                    estimate["updated_at"],
+                ),
+            )
+            for item in observations:
+                timestamp = item.get("event_timestamp")
+                connection.execute(
+                    """
+                    INSERT INTO event_group_observations (
+                        id,
+                        group_id,
+                        event_id,
+                        device_id,
+                        latitude,
+                        longitude,
+                        rms_peak,
+                        aircraft_probability,
+                        event_timestamp,
+                        weight,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        group_id,
+                        item.get("event_id"),
+                        item.get("device_id"),
+                        item.get("latitude"),
+                        item.get("longitude"),
+                        item.get("rms_peak"),
+                        item.get("aircraft_probability"),
+                        timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
+                        item.get("weight"),
+                        estimate["created_at"],
+                    ),
+                )
+            connection.commit()
+
+    return target_estimate_payload(estimate)
+
+
+def create_target_estimate_for_event(
+    event: SoundEvent,
+    created_at: str,
+) -> Optional[dict]:
+    observations = build_fusion_observations(event, created_at)
+    estimate = target_estimate_from_observations(observations)
+    if estimate is None:
+        return None
+    return store_target_estimate(estimate)
+
+
+def target_estimate_payload(estimate: dict) -> dict:
+    group_id = estimate.get("id")
+    return {
+        "group_id": str(group_id) if group_id is not None else None,
+        "label": estimate.get("group_label"),
+        "estimated_lat": estimate.get("estimated_lat"),
+        "estimated_lng": estimate.get("estimated_lng"),
+        "confidence": estimate.get("confidence"),
+        "uncertainty_radius_m": estimate.get("uncertainty_radius_m"),
+        "method": estimate.get("method"),
+        "node_count": estimate.get("node_count"),
+        "devices": estimate.get("devices", []),
+        "created_at": estimate.get("created_at"),
+        "updated_at": estimate.get("updated_at"),
+    }
+
+
+def list_target_estimates(limit: int = 10) -> list[dict]:
+    safe_limit = max(1, min(limit, 100))
+    columns = ", ".join(EVENT_GROUP_COLUMNS)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT {columns}
+                        FROM event_groups
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                        """,
+                        (safe_limit,),
+                    )
+                    groups = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+                    for group in groups:
+                        cursor.execute(
+                            """
+                            SELECT device_id
+                            FROM event_group_observations
+                            WHERE group_id = %s
+                            ORDER BY device_id ASC
+                            """,
+                            (group["id"],),
+                        )
+                        group["devices"] = [
+                            row["device_id"] for row in cursor.fetchall() if row.get("device_id")
+                        ]
+                    return [target_estimate_payload(group) for group in groups]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT {columns}
+            FROM event_groups
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        groups = [serialize_db_row(dict(row)) for row in rows]
+        for group in groups:
+            device_rows = connection.execute(
+                """
+                SELECT device_id
+                FROM event_group_observations
+                WHERE group_id = ?
+                ORDER BY device_id ASC
+                """,
+                (group["id"],),
+            ).fetchall()
+            group["devices"] = [
+                row["device_id"] for row in device_rows if row["device_id"]
+            ]
+        return [target_estimate_payload(group) for group in groups]
+
+
 def safe_path_part(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
     return cleaned.strip("._") or "unknown"
@@ -1673,12 +2289,29 @@ async def create_event(
             }
         )
 
+    target_estimate = None
+    if is_alert_event_label(event.label):
+        target_estimate = create_target_estimate_for_event(event, created_at)
+
+    if target_estimate:
+        await dashboard_manager.broadcast(
+            {
+                "type": "target_estimate",
+                **target_estimate,
+            }
+        )
+
     return {
         "status": "success",
         "message": "Event received",
         "event_id": event.event_id,
         "db_id": db_id,
     }
+
+
+@app.get("/target-estimates")
+def target_estimates(limit: int = Query(default=10, ge=1, le=100)):
+    return list_target_estimates(limit=limit)
 
 
 @app.get("/events")
@@ -1928,7 +2561,7 @@ def dashboard():
             .side-stack {
                 min-height: 0;
                 display: grid;
-                grid-template-rows: minmax(142px, auto) minmax(220px, 1fr) minmax(180px, .75fr);
+                grid-template-rows: minmax(142px, auto) minmax(190px, .8fr) minmax(170px, .65fr) minmax(170px, .65fr);
                 gap: 12px;
             }
             .side-stack .panel { height: 100%; }
@@ -2179,9 +2812,40 @@ def dashboard():
             .node-marker.alert::after {
                 animation-delay: .45s;
             }
+            .target-estimate-marker {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 88px;
+                padding: 7px 11px;
+                border-radius: 999px;
+                border: 3px solid #f97316;
+                background: #fff7ed;
+                color: #7c2d12;
+                font-size: 13px;
+                font-weight: 900;
+                box-shadow: 0 8px 22px rgba(0,0,0,.35);
+                cursor: pointer;
+                white-space: nowrap;
+                animation: target-pulse 1.15s ease-in-out infinite;
+            }
+            .target-estimate-marker::after {
+                content: "";
+                position: absolute;
+                inset: -12px;
+                border-radius: 999px;
+                border: 3px solid rgba(249,115,22,.55);
+                animation: alert-ripple 1.4s ease-out infinite;
+                pointer-events: none;
+            }
             @keyframes alert-bounce {
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.08); }
+            }
+            @keyframes target-pulse {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.06); }
             }
             @keyframes alert-ripple {
                 0% { opacity: .9; transform: scale(.86); }
@@ -2260,6 +2924,13 @@ def dashboard():
                 </section>
 
                 <section class="panel">
+                    <h2>聲源估測</h2>
+                    <div class="panel-body right-scroll" id="targetEstimateList">
+                        <div class="subtitle">目前沒有多節點融合估測</div>
+                    </div>
+                </section>
+
+                <section class="panel">
                     <h2>統計報表</h2>
                     <div class="panel-body right-scroll reports-scroll">
                         <div class="reports-grid" id="reportsGrid"></div>
@@ -2284,9 +2955,13 @@ def dashboard():
             let map;
             let infoWindow;
             let NodeOverlayMarker;
+            let TargetEstimateOverlayMarker;
             const devices = new Map();
             const events = [];
             const markers = new Map();
+            const targetEstimates = new Map();
+            const targetEstimateMarkers = new Map();
+            const targetEstimateCircles = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             let currentFilter = 'all';
@@ -2448,6 +3123,66 @@ def dashboard():
                 };
             }
 
+            function ensureTargetEstimateOverlayMarkerClass() {
+                if (TargetEstimateOverlayMarker || !window.google) return;
+
+                TargetEstimateOverlayMarker = class extends google.maps.OverlayView {
+                    constructor(estimate) {
+                        super();
+                        this.estimate = estimate;
+                        this.position = new google.maps.LatLng(
+                            Number(estimate.estimated_lat),
+                            Number(estimate.estimated_lng),
+                        );
+                        this.div = null;
+                        this.setMap(map);
+                    }
+
+                    onAdd() {
+                        this.div = document.createElement('div');
+                        this.div.className = 'map-marker';
+                        this.div.addEventListener('click', () => showTargetEstimateInfo(this.estimate));
+                        this.getPanes().overlayMouseTarget.appendChild(this.div);
+                        this.render();
+                    }
+
+                    draw() {
+                        if (!this.div) return;
+                        const projection = this.getProjection();
+                        if (!projection) return;
+                        const point = projection.fromLatLngToDivPixel(this.position);
+                        this.div.style.left = `${point.x}px`;
+                        this.div.style.top = `${point.y}px`;
+                    }
+
+                    onRemove() {
+                        if (this.div?.parentNode) {
+                            this.div.parentNode.removeChild(this.div);
+                        }
+                        this.div = null;
+                    }
+
+                    update(estimate) {
+                        this.estimate = { ...this.estimate, ...estimate };
+                        this.position = new google.maps.LatLng(
+                            Number(this.estimate.estimated_lat),
+                            Number(this.estimate.estimated_lng),
+                        );
+                        this.render();
+                        this.draw();
+                    }
+
+                    render() {
+                        if (!this.div) return;
+                        this.div.innerHTML = `
+                            <div class="target-estimate-marker" title="聲源估測">
+                                聲源估測
+                            </div>
+                        `;
+                    }
+                };
+            }
+
             function showDeviceInfo(device) {
                 const lat = Number(device.latitude);
                 const lng = Number(device.longitude);
@@ -2493,6 +3228,88 @@ def dashboard():
                         markers.delete(deviceId);
                     }
                 });
+            }
+
+            function targetEstimateValues() {
+                return Array.from(targetEstimates.values())
+                    .filter(estimate => Number.isFinite(Number(estimate.estimated_lat)) && Number.isFinite(Number(estimate.estimated_lng)))
+                    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
+            }
+
+            function showTargetEstimateInfo(estimate) {
+                const lat = Number(estimate.estimated_lat);
+                const lng = Number(estimate.estimated_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+                infoWindow.setContent(`
+                    <strong>聲源估測</strong><br>
+                    label: ${safe(estimate.label)}<br>
+                    method: ${safe(estimate.method)}<br>
+                    confidence: ${Number(estimate.confidence || 0).toFixed(2)}<br>
+                    uncertainty: ${safe(estimate.uncertainty_radius_m)} m<br>
+                    node_count: ${safe(estimate.node_count)}<br>
+                    devices: ${(estimate.devices || []).join(', ') || '-'}<br>
+                    updated_at: ${safe(estimate.updated_at)}
+                `);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
+            }
+
+            function updateTargetEstimateOnMap(estimate) {
+                if (!map || !window.google) return;
+                const lat = Number(estimate.estimated_lat);
+                const lng = Number(estimate.estimated_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const groupId = estimate.group_id || estimate.id;
+                if (!groupId) return;
+
+                ensureTargetEstimateOverlayMarkerClass();
+                if (!TargetEstimateOverlayMarker) return;
+
+                let marker = targetEstimateMarkers.get(groupId);
+                if (!marker) {
+                    marker = new TargetEstimateOverlayMarker(estimate);
+                    targetEstimateMarkers.set(groupId, marker);
+                } else {
+                    marker.update(estimate);
+                }
+
+                let circle = targetEstimateCircles.get(groupId);
+                const radius = Number(estimate.uncertainty_radius_m || 80);
+                if (!circle) {
+                    circle = new google.maps.Circle({
+                        map,
+                        center: { lat, lng },
+                        radius,
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.72,
+                        strokeWeight: 2,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.16,
+                    });
+                    targetEstimateCircles.set(groupId, circle);
+                } else {
+                    circle.setCenter({ lat, lng });
+                    circle.setRadius(radius);
+                }
+            }
+
+            function renderTargetEstimates() {
+                const list = document.getElementById('targetEstimateList');
+                if (!list) return;
+                const estimates = targetEstimateValues().slice(0, 8);
+                if (!estimates.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有多節點融合估測</div>';
+                    return;
+                }
+                list.innerHTML = estimates.map(estimate => `
+                    <div class="event-row target" onclick="showTargetEstimateInfo(targetEstimates.get('${estimate.group_id}'))">
+                        <div class="event-title"><span>聲源估測</span><span>${safe(estimate.label)}</span></div>
+                        <div class="event-detail">節點 ${safe(estimate.node_count)} / 信心 ${Number(estimate.confidence || 0).toFixed(2)}</div>
+                        <div class="event-detail">位置 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
+                        <div class="event-detail">範圍 ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
+                    </div>
+                `).join('');
             }
 
             function setFilter(filter) {
@@ -2712,8 +3529,10 @@ def dashboard():
             function renderAll() {
                 cleanupHiddenMarkers();
                 visibleDeviceValues().forEach(updateMapMarker);
+                targetEstimateValues().forEach(updateTargetEstimateOnMap);
                 renderNodes();
                 renderAlerts();
+                renderTargetEstimates();
                 renderTimeline();
                 renderReports();
                 renderSummary();
@@ -2721,17 +3540,22 @@ def dashboard():
 
             async function refreshAll() {
                 try {
-                    const [statusResponse, eventsResponse] = await Promise.all([
+                    const [statusResponse, eventsResponse, estimatesResponse] = await Promise.all([
                         fetch('/device-status'),
                         fetch('/events'),
+                        fetch('/target-estimates?limit=10'),
                     ]);
                     const statusData = await statusResponse.json();
                     const eventsData = await eventsResponse.json();
+                    const estimatesData = await estimatesResponse.json();
                     devices.clear();
                     (statusData.devices || [])
                         .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
                         .forEach(device => devices.set(device.device_id, device));
                     events.splice(0, events.length, ...(eventsData.events || []));
+                    targetEstimates.clear();
+                    (Array.isArray(estimatesData) ? estimatesData : (estimatesData.estimates || []))
+                        .forEach(estimate => targetEstimates.set(estimate.group_id, estimate));
                     renderAll();
                 } catch (error) {
                     document.getElementById('systemStatus').textContent = '資料讀取失敗';
@@ -2752,6 +3576,11 @@ def dashboard():
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
                         refreshAll();
+                    }
+                    if (data.type === 'target_estimate') {
+                        targetEstimates.set(data.group_id, data);
+                        updateTargetEstimateOnMap(data);
+                        renderTargetEstimates();
                     }
                     if (data.type === 'device_command_ack') {
                         document.getElementById('systemStatus').textContent = `指令回報 ${data.status}`;
