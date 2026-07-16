@@ -2814,28 +2814,110 @@ def dashboard():
             }
             .target-estimate-marker {
                 position: relative;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 88px;
-                padding: 7px 11px;
-                border-radius: 999px;
-                border: 3px solid #f97316;
-                background: #fff7ed;
-                color: #7c2d12;
-                font-size: 13px;
-                font-weight: 900;
+                display: block;
+                width: 148px;
+                height: 92px;
+                border: 2px solid rgba(249,115,22,.95);
+                border-radius: 6px;
+                background: rgba(15,23,42,.14);
+                color: #fff7ed;
                 box-shadow: 0 8px 22px rgba(0,0,0,.35);
                 cursor: pointer;
+                user-select: none;
+                animation: target-box-pulse 1.1s ease-in-out infinite;
+            }
+            .target-estimate-marker .target-corner {
+                position: absolute;
+                width: 24px;
+                height: 24px;
+                border-color: #fed7aa;
+                pointer-events: none;
+            }
+            .target-estimate-marker .tl {
+                top: -4px;
+                left: -4px;
+                border-left: 5px solid;
+                border-top: 5px solid;
+            }
+            .target-estimate-marker .tr {
+                top: -4px;
+                right: -4px;
+                border-right: 5px solid;
+                border-top: 5px solid;
+            }
+            .target-estimate-marker .bl {
+                bottom: -4px;
+                left: -4px;
+                border-left: 5px solid;
+                border-bottom: 5px solid;
+            }
+            .target-estimate-marker .br {
+                bottom: -4px;
+                right: -4px;
+                border-right: 5px solid;
+                border-bottom: 5px solid;
+            }
+            .target-estimate-marker .target-cross {
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                width: 34px;
+                height: 34px;
+                transform: translate(-50%, -50%);
+                border: 2px solid rgba(254,215,170,.92);
+                border-radius: 999px;
+                pointer-events: none;
+            }
+            .target-estimate-marker .target-cross::before,
+            .target-estimate-marker .target-cross::after {
+                content: "";
+                position: absolute;
+                background: rgba(254,215,170,.92);
+            }
+            .target-estimate-marker .target-cross::before {
+                left: 50%;
+                top: -10px;
+                width: 2px;
+                height: 52px;
+                transform: translateX(-50%);
+            }
+            .target-estimate-marker .target-cross::after {
+                left: -10px;
+                top: 50%;
+                width: 52px;
+                height: 2px;
+                transform: translateY(-50%);
+            }
+            .target-estimate-marker .target-tag,
+            .target-estimate-marker .target-meta {
+                position: absolute;
+                left: 8px;
+                max-width: calc(100% - 16px);
+                padding: 3px 7px;
+                border-radius: 4px;
+                background: rgba(124,45,18,.92);
+                color: #fffbeb;
+                font-size: 12px;
+                font-weight: 900;
+                line-height: 1.1;
                 white-space: nowrap;
-                animation: target-pulse 1.15s ease-in-out infinite;
+                box-shadow: 0 4px 14px rgba(0,0,0,.28);
+            }
+            .target-estimate-marker .target-tag {
+                top: -30px;
+                letter-spacing: .08em;
+            }
+            .target-estimate-marker .target-meta {
+                bottom: -28px;
+                background: rgba(15,23,42,.9);
+                color: #fed7aa;
             }
             .target-estimate-marker::after {
                 content: "";
                 position: absolute;
-                inset: -12px;
-                border-radius: 999px;
-                border: 3px solid rgba(249,115,22,.55);
+                inset: -18px;
+                border-radius: 12px;
+                border: 3px solid rgba(249,115,22,.48);
                 animation: alert-ripple 1.4s ease-out infinite;
                 pointer-events: none;
             }
@@ -2843,9 +2925,15 @@ def dashboard():
                 0%, 100% { transform: scale(1); }
                 50% { transform: scale(1.08); }
             }
-            @keyframes target-pulse {
-                0%, 100% { transform: scale(1); }
-                50% { transform: scale(1.06); }
+            @keyframes target-box-pulse {
+                0%, 100% {
+                    transform: scale(1);
+                    box-shadow: 0 8px 22px rgba(0,0,0,.35), 0 0 0 rgba(249,115,22,0);
+                }
+                50% {
+                    transform: scale(1.04);
+                    box-shadow: 0 10px 28px rgba(0,0,0,.45), 0 0 20px rgba(249,115,22,.45);
+                }
             }
             @keyframes alert-ripple {
                 0% { opacity: .9; transform: scale(.86); }
@@ -3174,9 +3262,23 @@ def dashboard():
 
                     render() {
                         if (!this.div) return;
+                        const confidence = Number(this.estimate.confidence || 0);
+                        const confidenceText = Number.isFinite(confidence)
+                            ? `${Math.round(confidence * 100)}%`
+                            : '--';
+                        const radius = Number(this.estimate.uncertainty_radius_m);
+                        const radiusText = Number.isFinite(radius)
+                            ? `${Math.round(radius)}m`
+                            : '--';
                         this.div.innerHTML = `
                             <div class="target-estimate-marker" title="聲源估測">
-                                聲源估測
+                                <span class="target-corner tl"></span>
+                                <span class="target-corner tr"></span>
+                                <span class="target-corner bl"></span>
+                                <span class="target-corner br"></span>
+                                <span class="target-cross"></span>
+                                <span class="target-tag">TARGET ${confidenceText}</span>
+                                <span class="target-meta">radius ${radiusText}</span>
                             </div>
                         `;
                     }
