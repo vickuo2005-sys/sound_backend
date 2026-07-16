@@ -2703,6 +2703,22 @@ def dashboard():
                 line-height: 1.35;
                 overflow-wrap: anywhere;
             }
+            .preview-actions {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                margin-top: 7px;
+            }
+            .preview-status {
+                color: var(--accent-2);
+                font-weight: 800;
+            }
+            .preview-close {
+                min-height: 28px;
+                padding: 4px 9px;
+                font-size: 12px;
+            }
             .timeline { grid-column: 1 / span 3; }
             .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
             .filters button.active { color: var(--accent-2); border-color: rgba(96,211,148,.65); }
@@ -3092,6 +3108,7 @@ def dashboard():
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const targetEstimateAutoDisplayMs = 5000;
+            const dismissedTargetEstimateIds = new Set();
             let selectedTargetEstimateId = null;
             let currentFilter = 'all';
 
@@ -3438,6 +3455,10 @@ def dashboard():
             }
 
             function previewTargetEstimate(groupId) {
+                if (selectedTargetEstimateId === groupId) {
+                    clearTargetEstimatePreview();
+                    return;
+                }
                 const estimate = targetEstimates.get(groupId);
                 if (!estimate) return;
                 const lat = Number(estimate.estimated_lat);
@@ -3445,12 +3466,25 @@ def dashboard():
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
                 selectedTargetEstimateId = groupId;
+                dismissedTargetEstimateIds.delete(groupId);
                 cleanupTargetEstimateMarkers(new Set([groupId]));
                 updateTargetEstimateOnMap(estimate);
                 showTargetEstimateInfo(estimate);
                 map.panTo({ lat, lng });
                 if ((map.getZoom() || 12) < 16) {
                     map.setZoom(16);
+                }
+                renderTargetEstimates();
+            }
+
+            function clearTargetEstimatePreview() {
+                if (selectedTargetEstimateId) {
+                    dismissedTargetEstimateIds.add(selectedTargetEstimateId);
+                }
+                selectedTargetEstimateId = null;
+                cleanupTargetEstimateMarkers(new Set());
+                if (infoWindow) {
+                    infoWindow.close();
                 }
                 renderTargetEstimates();
             }
@@ -3508,11 +3542,19 @@ def dashboard():
                         <div class="event-detail">節點 ${safe(estimate.node_count)} / 信心 ${Number(estimate.confidence || 0).toFixed(2)}</div>
                         <div class="event-detail">位置 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
                         <div class="event-detail">範圍 ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
-                        <div class="event-detail">點選可在地圖預覽位置</div>
+                        ${targetEstimateId(estimate) === selectedTargetEstimateId
+                            ? '<div class="preview-actions"><span class="preview-status">已在地圖預覽</span><button class="preview-close" type="button" data-close-preview="1">關閉預覽</button></div>'
+                            : '<div class="event-detail">點選可在地圖預覽位置</div>'}
                     </div>
                 `).join('');
                 list.querySelectorAll('[data-estimate-id]').forEach(row => {
                     row.addEventListener('click', () => previewTargetEstimate(row.dataset.estimateId));
+                });
+                list.querySelectorAll('[data-close-preview]').forEach(button => {
+                    button.addEventListener('click', event => {
+                        event.stopPropagation();
+                        clearTargetEstimatePreview();
+                    });
                 });
             }
 
@@ -3746,7 +3788,7 @@ def dashboard():
                     updateTargetEstimateOnMap(selectedEstimate);
                 } else if (latestEstimate && isTargetEstimateActive(latestEstimate)) {
                     const groupId = targetEstimateId(latestEstimate);
-                    if (groupId) {
+                    if (groupId && !dismissedTargetEstimateIds.has(groupId)) {
                         activeEstimateIds.add(groupId);
                         updateTargetEstimateOnMap(latestEstimate);
                     }
@@ -3804,6 +3846,7 @@ def dashboard():
                         selectedTargetEstimateId = null;
                         const groupId = targetEstimateId(data);
                         if (groupId) {
+                            dismissedTargetEstimateIds.delete(groupId);
                             cleanupTargetEstimateMarkers(new Set([groupId]));
                             updateTargetEstimateOnMap(data);
                         }
