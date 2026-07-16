@@ -2681,6 +2681,10 @@ def dashboard():
             }
             .event-row:hover { border-color: var(--accent); }
             .event-row.target { border-color: rgba(240,184,77,.65); }
+            .event-row.target.selected {
+                background: rgba(240,184,77,.12);
+                border-color: rgba(240,184,77,.95);
+            }
             .event-title { display: flex; justify-content: space-between; gap: 8px; font-weight: 800; }
             .event-title span {
                 min-width: 0;
@@ -3087,11 +3091,20 @@ def dashboard():
             const targetEstimateCircles = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
-            const targetEstimateAlertMs = 15000;
+            const targetEstimateAutoDisplayMs = 5000;
+            let selectedTargetEstimateId = null;
             let currentFilter = 'all';
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : value;
+            }
+
+            function attrSafe(value) {
+                return String(value ?? '')
+                    .replaceAll('&', '&amp;')
+                    .replaceAll('"', '&quot;')
+                    .replaceAll('<', '&lt;')
+                    .replaceAll('>', '&gt;');
             }
 
             function isDiagnosticDevice(deviceId) {
@@ -3197,7 +3210,7 @@ def dashboard():
 
             function isTargetEstimateActive(estimate) {
                 const timeMs = parseDashboardTime(estimate?.updated_at || estimate?.created_at);
-                return Number.isFinite(timeMs) && Date.now() - timeMs <= targetEstimateAlertMs;
+                return Number.isFinite(timeMs) && Date.now() - timeMs <= targetEstimateAutoDisplayMs;
             }
 
             function ensureNodeOverlayMarkerClass() {
@@ -3401,6 +3414,10 @@ def dashboard():
                     .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
             }
 
+            function targetEstimateId(estimate) {
+                return estimate?.group_id || estimate?.id || '';
+            }
+
             function showTargetEstimateInfo(estimate) {
                 const lat = Number(estimate.estimated_lat);
                 const lng = Number(estimate.estimated_lng);
@@ -3420,12 +3437,30 @@ def dashboard():
                 infoWindow.open(map);
             }
 
+            function previewTargetEstimate(groupId) {
+                const estimate = targetEstimates.get(groupId);
+                if (!estimate) return;
+                const lat = Number(estimate.estimated_lat);
+                const lng = Number(estimate.estimated_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+                selectedTargetEstimateId = groupId;
+                cleanupTargetEstimateMarkers(new Set([groupId]));
+                updateTargetEstimateOnMap(estimate);
+                showTargetEstimateInfo(estimate);
+                map.panTo({ lat, lng });
+                if ((map.getZoom() || 12) < 16) {
+                    map.setZoom(16);
+                }
+                renderTargetEstimates();
+            }
+
             function updateTargetEstimateOnMap(estimate) {
                 if (!map || !window.google) return;
                 const lat = Number(estimate.estimated_lat);
                 const lng = Number(estimate.estimated_lng);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-                const groupId = estimate.group_id || estimate.id;
+                const groupId = targetEstimateId(estimate);
                 if (!groupId) return;
 
                 ensureTargetEstimateOverlayMarkerClass();
@@ -3468,13 +3503,17 @@ def dashboard():
                     return;
                 }
                 list.innerHTML = estimates.map(estimate => `
-                    <div class="event-row target" onclick="showTargetEstimateInfo(targetEstimates.get('${estimate.group_id}'))">
+                    <div class="event-row target ${targetEstimateId(estimate) === selectedTargetEstimateId ? 'selected' : ''}" data-estimate-id="${attrSafe(targetEstimateId(estimate))}">
                         <div class="event-title"><span>聲源估測</span><span>${safe(estimate.label)}</span></div>
                         <div class="event-detail">節點 ${safe(estimate.node_count)} / 信心 ${Number(estimate.confidence || 0).toFixed(2)}</div>
                         <div class="event-detail">位置 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
                         <div class="event-detail">範圍 ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
+                        <div class="event-detail">點選可在地圖預覽位置</div>
                     </div>
                 `).join('');
+                list.querySelectorAll('[data-estimate-id]').forEach(row => {
+                    row.addEventListener('click', () => previewTargetEstimate(row.dataset.estimateId));
+                });
             }
 
             function setFilter(filter) {
@@ -3695,9 +3734,18 @@ def dashboard():
                 cleanupHiddenMarkers();
                 visibleDeviceValues().forEach(updateMapMarker);
                 const latestEstimate = targetEstimateValues()[0];
+                const selectedEstimate = selectedTargetEstimateId
+                    ? targetEstimates.get(selectedTargetEstimateId)
+                    : null;
+                if (selectedTargetEstimateId && !selectedEstimate) {
+                    selectedTargetEstimateId = null;
+                }
                 const activeEstimateIds = new Set();
-                if (latestEstimate) {
-                    const groupId = latestEstimate.group_id || latestEstimate.id;
+                if (selectedEstimate) {
+                    activeEstimateIds.add(selectedTargetEstimateId);
+                    updateTargetEstimateOnMap(selectedEstimate);
+                } else if (latestEstimate && isTargetEstimateActive(latestEstimate)) {
+                    const groupId = targetEstimateId(latestEstimate);
                     if (groupId) {
                         activeEstimateIds.add(groupId);
                         updateTargetEstimateOnMap(latestEstimate);
@@ -3753,7 +3801,8 @@ def dashboard():
                     }
                     if (data.type === 'target_estimate') {
                         targetEstimates.set(data.group_id, data);
-                        const groupId = data.group_id || data.id;
+                        selectedTargetEstimateId = null;
+                        const groupId = targetEstimateId(data);
                         if (groupId) {
                             cleanupTargetEstimateMarkers(new Set([groupId]));
                             updateTargetEstimateOnMap(data);
