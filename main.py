@@ -34,6 +34,13 @@ DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = "test-token-123"
 EVENT_GROUP_WINDOW_SECONDS = 3.0
 TARGET_ESTIMATE_METHOD = "weighted_centroid"
+TDOA_ESTIMATE_METHOD = "tdoa_timestamp"
+TDOA_FALLBACK_METHOD = "weighted_centroid_fallback"
+SOUND_SPEED_MPS = 343.0
+TDOA_MAX_RTT_MS = 300.0
+TDOA_TIME_TOLERANCE_SECONDS = 0.3
+TDOA_MIN_NODE_SPREAD_M = 5.0
+TDOA_MAX_OUTSIDE_BOUNDS_M = 300.0
 
 
 class DashboardConnectionManager:
@@ -76,6 +83,14 @@ class SoundEvent(BaseModel):
     local_audio_path: Optional[str] = None
     audio_path: Optional[str] = None
     note: Optional[str] = None
+    device_event_time_ms: Optional[float] = None
+    event_start_time_ms: Optional[float] = None
+    event_end_time_ms: Optional[float] = None
+    rms_peak_offset_ms: Optional[float] = None
+    sample_rate: Optional[int] = None
+    audio_duration_ms: Optional[float] = None
+    time_sync_offset_ms: Optional[float] = None
+    time_sync_rtt_ms: Optional[float] = None
 
 
 class LocationUpdate(BaseModel):
@@ -173,6 +188,16 @@ EVENT_COLUMNS = [
     "audio_path",
     "note",
     "created_at",
+    "device_event_time_ms",
+    "event_start_time_ms",
+    "event_end_time_ms",
+    "rms_peak_offset_ms",
+    "sample_rate",
+    "audio_duration_ms",
+    "time_sync_offset_ms",
+    "time_sync_rtt_ms",
+    "corrected_arrival_time_ms",
+    "timing_quality",
 ]
 
 DEVICE_STATUS_COLUMNS = [
@@ -218,6 +243,9 @@ EVENT_GROUP_COLUMNS = [
     "confidence",
     "uncertainty_radius_m",
     "method",
+    "tdoa_residual_rmse_m",
+    "tdoa_node_count",
+    "time_sync_quality",
     "created_at",
     "updated_at",
 ]
@@ -233,6 +261,10 @@ EVENT_GROUP_OBSERVATION_COLUMNS = [
     "aircraft_probability",
     "event_timestamp",
     "weight",
+    "corrected_arrival_time_ms",
+    "time_sync_rtt_ms",
+    "tdoa_used",
+    "tdoa_residual_m",
     "created_at",
 ]
 
@@ -310,16 +342,39 @@ def init_sqlite_db() -> None:
                 local_audio_path TEXT,
                 audio_path TEXT,
                 note TEXT,
-                created_at TEXT
+                created_at TEXT,
+                device_event_time_ms REAL,
+                event_start_time_ms REAL,
+                event_end_time_ms REAL,
+                rms_peak_offset_ms REAL,
+                sample_rate INTEGER,
+                audio_duration_ms REAL,
+                time_sync_offset_ms REAL,
+                time_sync_rtt_ms REAL,
+                corrected_arrival_time_ms REAL,
+                timing_quality TEXT
             )
             """
         )
-        add_sqlite_column_if_missing(
-            connection=connection,
-            table_name="events",
-            column_name="audio_path",
-            column_definition="TEXT",
-        )
+        for column_name, column_definition in [
+            ("audio_path", "TEXT"),
+            ("device_event_time_ms", "REAL"),
+            ("event_start_time_ms", "REAL"),
+            ("event_end_time_ms", "REAL"),
+            ("rms_peak_offset_ms", "REAL"),
+            ("sample_rate", "INTEGER"),
+            ("audio_duration_ms", "REAL"),
+            ("time_sync_offset_ms", "REAL"),
+            ("time_sync_rtt_ms", "REAL"),
+            ("corrected_arrival_time_ms", "REAL"),
+            ("timing_quality", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="events",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS device_status (
@@ -411,6 +466,9 @@ def init_sqlite_db() -> None:
                 confidence REAL,
                 uncertainty_radius_m REAL,
                 method TEXT,
+                tdoa_residual_rmse_m REAL,
+                tdoa_node_count INTEGER,
+                time_sync_quality TEXT,
                 created_at TEXT,
                 updated_at TEXT
             )
@@ -426,6 +484,9 @@ def init_sqlite_db() -> None:
             ("confidence", "REAL"),
             ("uncertainty_radius_m", "REAL"),
             ("method", "TEXT"),
+            ("tdoa_residual_rmse_m", "REAL"),
+            ("tdoa_node_count", "INTEGER"),
+            ("time_sync_quality", "TEXT"),
             ("created_at", "TEXT"),
             ("updated_at", "TEXT"),
         ]:
@@ -448,6 +509,10 @@ def init_sqlite_db() -> None:
                 aircraft_probability REAL,
                 event_timestamp TEXT,
                 weight REAL,
+                corrected_arrival_time_ms REAL,
+                time_sync_rtt_ms REAL,
+                tdoa_used INTEGER DEFAULT 0,
+                tdoa_residual_m REAL,
                 created_at TEXT
             )
             """
@@ -462,6 +527,10 @@ def init_sqlite_db() -> None:
             ("aircraft_probability", "REAL"),
             ("event_timestamp", "TEXT"),
             ("weight", "REAL"),
+            ("corrected_arrival_time_ms", "REAL"),
+            ("time_sync_rtt_ms", "REAL"),
+            ("tdoa_used", "INTEGER DEFAULT 0"),
+            ("tdoa_residual_m", "REAL"),
             ("created_at", "TEXT"),
         ]:
             add_sqlite_column_if_missing(
@@ -507,7 +576,17 @@ def init_postgres_db() -> None:
                         local_audio_path TEXT,
                         audio_path TEXT,
                         note TEXT,
-                        created_at TEXT
+                        created_at TEXT,
+                        device_event_time_ms DOUBLE PRECISION,
+                        event_start_time_ms DOUBLE PRECISION,
+                        event_end_time_ms DOUBLE PRECISION,
+                        rms_peak_offset_ms DOUBLE PRECISION,
+                        sample_rate INTEGER,
+                        audio_duration_ms DOUBLE PRECISION,
+                        time_sync_offset_ms DOUBLE PRECISION,
+                        time_sync_rtt_ms DOUBLE PRECISION,
+                        corrected_arrival_time_ms DOUBLE PRECISION,
+                        timing_quality TEXT
                     )
                     """
                 )
@@ -540,6 +619,19 @@ def init_postgres_db() -> None:
                 cursor.execute(
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS created_at TEXT"
                 )
+                for statement in [
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS device_event_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_start_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak_offset_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS sample_rate INTEGER",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_duration_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS timing_quality TEXT",
+                ]:
+                    cursor.execute(statement)
                 cursor.execute(
                     """
                     CREATE UNIQUE INDEX IF NOT EXISTS events_event_id_key
@@ -633,6 +725,9 @@ def init_postgres_db() -> None:
                         confidence DOUBLE PRECISION,
                         uncertainty_radius_m DOUBLE PRECISION,
                         method TEXT,
+                        tdoa_residual_rmse_m DOUBLE PRECISION,
+                        tdoa_node_count INTEGER,
+                        time_sync_quality TEXT,
                         created_at TIMESTAMPTZ DEFAULT now(),
                         updated_at TIMESTAMPTZ DEFAULT now()
                     )
@@ -648,6 +743,9 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS uncertainty_radius_m DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS method TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS tdoa_residual_rmse_m DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS tdoa_node_count INTEGER",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS time_sync_quality TEXT",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
                 ]:
@@ -665,6 +763,10 @@ def init_postgres_db() -> None:
                         aircraft_probability DOUBLE PRECISION,
                         event_timestamp TIMESTAMPTZ,
                         weight DOUBLE PRECISION,
+                        corrected_arrival_time_ms DOUBLE PRECISION,
+                        time_sync_rtt_ms DOUBLE PRECISION,
+                        tdoa_used BOOLEAN DEFAULT false,
+                        tdoa_residual_m DOUBLE PRECISION,
                         created_at TIMESTAMPTZ DEFAULT now()
                     )
                     """
@@ -679,6 +781,10 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_timestamp TIMESTAMPTZ",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_used BOOLEAN DEFAULT false",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_residual_m DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
                 ]:
                     cursor.execute(statement)
@@ -711,6 +817,40 @@ def init_db() -> None:
         init_sqlite_db()
 
 
+def corrected_arrival_time_ms(event: SoundEvent) -> Optional[float]:
+    if (
+        event.event_start_time_ms is not None
+        and event.rms_peak_offset_ms is not None
+        and event.time_sync_offset_ms is not None
+    ):
+        return (
+            event.event_start_time_ms
+            + event.rms_peak_offset_ms
+            + event.time_sync_offset_ms
+        )
+
+    if event.device_event_time_ms is not None and event.time_sync_offset_ms is not None:
+        return event.device_event_time_ms + event.time_sync_offset_ms
+
+    return None
+
+
+def timing_quality_for_event(event: SoundEvent) -> str:
+    if corrected_arrival_time_ms(event) is None:
+        return "missing"
+
+    if event.time_sync_rtt_ms is None:
+        return "missing"
+
+    if event.time_sync_rtt_ms <= 50:
+        return "good"
+    if event.time_sync_rtt_ms <= 150:
+        return "medium"
+    if event.time_sync_rtt_ms <= 300:
+        return "poor"
+    return "poor"
+
+
 def event_values(event: SoundEvent, created_at: str) -> tuple:
     return (
         event.event_id,
@@ -726,6 +866,16 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         event.audio_path,
         event.note,
         created_at,
+        event.device_event_time_ms,
+        event.event_start_time_ms,
+        event.event_end_time_ms,
+        event.rms_peak_offset_ms,
+        event.sample_rate,
+        event.audio_duration_ms,
+        event.time_sync_offset_ms,
+        event.time_sync_rtt_ms,
+        corrected_arrival_time_ms(event),
+        timing_quality_for_event(event),
     )
 
 
@@ -749,9 +899,19 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
                         local_audio_path,
                         audio_path,
                         note,
-                        created_at
+                        created_at,
+                        device_event_time_ms,
+                        event_start_time_ms,
+                        event_end_time_ms,
+                        rms_peak_offset_ms,
+                        sample_rate,
+                        audio_duration_ms,
+                        time_sync_offset_ms,
+                        time_sync_rtt_ms,
+                        corrected_arrival_time_ms,
+                        timing_quality
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (event_id) DO UPDATE SET
                         device_id = EXCLUDED.device_id,
                         timestamp = EXCLUDED.timestamp,
@@ -764,7 +924,17 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
                         local_audio_path = EXCLUDED.local_audio_path,
                         audio_path = EXCLUDED.audio_path,
                         note = EXCLUDED.note,
-                        created_at = EXCLUDED.created_at
+                        created_at = EXCLUDED.created_at,
+                        device_event_time_ms = EXCLUDED.device_event_time_ms,
+                        event_start_time_ms = EXCLUDED.event_start_time_ms,
+                        event_end_time_ms = EXCLUDED.event_end_time_ms,
+                        rms_peak_offset_ms = EXCLUDED.rms_peak_offset_ms,
+                        sample_rate = EXCLUDED.sample_rate,
+                        audio_duration_ms = EXCLUDED.audio_duration_ms,
+                        time_sync_offset_ms = EXCLUDED.time_sync_offset_ms,
+                        time_sync_rtt_ms = EXCLUDED.time_sync_rtt_ms,
+                        corrected_arrival_time_ms = EXCLUDED.corrected_arrival_time_ms,
+                        timing_quality = EXCLUDED.timing_quality
                     RETURNING id
                     """,
                     event_values(event, created_at),
@@ -799,24 +969,20 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
                     local_audio_path = ?,
                     audio_path = ?,
                     note = ?,
-                    created_at = ?
+                    created_at = ?,
+                    device_event_time_ms = ?,
+                    event_start_time_ms = ?,
+                    event_end_time_ms = ?,
+                    rms_peak_offset_ms = ?,
+                    sample_rate = ?,
+                    audio_duration_ms = ?,
+                    time_sync_offset_ms = ?,
+                    time_sync_rtt_ms = ?,
+                    corrected_arrival_time_ms = ?,
+                    timing_quality = ?
                 WHERE id = ?
                 """,
-                (
-                    event.device_id,
-                    event.timestamp,
-                    event.latitude,
-                    event.longitude,
-                    event.duration_s,
-                    event.rms_peak,
-                    event.label,
-                    event.audio_file_name,
-                    event.local_audio_path,
-                    event.audio_path,
-                    event.note,
-                    created_at,
-                    db_id,
-                ),
+                event_values(event, created_at)[1:] + (db_id,),
             )
         else:
             cursor = connection.execute(
@@ -834,9 +1000,19 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
                     local_audio_path,
                     audio_path,
                     note,
-                    created_at
+                    created_at,
+                    device_event_time_ms,
+                    event_start_time_ms,
+                    event_end_time_ms,
+                    rms_peak_offset_ms,
+                    sample_rate,
+                    audio_duration_ms,
+                    time_sync_offset_ms,
+                    time_sync_rtt_ms,
+                    corrected_arrival_time_ms,
+                    timing_quality
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 event_values(event, created_at),
             )
@@ -959,6 +1135,8 @@ def serialize_db_row(row: dict) -> dict:
             serialized[key] = value
     if "is_listening" in serialized and serialized["is_listening"] is not None:
         serialized["is_listening"] = bool(serialized["is_listening"])
+    if "tdoa_used" in serialized and serialized["tdoa_used"] is not None:
+        serialized["tdoa_used"] = bool(serialized["tdoa_used"])
     if "status" in serialized:
         serialized["status"] = status_from_last_seen(
             serialized.get("last_seen"),
@@ -1777,6 +1955,9 @@ def event_aircraft_probability(row: dict) -> Optional[float]:
 
 
 def event_timestamp_for_fusion(row: dict) -> Optional[datetime]:
+    corrected = parse_float_value(row.get("corrected_arrival_time_ms"))
+    if corrected is not None:
+        return datetime.fromtimestamp(corrected / 1000.0, tz=timezone.utc)
     return parse_datetime(row.get("timestamp")) or parse_datetime(row.get("created_at"))
 
 
@@ -1802,6 +1983,230 @@ def fusion_uncertainty_radius(node_count: int) -> float:
     if node_count == 3:
         return 60.0
     return 100.0
+
+
+def group_time_sync_quality(rtts: list[float]) -> str:
+    if not rtts:
+        return "missing"
+
+    average_rtt = sum(rtts) / len(rtts)
+    if average_rtt <= 50:
+        return "good"
+    if average_rtt <= 150:
+        return "medium"
+    if average_rtt <= 300:
+        return "poor"
+    return "poor"
+
+
+def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    radius = 6_371_000.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = (
+        math.sin(d_phi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    )
+    return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def local_origin(observations: list[dict]) -> tuple[float, float]:
+    return (
+        sum(float(item["latitude"]) for item in observations) / len(observations),
+        sum(float(item["longitude"]) for item in observations) / len(observations),
+    )
+
+
+def latlng_to_local_xy(
+    lat: float,
+    lng: float,
+    origin_lat: float,
+    origin_lng: float,
+) -> tuple[float, float]:
+    meters_per_degree_lat = 111_320.0
+    meters_per_degree_lng = meters_per_degree_lat * math.cos(math.radians(origin_lat))
+    return (
+        (lng - origin_lng) * meters_per_degree_lng,
+        (lat - origin_lat) * meters_per_degree_lat,
+    )
+
+
+def local_xy_to_latlng(
+    x: float,
+    y: float,
+    origin_lat: float,
+    origin_lng: float,
+) -> tuple[float, float]:
+    meters_per_degree_lat = 111_320.0
+    meters_per_degree_lng = meters_per_degree_lat * math.cos(math.radians(origin_lat))
+    return (
+        origin_lat + (y / meters_per_degree_lat),
+        origin_lng + (x / meters_per_degree_lng),
+    )
+
+
+def weighted_centroid_latlng(observations: list[dict]) -> tuple[float, float]:
+    total_weight = sum(max(float(item.get("weight") or 0.0), 1e-6) for item in observations)
+    return (
+        sum(float(item["latitude"]) * float(item.get("weight") or 1.0) for item in observations)
+        / total_weight,
+        sum(float(item["longitude"]) * float(item.get("weight") or 1.0) for item in observations)
+        / total_weight,
+    )
+
+
+def tdoa_uncertainty_radius(
+    node_count: int,
+    average_rtt_ms: float,
+    residual_rmse_m: float,
+    quality: str,
+) -> float:
+    node_bonus = 30.0 if node_count == 3 else 15.0 if node_count == 4 else 0.0
+    uncertainty = 30.0 + (average_rtt_ms * 0.343) + residual_rmse_m + node_bonus
+    if quality == "poor":
+        uncertainty = max(uncertainty, 100.0)
+    return max(30.0, uncertainty)
+
+
+def tdoa_confidence(
+    node_count: int,
+    average_rtt_ms: float,
+    residual_rmse_m: float,
+    quality: str,
+) -> float:
+    quality_penalty = {"good": 0.0, "medium": 0.08, "poor": 0.18}.get(quality, 0.25)
+    score = 0.72 + min(max(node_count - 3, 0), 3) * 0.05
+    score -= min(average_rtt_ms, 300.0) / 1500.0
+    score -= min(residual_rmse_m, 150.0) / 400.0
+    score -= quality_penalty
+    return max(0.35, min(0.92, score))
+
+
+def estimate_position_tdoa(observations: list[dict]) -> dict:
+    node_ids = {str(item.get("device_id")) for item in observations if item.get("device_id")}
+    if len(node_ids) < 3:
+        return {"success": False, "reason": "insufficient_nodes"}
+
+    usable = []
+    for item in observations:
+        corrected = parse_float_value(item.get("corrected_arrival_time_ms"))
+        rtt = parse_float_value(item.get("time_sync_rtt_ms"))
+        if (
+            item.get("latitude") is None
+            or item.get("longitude") is None
+            or corrected is None
+            or rtt is None
+        ):
+            return {"success": False, "reason": "insufficient_timing"}
+        if rtt > TDOA_MAX_RTT_MS:
+            return {"success": False, "reason": "poor_time_sync"}
+        usable.append({**item, "corrected_arrival_time_ms": corrected, "time_sync_rtt_ms": rtt})
+
+    max_distance = 0.0
+    for i, first in enumerate(usable):
+        for second in usable[i + 1 :]:
+            max_distance = max(
+                max_distance,
+                haversine_m(
+                    float(first["latitude"]),
+                    float(first["longitude"]),
+                    float(second["latitude"]),
+                    float(second["longitude"]),
+                ),
+            )
+    if max_distance < TDOA_MIN_NODE_SPREAD_M:
+        return {"success": False, "reason": "insufficient_node_spread"}
+
+    corrected_times = [float(item["corrected_arrival_time_ms"]) for item in usable]
+    max_dt_s = (max(corrected_times) - min(corrected_times)) / 1000.0
+    max_allowed_dt_s = (max_distance / SOUND_SPEED_MPS) + TDOA_TIME_TOLERANCE_SECONDS
+    if max_dt_s > max_allowed_dt_s:
+        return {"success": False, "reason": "unreasonable_tdoa"}
+
+    try:
+        from scipy.optimize import least_squares
+    except Exception:
+        return {"success": False, "reason": "scipy_unavailable"}
+
+    origin_lat, origin_lng = local_origin(usable)
+    nodes = []
+    for item in usable:
+        x, y = latlng_to_local_xy(
+            float(item["latitude"]),
+            float(item["longitude"]),
+            origin_lat,
+            origin_lng,
+        )
+        nodes.append({**item, "x": x, "y": y})
+
+    reference = min(nodes, key=lambda item: float(item["corrected_arrival_time_ms"]))
+    centroid_lat, centroid_lng = weighted_centroid_latlng(usable)
+    initial_x, initial_y = latlng_to_local_xy(centroid_lat, centroid_lng, origin_lat, origin_lng)
+
+    def residuals(params: Any) -> list[float]:
+        source_x = float(params[0])
+        source_y = float(params[1])
+        reference_distance = math.hypot(source_x - reference["x"], source_y - reference["y"])
+        values = []
+        for node in nodes:
+            if node["device_id"] == reference["device_id"]:
+                continue
+            distance = math.hypot(source_x - node["x"], source_y - node["y"])
+            dt_s = (
+                float(node["corrected_arrival_time_ms"])
+                - float(reference["corrected_arrival_time_ms"])
+            ) / 1000.0
+            values.append((distance - reference_distance) - (SOUND_SPEED_MPS * dt_s))
+        return values
+
+    try:
+        result = least_squares(residuals, [initial_x, initial_y])
+    except Exception:
+        return {"success": False, "reason": "tdoa_solver_failed"}
+
+    source_x = float(result.x[0])
+    source_y = float(result.x[1])
+    min_x = min(node["x"] for node in nodes) - TDOA_MAX_OUTSIDE_BOUNDS_M
+    max_x = max(node["x"] for node in nodes) + TDOA_MAX_OUTSIDE_BOUNDS_M
+    min_y = min(node["y"] for node in nodes) - TDOA_MAX_OUTSIDE_BOUNDS_M
+    max_y = max(node["y"] for node in nodes) + TDOA_MAX_OUTSIDE_BOUNDS_M
+    if not (min_x <= source_x <= max_x and min_y <= source_y <= max_y):
+        return {"success": False, "reason": "tdoa_out_of_bounds"}
+
+    residual_values = residuals([source_x, source_y])
+    residual_rmse = math.sqrt(
+        sum(value * value for value in residual_values) / max(len(residual_values), 1)
+    )
+    average_rtt = sum(float(item["time_sync_rtt_ms"]) for item in usable) / len(usable)
+    quality = group_time_sync_quality([float(item["time_sync_rtt_ms"]) for item in usable])
+    estimated_lat, estimated_lng = local_xy_to_latlng(source_x, source_y, origin_lat, origin_lng)
+
+    residual_by_device = {str(reference["device_id"]): 0.0}
+    for node, residual in zip(
+        [node for node in nodes if node["device_id"] != reference["device_id"]],
+        residual_values,
+    ):
+        residual_by_device[str(node["device_id"])] = float(residual)
+
+    return {
+        "success": True,
+        "estimated_lat": estimated_lat,
+        "estimated_lng": estimated_lng,
+        "residual_rmse_m": residual_rmse,
+        "average_rtt_ms": average_rtt,
+        "time_sync_quality": quality,
+        "uncertainty_radius_m": tdoa_uncertainty_radius(
+            len(node_ids),
+            average_rtt,
+            residual_rmse,
+            quality,
+        ),
+        "confidence": tdoa_confidence(len(node_ids), average_rtt, residual_rmse, quality),
+        "residual_by_device": residual_by_device,
+        "used_device_ids": [str(item["device_id"]) for item in usable],
+    }
 
 
 def list_recent_target_events_for_fusion() -> list[dict]:
@@ -1879,6 +2284,12 @@ def build_fusion_observations(event: SoundEvent, created_at: str) -> list[dict]:
             "event_timestamp": event_time,
             "weight": weight,
             "label": row.get("label") or "aircraft",
+            "corrected_arrival_time_ms": parse_float_value(
+                row.get("corrected_arrival_time_ms")
+            ),
+            "time_sync_rtt_ms": parse_float_value(row.get("time_sync_rtt_ms")),
+            "tdoa_used": False,
+            "tdoa_residual_m": None,
         }
 
         existing = selected_by_device.get(device_id)
@@ -1895,7 +2306,11 @@ def build_fusion_observations(event: SoundEvent, created_at: str) -> list[dict]:
     return observations
 
 
-def target_estimate_from_observations(observations: list[dict]) -> Optional[dict]:
+def weighted_centroid_estimate(
+    observations: list[dict],
+    method: str = TARGET_ESTIMATE_METHOD,
+    time_sync_quality: Optional[str] = None,
+) -> Optional[dict]:
     if len(observations) < 2:
         return None
 
@@ -1921,12 +2336,56 @@ def target_estimate_from_observations(observations: list[dict]) -> Optional[dict
         "estimated_lng": estimated_lng,
         "confidence": fusion_confidence(node_count),
         "uncertainty_radius_m": fusion_uncertainty_radius(node_count),
-        "method": TARGET_ESTIMATE_METHOD,
+        "method": method,
+        "tdoa_residual_rmse_m": None,
+        "tdoa_node_count": None,
+        "time_sync_quality": time_sync_quality,
         "created_at": now,
         "updated_at": now,
         "devices": [item["device_id"] for item in observations],
         "observations": observations,
     }
+
+
+def target_estimate_from_observations(observations: list[dict]) -> Optional[dict]:
+    if len(observations) < 2:
+        return None
+
+    node_count = len({item["device_id"] for item in observations})
+    tdoa_result = estimate_position_tdoa(observations)
+
+    if tdoa_result.get("success"):
+        weighted = weighted_centroid_estimate(
+            observations,
+            method=TDOA_ESTIMATE_METHOD,
+            time_sync_quality=tdoa_result.get("time_sync_quality"),
+        )
+        if weighted is None:
+            return None
+
+        used_devices = set(tdoa_result.get("used_device_ids") or [])
+        residual_by_device = tdoa_result.get("residual_by_device") or {}
+        for item in weighted["observations"]:
+            item["tdoa_used"] = item.get("device_id") in used_devices
+            item["tdoa_residual_m"] = residual_by_device.get(str(item.get("device_id")))
+
+        weighted["estimated_lat"] = tdoa_result["estimated_lat"]
+        weighted["estimated_lng"] = tdoa_result["estimated_lng"]
+        weighted["confidence"] = tdoa_result["confidence"]
+        weighted["uncertainty_radius_m"] = tdoa_result["uncertainty_radius_m"]
+        weighted["method"] = TDOA_ESTIMATE_METHOD
+        weighted["tdoa_residual_rmse_m"] = tdoa_result["residual_rmse_m"]
+        weighted["tdoa_node_count"] = node_count
+        weighted["time_sync_quality"] = tdoa_result.get("time_sync_quality")
+        return weighted
+
+    fallback_method = TDOA_FALLBACK_METHOD if node_count >= 3 else TARGET_ESTIMATE_METHOD
+    fallback_quality = tdoa_result.get("reason") or "insufficient"
+    return weighted_centroid_estimate(
+        observations,
+        method=fallback_method,
+        time_sync_quality=fallback_quality,
+    )
 
 
 def store_target_estimate(estimate: dict) -> dict:
@@ -1951,10 +2410,13 @@ def store_target_estimate(estimate: dict) -> dict:
                             confidence,
                             uncertainty_radius_m,
                             method,
+                            tdoa_residual_rmse_m,
+                            tdoa_node_count,
+                            time_sync_quality,
                             created_at,
                             updated_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             group_id,
@@ -1967,6 +2429,9 @@ def store_target_estimate(estimate: dict) -> dict:
                             estimate["confidence"],
                             estimate["uncertainty_radius_m"],
                             estimate["method"],
+                            estimate.get("tdoa_residual_rmse_m"),
+                            estimate.get("tdoa_node_count"),
+                            estimate.get("time_sync_quality"),
                             estimate["created_at"],
                             estimate["updated_at"],
                         ),
@@ -1985,9 +2450,13 @@ def store_target_estimate(estimate: dict) -> dict:
                                 aircraft_probability,
                                 event_timestamp,
                                 weight,
+                                corrected_arrival_time_ms,
+                                time_sync_rtt_ms,
+                                tdoa_used,
+                                tdoa_residual_m,
                                 created_at
                             )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 str(uuid.uuid4()),
@@ -2002,6 +2471,10 @@ def store_target_estimate(estimate: dict) -> dict:
                                 if hasattr(item.get("event_timestamp"), "isoformat")
                                 else item.get("event_timestamp"),
                                 item.get("weight"),
+                                item.get("corrected_arrival_time_ms"),
+                                item.get("time_sync_rtt_ms"),
+                                bool(item.get("tdoa_used")),
+                                item.get("tdoa_residual_m"),
                                 estimate["created_at"],
                             ),
                         )
@@ -2022,10 +2495,13 @@ def store_target_estimate(estimate: dict) -> dict:
                     confidence,
                     uncertainty_radius_m,
                     method,
+                    tdoa_residual_rmse_m,
+                    tdoa_node_count,
+                    time_sync_quality,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     group_id,
@@ -2038,6 +2514,9 @@ def store_target_estimate(estimate: dict) -> dict:
                     estimate["confidence"],
                     estimate["uncertainty_radius_m"],
                     estimate["method"],
+                    estimate.get("tdoa_residual_rmse_m"),
+                    estimate.get("tdoa_node_count"),
+                    estimate.get("time_sync_quality"),
                     estimate["created_at"],
                     estimate["updated_at"],
                 ),
@@ -2057,9 +2536,13 @@ def store_target_estimate(estimate: dict) -> dict:
                         aircraft_probability,
                         event_timestamp,
                         weight,
+                        corrected_arrival_time_ms,
+                        time_sync_rtt_ms,
+                        tdoa_used,
+                        tdoa_residual_m,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -2072,6 +2555,10 @@ def store_target_estimate(estimate: dict) -> dict:
                         item.get("aircraft_probability"),
                         timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
                         item.get("weight"),
+                        item.get("corrected_arrival_time_ms"),
+                        item.get("time_sync_rtt_ms"),
+                        1 if item.get("tdoa_used") else 0,
+                        item.get("tdoa_residual_m"),
                         estimate["created_at"],
                     ),
                 )
@@ -2093,6 +2580,18 @@ def create_target_estimate_for_event(
 
 def target_estimate_payload(estimate: dict) -> dict:
     group_id = estimate.get("id")
+    observations = []
+    for item in estimate.get("observations", []) or []:
+        observations.append(
+            {
+                "device_id": item.get("device_id"),
+                "corrected_arrival_time_ms": item.get("corrected_arrival_time_ms"),
+                "time_sync_rtt_ms": item.get("time_sync_rtt_ms"),
+                "tdoa_used": bool(item.get("tdoa_used")),
+                "tdoa_residual_m": item.get("tdoa_residual_m"),
+            }
+        )
+
     return {
         "group_id": str(group_id) if group_id is not None else None,
         "label": estimate.get("group_label"),
@@ -2103,6 +2602,10 @@ def target_estimate_payload(estimate: dict) -> dict:
         "method": estimate.get("method"),
         "node_count": estimate.get("node_count"),
         "devices": estimate.get("devices", []),
+        "tdoa_residual_rmse_m": estimate.get("tdoa_residual_rmse_m"),
+        "tdoa_node_count": estimate.get("tdoa_node_count"),
+        "time_sync_quality": estimate.get("time_sync_quality"),
+        "observations": observations,
         "created_at": estimate.get("created_at"),
         "updated_at": estimate.get("updated_at"),
     }
@@ -2130,16 +2633,23 @@ def list_target_estimates(limit: int = 10) -> list[dict]:
                     for group in groups:
                         cursor.execute(
                             """
-                            SELECT device_id
+                            SELECT
+                                device_id,
+                                corrected_arrival_time_ms,
+                                time_sync_rtt_ms,
+                                tdoa_used,
+                                tdoa_residual_m
                             FROM event_group_observations
                             WHERE group_id = %s
                             ORDER BY device_id ASC
                             """,
                             (group["id"],),
                         )
+                        observation_rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
                         group["devices"] = [
-                            row["device_id"] for row in cursor.fetchall() if row.get("device_id")
+                            row["device_id"] for row in observation_rows if row.get("device_id")
                         ]
+                        group["observations"] = observation_rows
                     return [target_estimate_payload(group) for group in groups]
         finally:
             connection.close()
@@ -2158,16 +2668,23 @@ def list_target_estimates(limit: int = 10) -> list[dict]:
         for group in groups:
             device_rows = connection.execute(
                 """
-                SELECT device_id
+                SELECT
+                    device_id,
+                    corrected_arrival_time_ms,
+                    time_sync_rtt_ms,
+                    tdoa_used,
+                    tdoa_residual_m
                 FROM event_group_observations
                 WHERE group_id = ?
                 ORDER BY device_id ASC
                 """,
                 (group["id"],),
             ).fetchall()
+            observation_rows = [serialize_db_row(dict(row)) for row in device_rows]
             group["devices"] = [
-                row["device_id"] for row in device_rows if row["device_id"]
+                row["device_id"] for row in observation_rows if row["device_id"]
             ]
+            group["observations"] = observation_rows
         return [target_estimate_payload(group) for group in groups]
 
 
@@ -2259,6 +2776,15 @@ def health():
     return {
         "status": "healthy",
         "time": current_time_iso(),
+    }
+
+
+@app.get("/time-sync")
+def time_sync():
+    now = datetime.now(timezone.utc)
+    return {
+        "server_time_ms": int(now.timestamp() * 1000),
+        "server_time_iso": now.isoformat(),
     }
 
 
@@ -3168,6 +3694,30 @@ def dashboard():
                 return safe(label);
             }
 
+            function displayEstimateMethod(method) {
+                const value = String(method || '').toLowerCase();
+                if (value === 'tdoa_timestamp') return '粗略 TDOA';
+                if (value === 'weighted_centroid_fallback') return 'TDOA 失敗，使用融合估計';
+                if (value === 'weighted_centroid') return '多節點融合';
+                return safe(method);
+            }
+
+            function displayResidual(value) {
+                const number = Number(value);
+                return Number.isFinite(number) ? `${number.toFixed(1)} m` : '--';
+            }
+
+            function displayTimeSyncQuality(value) {
+                const text = String(value || '').toLowerCase();
+                if (!text) return '--';
+                if (text === 'good') return 'good';
+                if (text === 'medium') return 'medium';
+                if (text === 'poor') return 'poor';
+                if (text.includes('insufficient')) return 'insufficient';
+                if (text === 'missing') return 'missing';
+                return safe(value);
+            }
+
             function yesNo(value) {
                 return value ? '是' : '否';
             }
@@ -3458,7 +4008,9 @@ def dashboard():
                         <div class="map-info-row"><span>估測範圍</span><span>${safe(estimate.uncertainty_radius_m)} m</span></div>
                         <div class="map-info-row"><span>節點數</span><span>${safe(estimate.node_count)}</span></div>
                         <div class="map-info-row"><span>參與節點</span><span>${(estimate.devices || []).join(', ') || '-'}</span></div>
-                        <div class="map-info-row"><span>方法</span><span>${safe(estimate.method)}</span></div>
+                        <div class="map-info-row"><span>定位方法</span><span>${displayEstimateMethod(estimate.method)}</span></div>
+                        <div class="map-info-row"><span>同步品質</span><span>${displayTimeSyncQuality(estimate.time_sync_quality)}</span></div>
+                        <div class="map-info-row"><span>TDOA residual</span><span>${displayResidual(estimate.tdoa_residual_rmse_m)}</span></div>
                         <div class="map-info-row"><span>更新時間</span><span>${safe(estimate.updated_at)}</span></div>
                     </div>
                 `);
@@ -3552,6 +4104,8 @@ def dashboard():
                     <div class="event-row target ${targetEstimateId(estimate) === selectedTargetEstimateId ? 'selected' : ''}" data-estimate-id="${attrSafe(targetEstimateId(estimate))}">
                         <div class="event-title"><span>聲源估測</span><span>${safe(estimate.label)}</span></div>
                         <div class="event-detail">節點 ${safe(estimate.node_count)} / 信心 ${Number(estimate.confidence || 0).toFixed(2)}</div>
+                        <div class="event-detail">方法 ${displayEstimateMethod(estimate.method)} / 同步 ${displayTimeSyncQuality(estimate.time_sync_quality)}</div>
+                        <div class="event-detail">TDOA residual ${displayResidual(estimate.tdoa_residual_rmse_m)}</div>
                         <div class="event-detail">位置 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
                         <div class="event-detail">範圍 ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
                         ${targetEstimateId(estimate) === selectedTargetEstimateId

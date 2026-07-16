@@ -5,3 +5,4 @@ google-cloud-storage
 python-multipart
 psycopg2-binary
 websockets
+scipy
