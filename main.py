@@ -2561,7 +2561,7 @@ def dashboard():
             .side-stack {
                 min-height: 0;
                 display: grid;
-                grid-template-rows: minmax(142px, auto) minmax(190px, .8fr) minmax(170px, .65fr) minmax(170px, .65fr);
+                grid-template-rows: minmax(142px, auto) minmax(220px, 1fr) minmax(220px, 1fr);
                 gap: 12px;
             }
             .side-stack .panel { height: 100%; }
@@ -2750,11 +2750,6 @@ def dashboard():
             .timeline { grid-column: 1 / span 3; }
             .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
             .filters button.active { color: var(--accent-2); border-color: rgba(96,211,148,.65); }
-            .reports-grid {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(120px, 1fr));
-                gap: 8px;
-            }
             .audio-player {
                 margin: 10px;
                 padding: 10px;
@@ -2772,20 +2767,11 @@ def dashboard():
                 width: 100%;
                 height: 40px;
             }
-            .report-box {
-                background: var(--panel-3);
-                border: 1px solid var(--line);
-                border-radius: 8px;
-                padding: 10px;
-            }
-            .report-box .label { color: var(--muted); font-size: 12px; }
-            .report-box .value { font-size: 20px; font-weight: 800; margin-top: 4px; }
             .right-scroll {
                 flex: 1 1 0;
                 min-height: 0;
                 overflow: auto;
             }
-            .reports-scroll { flex: 1 1 0; }
             .map-marker {
                 position: absolute;
                 transform: translate(-50%, -50%);
@@ -3098,13 +3084,6 @@ def dashboard():
                     <h2>聲源估測</h2>
                     <div class="panel-body right-scroll" id="targetEstimateList">
                         <div class="subtitle">目前沒有多節點融合估測</div>
-                    </div>
-                </section>
-
-                <section class="panel">
-                    <h2>統計報表</h2>
-                    <div class="panel-body right-scroll reports-scroll">
-                        <div class="reports-grid" id="reportsGrid"></div>
                     </div>
                 </section>
             </aside>
@@ -3781,27 +3760,15 @@ def dashboard():
                 `).join('') : '<div class="subtitle">目前沒有事件</div>';
             }
 
-            function renderReports() {
-                const todayEvents = events.filter(event => isToday(event.created_at || event.timestamp));
-                const drone = todayEvents.filter(event => isTarget(event.label));
-                const byNode = {};
-                todayEvents.forEach(event => {
-                    byNode[event.device_id || 'unknown'] = (byNode[event.device_id || 'unknown'] || 0) + 1;
-                });
-                document.getElementById('reportsGrid').innerHTML = `
-                    <div class="report-box"><div class="label">今日目標聲</div><div class="value">${drone.length}</div></div>
-                    <div class="report-box"><div class="label">目標聲比例</div><div class="value">${todayEvents.length ? Math.round(drone.length / todayEvents.length * 100) : 0}%</div></div>
-                    <div class="report-box" style="grid-column:1/-1"><div class="label">依節點統計</div><div>${Object.entries(byNode).map(([k,v]) => `${k}: ${v}`).join('<br>') || '-'}</div></div>
-                `;
-                document.getElementById('todayDroneCount').textContent = drone.length;
-            }
-
             function renderSummary() {
                 const values = visibleDeviceValues();
                 const online = values.filter(isOnlineDevice).length;
                 const active = values.filter(device => isAlertActive(device.device_id)).length;
+                const todayEvents = events.filter(event => isToday(event.created_at || event.timestamp));
+                const drone = todayEvents.filter(event => isTarget(event.label));
                 document.getElementById('onlineCount').textContent = online;
                 document.getElementById('activeAlertCount').textContent = active;
+                document.getElementById('todayDroneCount').textContent = drone.length;
                 document.getElementById('systemStatus').textContent = values.length ? '即時運作' : '等待資料';
             }
 
@@ -3831,7 +3798,6 @@ def dashboard():
                 renderAlerts();
                 renderTargetEstimates();
                 renderTimeline();
-                renderReports();
                 renderSummary();
             }
 
