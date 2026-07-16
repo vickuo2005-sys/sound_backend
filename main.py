@@ -2719,6 +2719,34 @@ def dashboard():
                 padding: 4px 9px;
                 font-size: 12px;
             }
+            .map-info-card {
+                min-width: 220px;
+                max-width: 300px;
+                color: #111827;
+                font-size: 13px;
+                line-height: 1.45;
+            }
+            .map-info-card strong {
+                display: block;
+                margin-bottom: 6px;
+                color: #0f172a;
+                font-size: 15px;
+            }
+            .map-info-row {
+                display: grid;
+                grid-template-columns: 86px 1fr;
+                gap: 8px;
+                padding: 3px 0;
+                border-top: 1px solid #e5e7eb;
+            }
+            .map-info-row span:first-child {
+                color: #64748b;
+                font-weight: 700;
+            }
+            .map-info-row span:last-child {
+                color: #111827;
+                overflow-wrap: anywhere;
+            }
             .timeline { grid-column: 1 / span 3; }
             .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
             .filters button.active { color: var(--accent-2); border-color: rgba(96,211,148,.65); }
@@ -3369,15 +3397,17 @@ def dashboard():
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
                 infoWindow.setContent(`
-                    <strong>${safe(device.device_id)}</strong><br>
-                    緯度：${safe(device.latitude)}<br>
-                    經度：${safe(device.longitude)}<br>
-                    最後連線：${safe(device.last_seen)}<br>
-                    最後事件 ID：${safe(device.last_event_id)}<br>
-                    最後事件時間：${safe(device.last_event_at)}<br>
-                    狀態：${displayStatus(device.status)}<br>
-                    模式：${displayMode(device.upload_mode)}<br>
-                    監聽中：${yesNo(device.is_listening)}
+                    <div class="map-info-card">
+                        <strong>${safe(device.device_id)}</strong>
+                        <div class="map-info-row"><span>緯度</span><span>${safe(device.latitude)}</span></div>
+                        <div class="map-info-row"><span>經度</span><span>${safe(device.longitude)}</span></div>
+                        <div class="map-info-row"><span>最後連線</span><span>${safe(device.last_seen)}</span></div>
+                        <div class="map-info-row"><span>最後事件</span><span>${safe(device.last_event_id)}</span></div>
+                        <div class="map-info-row"><span>事件時間</span><span>${safe(device.last_event_at)}</span></div>
+                        <div class="map-info-row"><span>狀態</span><span>${displayStatus(device.status)}</span></div>
+                        <div class="map-info-row"><span>模式</span><span>${displayMode(device.upload_mode)}</span></div>
+                        <div class="map-info-row"><span>監聽中</span><span>${yesNo(device.is_listening)}</span></div>
+                    </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
                 infoWindow.open(map);
@@ -3441,14 +3471,17 @@ def dashboard():
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
                 infoWindow.setContent(`
-                    <strong>聲源估測</strong><br>
-                    label: ${safe(estimate.label)}<br>
-                    method: ${safe(estimate.method)}<br>
-                    confidence: ${Number(estimate.confidence || 0).toFixed(2)}<br>
-                    uncertainty: ${safe(estimate.uncertainty_radius_m)} m<br>
-                    node_count: ${safe(estimate.node_count)}<br>
-                    devices: ${(estimate.devices || []).join(', ') || '-'}<br>
-                    updated_at: ${safe(estimate.updated_at)}
+                    <div class="map-info-card">
+                        <strong>聲源估測</strong>
+                        <div class="map-info-row"><span>類別</span><span>${safe(estimate.label)}</span></div>
+                        <div class="map-info-row"><span>信心值</span><span>${Number(estimate.confidence || 0).toFixed(2)}</span></div>
+                        <div class="map-info-row"><span>位置</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>估測範圍</span><span>${safe(estimate.uncertainty_radius_m)} m</span></div>
+                        <div class="map-info-row"><span>節點數</span><span>${safe(estimate.node_count)}</span></div>
+                        <div class="map-info-row"><span>參與節點</span><span>${(estimate.devices || []).join(', ') || '-'}</span></div>
+                        <div class="map-info-row"><span>方法</span><span>${safe(estimate.method)}</span></div>
+                        <div class="map-info-row"><span>更新時間</span><span>${safe(estimate.updated_at)}</span></div>
+                    </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
                 infoWindow.open(map);
