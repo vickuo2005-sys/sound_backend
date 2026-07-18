@@ -27,6 +27,20 @@ TIMING_METADATA_FIELDS = [
     "event_end_time_ms",
     "rms_peak_time_ms",
 ]
+AUDIO_METADATA_FIELDS = [
+    "audio_format",
+    "audio_size_bytes",
+    "source_pcm_size_bytes",
+    "audio_encoding_status",
+    "tdoa_clip_path",
+    "tdoa_clip_format",
+    "tdoa_clip_size_bytes",
+    "tdoa_clip_start_sample",
+    "tdoa_clip_end_sample",
+    "tdoa_clip_peak_sample",
+    "tdoa_clip_duration_ms",
+    "tdoa_clip_source",
+]
 
 
 def parse_datetime(value: Any) -> Optional[datetime]:
@@ -360,6 +374,18 @@ def insert_observation(
             ai_probability,
             aircraft_probability,
             audio_path,
+            audio_format,
+            audio_size_bytes,
+            source_pcm_size_bytes,
+            audio_encoding_status,
+            tdoa_clip_path,
+            tdoa_clip_format,
+            tdoa_clip_size_bytes,
+            tdoa_clip_start_sample,
+            tdoa_clip_end_sample,
+            tdoa_clip_peak_sample,
+            tdoa_clip_duration_ms,
+            tdoa_clip_source,
             timing_version,
             timing_source,
             capture_start_time_ms,
@@ -375,7 +401,7 @@ def insert_observation(
             created_at,
             observation_kind
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     params = (
         observation_id,
@@ -391,6 +417,18 @@ def insert_observation(
         ai_probability,
         ai_probability,
         event_record.get("audio_path"),
+        event_record.get("audio_format"),
+        parse_int(event_record.get("audio_size_bytes")),
+        parse_int(event_record.get("source_pcm_size_bytes")),
+        event_record.get("audio_encoding_status"),
+        event_record.get("tdoa_clip_path"),
+        event_record.get("tdoa_clip_format"),
+        parse_int(event_record.get("tdoa_clip_size_bytes")),
+        parse_int(event_record.get("tdoa_clip_start_sample")),
+        parse_int(event_record.get("tdoa_clip_end_sample")),
+        parse_int(event_record.get("tdoa_clip_peak_sample")),
+        parse_int(event_record.get("tdoa_clip_duration_ms")),
+        event_record.get("tdoa_clip_source"),
         parse_int(event_record.get("timing_version")),
         event_record.get("timing_source"),
         parse_int(event_record.get("capture_start_time_ms")),
@@ -467,6 +505,56 @@ def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
     return group_payload(cursor, row, is_postgres)
 
 
+def update_existing_observation_snapshot(
+    cursor: Any,
+    event_record: dict,
+    is_postgres: bool,
+) -> None:
+    event_id = event_record.get("event_id")
+    if not event_id:
+        return
+
+    execute(
+        cursor,
+        is_postgres,
+        """
+        UPDATE event_group_observations
+        SET audio_path = %s,
+            audio_format = %s,
+            audio_size_bytes = %s,
+            source_pcm_size_bytes = %s,
+            audio_encoding_status = %s,
+            tdoa_clip_path = %s,
+            tdoa_clip_format = %s,
+            tdoa_clip_size_bytes = %s,
+            tdoa_clip_start_sample = %s,
+            tdoa_clip_end_sample = %s,
+            tdoa_clip_peak_sample = %s,
+            tdoa_clip_duration_ms = %s,
+            tdoa_clip_source = %s
+        WHERE event_id = %s
+          AND COALESCE(observation_kind, 'target_estimate') = %s
+        """,
+        (
+            event_record.get("audio_path"),
+            event_record.get("audio_format"),
+            parse_int(event_record.get("audio_size_bytes")),
+            parse_int(event_record.get("source_pcm_size_bytes")),
+            event_record.get("audio_encoding_status"),
+            event_record.get("tdoa_clip_path"),
+            event_record.get("tdoa_clip_format"),
+            parse_int(event_record.get("tdoa_clip_size_bytes")),
+            parse_int(event_record.get("tdoa_clip_start_sample")),
+            parse_int(event_record.get("tdoa_clip_end_sample")),
+            parse_int(event_record.get("tdoa_clip_peak_sample")),
+            parse_int(event_record.get("tdoa_clip_duration_ms")),
+            event_record.get("tdoa_clip_source"),
+            event_id,
+            FUSION_KIND,
+        ),
+    )
+
+
 def group_devices(cursor: Any, group_id: str, is_postgres: bool) -> list[str]:
     execute(
         cursor,
@@ -525,7 +613,8 @@ def process_event(
 
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
         if existing_group:
-            return existing_group
+            update_existing_observation_snapshot(cursor, event_record, is_postgres)
+            return observation_group_for_event(cursor, event_id, is_postgres)
 
         group = find_candidate_group(cursor, label, event_time, window_seconds, is_postgres)
         if not group:
@@ -621,6 +710,18 @@ def get_event_group_detail(
                 rms_peak,
                 ai_probability,
                 audio_path,
+                audio_format,
+                audio_size_bytes,
+                source_pcm_size_bytes,
+                audio_encoding_status,
+                tdoa_clip_path,
+                tdoa_clip_format,
+                tdoa_clip_size_bytes,
+                tdoa_clip_start_sample,
+                tdoa_clip_end_sample,
+                tdoa_clip_peak_sample,
+                tdoa_clip_duration_ms,
+                tdoa_clip_source,
                 timing_version,
                 timing_source,
                 capture_start_time_ms,

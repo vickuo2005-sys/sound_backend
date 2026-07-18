@@ -91,6 +91,18 @@ class SoundEvent(BaseModel):
     audio_file_name: Optional[str] = None
     local_audio_path: Optional[str] = None
     audio_path: Optional[str] = None
+    audio_format: Optional[str] = None
+    audio_size_bytes: Optional[int] = None
+    source_pcm_size_bytes: Optional[int] = None
+    audio_encoding_status: Optional[str] = None
+    tdoa_clip_path: Optional[str] = None
+    tdoa_clip_format: Optional[str] = None
+    tdoa_clip_size_bytes: Optional[int] = None
+    tdoa_clip_start_sample: Optional[int] = None
+    tdoa_clip_end_sample: Optional[int] = None
+    tdoa_clip_peak_sample: Optional[int] = None
+    tdoa_clip_duration_ms: Optional[int] = None
+    tdoa_clip_source: Optional[str] = None
     note: Optional[str] = None
     timing_version: Optional[int] = None
     timing_source: Optional[str] = None
@@ -204,6 +216,18 @@ EVENT_COLUMNS = [
     "audio_file_name",
     "local_audio_path",
     "audio_path",
+    "audio_format",
+    "audio_size_bytes",
+    "source_pcm_size_bytes",
+    "audio_encoding_status",
+    "tdoa_clip_path",
+    "tdoa_clip_format",
+    "tdoa_clip_size_bytes",
+    "tdoa_clip_start_sample",
+    "tdoa_clip_end_sample",
+    "tdoa_clip_peak_sample",
+    "tdoa_clip_duration_ms",
+    "tdoa_clip_source",
     "note",
     "created_at",
     "timing_version",
@@ -239,6 +263,21 @@ NEW_TIMING_METADATA_COLUMNS = [
     "sample_rate_hz",
     "channel_count",
     "rms_peak_time_ms",
+]
+
+AUDIO_METADATA_COLUMNS = [
+    "audio_format",
+    "audio_size_bytes",
+    "source_pcm_size_bytes",
+    "audio_encoding_status",
+    "tdoa_clip_path",
+    "tdoa_clip_format",
+    "tdoa_clip_size_bytes",
+    "tdoa_clip_start_sample",
+    "tdoa_clip_end_sample",
+    "tdoa_clip_peak_sample",
+    "tdoa_clip_duration_ms",
+    "tdoa_clip_source",
 ]
 
 DEVICE_STATUS_COLUMNS = [
@@ -310,6 +349,18 @@ EVENT_GROUP_OBSERVATION_COLUMNS = [
     "ai_probability",
     "aircraft_probability",
     "audio_path",
+    "audio_format",
+    "audio_size_bytes",
+    "source_pcm_size_bytes",
+    "audio_encoding_status",
+    "tdoa_clip_path",
+    "tdoa_clip_format",
+    "tdoa_clip_size_bytes",
+    "tdoa_clip_start_sample",
+    "tdoa_clip_end_sample",
+    "tdoa_clip_peak_sample",
+    "tdoa_clip_duration_ms",
+    "tdoa_clip_source",
     "event_timestamp",
     "weight",
     "corrected_arrival_time_ms",
@@ -393,6 +444,18 @@ def init_sqlite_db() -> None:
                 audio_file_name TEXT,
                 local_audio_path TEXT,
                 audio_path TEXT,
+                audio_format TEXT,
+                audio_size_bytes INTEGER,
+                source_pcm_size_bytes INTEGER,
+                audio_encoding_status TEXT,
+                tdoa_clip_path TEXT,
+                tdoa_clip_format TEXT,
+                tdoa_clip_size_bytes INTEGER,
+                tdoa_clip_start_sample INTEGER,
+                tdoa_clip_end_sample INTEGER,
+                tdoa_clip_peak_sample INTEGER,
+                tdoa_clip_duration_ms INTEGER,
+                tdoa_clip_source TEXT,
                 note TEXT,
                 created_at TEXT,
                 timing_version INTEGER,
@@ -419,6 +482,18 @@ def init_sqlite_db() -> None:
         )
         for column_name, column_definition in [
             ("audio_path", "TEXT"),
+            ("audio_format", "TEXT"),
+            ("audio_size_bytes", "INTEGER"),
+            ("source_pcm_size_bytes", "INTEGER"),
+            ("audio_encoding_status", "TEXT"),
+            ("tdoa_clip_path", "TEXT"),
+            ("tdoa_clip_format", "TEXT"),
+            ("tdoa_clip_size_bytes", "INTEGER"),
+            ("tdoa_clip_start_sample", "INTEGER"),
+            ("tdoa_clip_end_sample", "INTEGER"),
+            ("tdoa_clip_peak_sample", "INTEGER"),
+            ("tdoa_clip_duration_ms", "INTEGER"),
+            ("tdoa_clip_source", "TEXT"),
             ("timing_version", "INTEGER"),
             ("timing_source", "TEXT"),
             ("capture_start_time_ms", "INTEGER"),
@@ -593,6 +668,18 @@ def init_sqlite_db() -> None:
                 ai_probability REAL,
                 aircraft_probability REAL,
                 audio_path TEXT,
+                audio_format TEXT,
+                audio_size_bytes INTEGER,
+                source_pcm_size_bytes INTEGER,
+                audio_encoding_status TEXT,
+                tdoa_clip_path TEXT,
+                tdoa_clip_format TEXT,
+                tdoa_clip_size_bytes INTEGER,
+                tdoa_clip_start_sample INTEGER,
+                tdoa_clip_end_sample INTEGER,
+                tdoa_clip_peak_sample INTEGER,
+                tdoa_clip_duration_ms INTEGER,
+                tdoa_clip_source TEXT,
                 event_timestamp TEXT,
                 timing_version INTEGER,
                 timing_source TEXT,
@@ -628,6 +715,18 @@ def init_sqlite_db() -> None:
             ("ai_probability", "REAL"),
             ("aircraft_probability", "REAL"),
             ("audio_path", "TEXT"),
+            ("audio_format", "TEXT"),
+            ("audio_size_bytes", "INTEGER"),
+            ("source_pcm_size_bytes", "INTEGER"),
+            ("audio_encoding_status", "TEXT"),
+            ("tdoa_clip_path", "TEXT"),
+            ("tdoa_clip_format", "TEXT"),
+            ("tdoa_clip_size_bytes", "INTEGER"),
+            ("tdoa_clip_start_sample", "INTEGER"),
+            ("tdoa_clip_end_sample", "INTEGER"),
+            ("tdoa_clip_peak_sample", "INTEGER"),
+            ("tdoa_clip_duration_ms", "INTEGER"),
+            ("tdoa_clip_source", "TEXT"),
             ("event_timestamp", "TEXT"),
             ("timing_version", "INTEGER"),
             ("timing_source", "TEXT"),
@@ -731,6 +830,18 @@ def init_postgres_db() -> None:
                         audio_file_name TEXT,
                         local_audio_path TEXT,
                         audio_path TEXT,
+                        audio_format TEXT,
+                        audio_size_bytes BIGINT,
+                        source_pcm_size_bytes BIGINT,
+                        audio_encoding_status TEXT,
+                        tdoa_clip_path TEXT,
+                        tdoa_clip_format TEXT,
+                        tdoa_clip_size_bytes BIGINT,
+                        tdoa_clip_start_sample BIGINT,
+                        tdoa_clip_end_sample BIGINT,
+                        tdoa_clip_peak_sample BIGINT,
+                        tdoa_clip_duration_ms INTEGER,
+                        tdoa_clip_source TEXT,
                         note TEXT,
                         created_at TEXT,
                         timing_version INTEGER,
@@ -780,6 +891,21 @@ def init_postgres_db() -> None:
                 cursor.execute(
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_path TEXT"
                 )
+                for statement in [
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_format TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_size_bytes BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS source_pcm_size_bytes BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_encoding_status TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_path TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_format TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_size_bytes BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_start_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_end_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_peak_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_duration_ms INTEGER",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS tdoa_clip_source TEXT",
+                ]:
+                    cursor.execute(statement)
                 cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS note TEXT")
                 cursor.execute(
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS created_at TEXT"
@@ -951,6 +1077,18 @@ def init_postgres_db() -> None:
                         ai_probability DOUBLE PRECISION,
                         aircraft_probability DOUBLE PRECISION,
                         audio_path TEXT,
+                        audio_format TEXT,
+                        audio_size_bytes BIGINT,
+                        source_pcm_size_bytes BIGINT,
+                        audio_encoding_status TEXT,
+                        tdoa_clip_path TEXT,
+                        tdoa_clip_format TEXT,
+                        tdoa_clip_size_bytes BIGINT,
+                        tdoa_clip_start_sample BIGINT,
+                        tdoa_clip_end_sample BIGINT,
+                        tdoa_clip_peak_sample BIGINT,
+                        tdoa_clip_duration_ms INTEGER,
+                        tdoa_clip_source TEXT,
                         event_timestamp TIMESTAMPTZ,
                         timing_version INTEGER,
                         timing_source TEXT,
@@ -986,6 +1124,18 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS ai_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_path TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_format TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_size_bytes BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS source_pcm_size_bytes BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_encoding_status TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_path TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_format TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_size_bytes BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_start_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_end_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_peak_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_duration_ms INTEGER",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_clip_source TEXT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_timestamp TIMESTAMPTZ",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS timing_version INTEGER",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS timing_source TEXT",
@@ -1127,6 +1277,10 @@ def has_new_timing_metadata(event: SoundEvent) -> bool:
     return any(getattr(event, column) is not None for column in NEW_TIMING_METADATA_COLUMNS)
 
 
+def has_audio_metadata(event: SoundEvent) -> bool:
+    return any(getattr(event, column) is not None for column in AUDIO_METADATA_COLUMNS)
+
+
 def sanitize_timing_metadata(event: SoundEvent) -> None:
     if not has_new_timing_metadata(event):
         return
@@ -1170,6 +1324,63 @@ def sanitize_timing_metadata(event: SoundEvent) -> None:
     event.audio_duration_ms = None
 
 
+def sanitize_audio_metadata(event: SoundEvent) -> None:
+    if not any(getattr(event, column) is not None for column in AUDIO_METADATA_COLUMNS):
+        return
+
+    problems = []
+    for column in ("audio_size_bytes", "source_pcm_size_bytes", "tdoa_clip_size_bytes"):
+        value = getattr(event, column)
+        if value is not None and value < 0:
+            problems.append(f"{column} must be >= 0")
+
+    for column in (
+        "tdoa_clip_start_sample",
+        "tdoa_clip_end_sample",
+        "tdoa_clip_peak_sample",
+        "tdoa_clip_duration_ms",
+    ):
+        value = getattr(event, column)
+        if value is not None and value < 0:
+            problems.append(f"{column} must be >= 0")
+
+    if (
+        event.tdoa_clip_start_sample is not None
+        and event.tdoa_clip_end_sample is not None
+        and event.tdoa_clip_end_sample < event.tdoa_clip_start_sample
+    ):
+        problems.append("tdoa_clip_end_sample must be >= tdoa_clip_start_sample")
+
+    if (
+        event.tdoa_clip_peak_sample is not None
+        and event.tdoa_clip_start_sample is not None
+        and event.tdoa_clip_end_sample is not None
+    ):
+        clip_length = event.tdoa_clip_end_sample - event.tdoa_clip_start_sample
+        if clip_length > 0 and event.tdoa_clip_peak_sample >= clip_length:
+            problems.append("tdoa_clip_peak_sample must be inside clip range")
+
+    if event.audio_format is not None:
+        event.audio_format = event.audio_format.strip().lower()
+        if event.audio_format not in {"mp3", "wav"}:
+            problems.append("audio_format must be mp3 or wav")
+    if event.tdoa_clip_format is not None:
+        event.tdoa_clip_format = event.tdoa_clip_format.strip().lower()
+        if event.tdoa_clip_format != "wav":
+            problems.append("tdoa_clip_format must be wav")
+
+    if not problems:
+        return
+
+    logger.warning(
+        "Invalid audio metadata ignored for event_id=%s: %s",
+        event.event_id,
+        "; ".join(problems),
+    )
+    for column in AUDIO_METADATA_COLUMNS:
+        setattr(event, column, None)
+
+
 def event_values(event: SoundEvent, created_at: str) -> tuple:
     values = {
         "event_id": event.event_id,
@@ -1183,6 +1394,18 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         "audio_file_name": event.audio_file_name,
         "local_audio_path": event.local_audio_path,
         "audio_path": event.audio_path,
+        "audio_format": event.audio_format,
+        "audio_size_bytes": event.audio_size_bytes,
+        "source_pcm_size_bytes": event.source_pcm_size_bytes,
+        "audio_encoding_status": event.audio_encoding_status,
+        "tdoa_clip_path": event.tdoa_clip_path,
+        "tdoa_clip_format": event.tdoa_clip_format,
+        "tdoa_clip_size_bytes": event.tdoa_clip_size_bytes,
+        "tdoa_clip_start_sample": event.tdoa_clip_start_sample,
+        "tdoa_clip_end_sample": event.tdoa_clip_end_sample,
+        "tdoa_clip_peak_sample": event.tdoa_clip_peak_sample,
+        "tdoa_clip_duration_ms": event.tdoa_clip_duration_ms,
+        "tdoa_clip_source": event.tdoa_clip_source,
         "note": event.note,
         "created_at": created_at,
         "timing_version": event.timing_version,
@@ -1280,7 +1503,12 @@ def save_event(event: SoundEvent, created_at: str) -> int:
     return upsert_event_sqlite(event, created_at)
 
 
-def update_event_audio_path(event_id: str, audio_path: str) -> None:
+def update_event_audio_path(
+    event_id: str,
+    audio_path: str,
+    audio_format: Optional[str] = None,
+    audio_size_bytes: Optional[int] = None,
+) -> None:
     if use_postgres():
         connection = get_postgres_connection()
         try:
@@ -1289,10 +1517,12 @@ def update_event_audio_path(event_id: str, audio_path: str) -> None:
                     cursor.execute(
                         """
                         UPDATE events
-                        SET audio_path = %s
+                        SET audio_path = %s,
+                            audio_format = COALESCE(%s, audio_format),
+                            audio_size_bytes = COALESCE(%s, audio_size_bytes)
                         WHERE event_id = %s
                         """,
-                        (audio_path, event_id),
+                        (audio_path, audio_format, audio_size_bytes, event_id),
                     )
         finally:
             connection.close()
@@ -1302,10 +1532,56 @@ def update_event_audio_path(event_id: str, audio_path: str) -> None:
         connection.execute(
             """
             UPDATE events
-            SET audio_path = ?
+            SET audio_path = ?,
+                audio_format = COALESCE(?, audio_format),
+                audio_size_bytes = COALESCE(?, audio_size_bytes)
             WHERE event_id = ?
             """,
-            (audio_path, event_id),
+            (audio_path, audio_format, audio_size_bytes, event_id),
+        )
+        connection.commit()
+
+
+def update_event_tdoa_clip(
+    event_id: str,
+    tdoa_clip_path: str,
+    tdoa_clip_format: str = "wav",
+    tdoa_clip_size_bytes: Optional[int] = None,
+) -> None:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE events
+                        SET tdoa_clip_path = %s,
+                            tdoa_clip_format = %s,
+                            tdoa_clip_size_bytes = COALESCE(%s, tdoa_clip_size_bytes)
+                        WHERE event_id = %s
+                        """,
+                        (
+                            tdoa_clip_path,
+                            tdoa_clip_format,
+                            tdoa_clip_size_bytes,
+                            event_id,
+                        ),
+                    )
+        finally:
+            connection.close()
+        return
+
+    with get_sqlite_connection() as connection:
+        connection.execute(
+            """
+            UPDATE events
+            SET tdoa_clip_path = ?,
+                tdoa_clip_format = ?,
+                tdoa_clip_size_bytes = COALESCE(?, tdoa_clip_size_bytes)
+            WHERE event_id = ?
+            """,
+            (tdoa_clip_path, tdoa_clip_format, tdoa_clip_size_bytes, event_id),
         )
         connection.commit()
 
@@ -3118,18 +3394,111 @@ def audio_category_folder(
     return "other"
 
 
+def normalize_audio_format(value: Optional[str]) -> Optional[str]:
+    normalized = (value or "").strip().lower().lstrip(".")
+    if normalized in {"mpeg", "mp3"}:
+        return "mp3"
+    if normalized in {"wav", "wave", "x-wav"}:
+        return "wav"
+    return None
+
+
+def audio_extension_for_format(audio_format: str) -> str:
+    normalized = normalize_audio_format(audio_format)
+    if normalized not in {"mp3", "wav"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported audio format",
+        )
+    return normalized
+
+
+def audio_content_type(audio_format: str) -> str:
+    return "audio/mpeg" if audio_format == "mp3" else "audio/wav"
+
+
+def file_size_from_upload(file: UploadFile) -> int:
+    file.file.seek(0, os.SEEK_END)
+    size_bytes = int(file.file.tell())
+    file.file.seek(0)
+    return size_bytes
+
+
+def read_upload_header(file: UploadFile, size: int = 16) -> bytes:
+    file.file.seek(0)
+    header = file.file.read(size)
+    file.file.seek(0)
+    return header
+
+
+def header_audio_format(header: bytes) -> Optional[str]:
+    if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE":
+        return "wav"
+    if len(header) >= 3 and header[:3] == b"ID3":
+        return "mp3"
+    if len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+        return "mp3"
+    return None
+
+
+def detect_audio_upload_format(
+    filename: Optional[str],
+    content_type: Optional[str],
+    header: bytes,
+    declared_format: Optional[str] = None,
+    allowed_formats: Optional[set[str]] = None,
+) -> str:
+    allowed = allowed_formats or {"mp3", "wav"}
+    extension = normalize_audio_format(os.path.splitext(filename or "")[1])
+    declared = normalize_audio_format(declared_format)
+    sniffed = header_audio_format(header)
+    content_type_value = (content_type or "").split(";")[0].strip().lower()
+    content_format = None
+    if content_type_value in {"audio/mpeg", "audio/mp3"}:
+        content_format = "mp3"
+    elif content_type_value in {"audio/wav", "audio/wave", "audio/x-wav"}:
+        content_format = "wav"
+
+    candidates = [value for value in (sniffed, declared, extension, content_format) if value]
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported audio format",
+        )
+
+    chosen = sniffed or declared or extension or content_format
+    if chosen not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported audio format for this endpoint",
+        )
+
+    for value in candidates:
+        if value != chosen:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Audio extension, MIME, or header does not match",
+            )
+
+    return chosen
+
+
 def build_audio_path(
     device_id: str,
     event_id: str,
     label: Optional[str] = None,
     category: Optional[str] = None,
+    audio_format: str = "wav",
+    role: str = "primary",
 ) -> str:
     category_folder = audio_category_folder(label=label, category=category)
+    extension = audio_extension_for_format(audio_format)
     safe_device_id = safe_path_part(device_id)
     safe_event_id = safe_path_part(event_id)
+    suffix = "_tdoa_clip" if role == "tdoa_clip" else ""
     return (
         f"audio/{category_folder}/"
-        f"{safe_device_id}/{current_date_yyyymmdd()}/{safe_event_id}.wav"
+        f"{safe_device_id}/{current_date_yyyymmdd()}/{safe_event_id}{suffix}.{extension}"
     )
 
 
@@ -3168,6 +3537,8 @@ async def create_event(
 ):
     verify_upload_token(upload_token)
     sanitize_timing_metadata(event)
+    sanitize_audio_metadata(event)
+    existing_event = get_event_by_event_id(event.event_id)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
     device_row = None
@@ -3178,7 +3549,9 @@ async def create_event(
     except Exception:
         logger.exception("Event fusion failed for event_id=%s", event.event_id)
 
-    if is_alert_event_label(event.label):
+    is_existing_event = existing_event is not None
+
+    if is_alert_event_label(event.label) and not is_existing_event:
         device_row = upsert_device_event_status(event)
 
     if device_row:
@@ -3203,8 +3576,19 @@ async def create_event(
             }
         )
 
+    if is_existing_event and has_audio_metadata(event):
+        await dashboard_manager.broadcast(
+            {
+                "type": "event_audio_update",
+                "event_id": event.event_id,
+                "audio_path": event.audio_path,
+                "audio_format": event.audio_format,
+                "tdoa_clip_path": event.tdoa_clip_path,
+            }
+        )
+
     target_estimate = None
-    if is_alert_event_label(event.label):
+    if is_alert_event_label(event.label) and not is_existing_event:
         target_estimate = create_target_estimate_for_event(event, created_at)
 
     if target_estimate:
@@ -3384,6 +3768,9 @@ def event_audio_url(event_id: str):
     if not audio_path:
         raise HTTPException(status_code=404, detail="Audio file is not uploaded")
 
+    audio_format = normalize_audio_format(event.get("audio_format")) or (
+        "mp3" if str(audio_path).lower().endswith(".mp3") else "wav"
+    )
     try:
         bucket = get_gcs_bucket()
         blob = bucket.blob(audio_path)
@@ -3391,8 +3778,8 @@ def event_audio_url(event_id: str):
             version="v4",
             expiration=timedelta(minutes=10),
             method="GET",
-            response_type="audio/wav",
-            response_disposition=f'inline; filename="{event_id}.wav"',
+            response_type=audio_content_type(audio_format),
+            response_disposition=f'inline; filename="{event_id}.{audio_format}"',
         )
     except Exception as exc:
         raise HTTPException(
@@ -3404,6 +3791,43 @@ def event_audio_url(event_id: str):
         "status": "success",
         "event_id": event_id,
         "audio_path": audio_path,
+        "audio_format": audio_format,
+        "expires_in_seconds": 600,
+        "url": signed_url,
+    }
+
+
+@app.get("/events/{event_id}/tdoa-clip-url")
+def event_tdoa_clip_url(event_id: str):
+    event = get_event_by_event_id(event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    clip_path = event.get("tdoa_clip_path")
+    if not clip_path:
+        raise HTTPException(status_code=404, detail="TDOA clip is not uploaded")
+
+    try:
+        bucket = get_gcs_bucket()
+        blob = bucket.blob(clip_path)
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=10),
+            method="GET",
+            response_type="audio/wav",
+            response_disposition=f'inline; filename="{event_id}_tdoa_clip.wav"',
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create TDOA clip playback URL",
+        ) from exc
+
+    return {
+        "status": "success",
+        "event_id": event_id,
+        "tdoa_clip_path": clip_path,
+        "tdoa_clip_format": "wav",
         "expires_in_seconds": 600,
         "url": signed_url,
     }
@@ -4629,6 +5053,21 @@ def dashboard():
                 return value === null || value === undefined || value === '' ? '--' : safe(value);
             }
 
+            function formatBytes(value) {
+                const number = Number(value);
+                if (!Number.isFinite(number) || number < 0) return '--';
+                if (number < 1024) return `${number} B`;
+                if (number < 1024 * 1024) return `${(number / 1024).toFixed(1)} KB`;
+                return `${(number / 1024 / 1024).toFixed(2)} MB`;
+            }
+
+            function savingPercent(audioBytes, sourceBytes) {
+                const audio = Number(audioBytes);
+                const source = Number(sourceBytes);
+                if (!Number.isFinite(audio) || !Number.isFinite(source) || source <= 0) return '--';
+                return `${((1 - audio / source) * 100).toFixed(1)}%`;
+            }
+
             function observationTimingHtml(item) {
                 return `
                     <div class="timing-box">
@@ -4641,6 +5080,35 @@ def dashboard():
                             <span>Sample Rate</span><strong>${timingValue(item.sample_rate_hz)}</strong>
                             <span>Audio Duration</span><strong>${timingValue(item.audio_duration_ms)}</strong>
                         </div>
+                    </div>
+                `;
+            }
+
+            function observationAudioHtml(item) {
+                const eventId = attrSafe(item.event_id);
+                const primaryButton = item.audio_path
+                    ? `<button onclick="event.stopPropagation(); selectEventAudio('${eventId}')">播放主要音訊</button>`
+                    : '<span class="mini-chip warn">主要音訊未上傳</span>';
+                const clipButton = item.tdoa_clip_path
+                    ? `<button onclick="event.stopPropagation(); playTdoaClip('${eventId}')">播放定位片段 WAV</button>`
+                    : '<span class="mini-chip warn">定位片段未上傳</span>';
+                return `
+                    <div class="timing-box">
+                        <div class="timing-title">Smart Audio Upload</div>
+                        <div class="timing-grid">
+                            <span>Primary Format</span><strong>${timingValue(item.audio_format)}</strong>
+                            <span>Primary Size</span><strong>${formatBytes(item.audio_size_bytes)}</strong>
+                            <span>Source PCM</span><strong>${formatBytes(item.source_pcm_size_bytes)}</strong>
+                            <span>Saving</span><strong>${savingPercent(item.audio_size_bytes, item.source_pcm_size_bytes)}</strong>
+                            <span>Encoding Status</span><strong>${timingValue(item.audio_encoding_status)}</strong>
+                            <span>Clip Size</span><strong>${formatBytes(item.tdoa_clip_size_bytes)}</strong>
+                            <span>Clip Start</span><strong>${timingValue(item.tdoa_clip_start_sample)}</strong>
+                            <span>Clip End</span><strong>${timingValue(item.tdoa_clip_end_sample)}</strong>
+                            <span>Clip Peak</span><strong>${timingValue(item.tdoa_clip_peak_sample)}</strong>
+                            <span>Clip Duration</span><strong>${timingValue(item.tdoa_clip_duration_ms)}</strong>
+                            <span>Clip Source</span><strong>${timingValue(item.tdoa_clip_source)}</strong>
+                        </div>
+                        <div class="actions">${primaryButton}${clipButton}</div>
                     </div>
                 `;
             }
@@ -4682,6 +5150,7 @@ def dashboard():
                         ? observations.map(item => `
                             <div class="event-detail">節點 ${safe(item.device_id)} / ${safe(item.event_timestamp)} / RMS ${safe(item.rms_peak)} / AI ${safe(item.ai_probability)} / ${gpsLabel(item)}</div>
                             ${observationTimingHtml(item)}
+                            ${observationAudioHtml(item)}
                         `).join('')
                         : selected ? '<div class="event-detail">尚無 observation 明細</div>' : '';
                     return `
@@ -4754,6 +5223,27 @@ def dashboard():
 
             async function playAudio(eventId) {
                 await selectEventAudio(eventId);
+            }
+
+            async function playTdoaClip(eventId) {
+                const title = document.getElementById('audioPlayerTitle');
+                const player = document.getElementById('eventAudioPlayer');
+                try {
+                    title.textContent = `定位片段載入中：${eventId}`;
+                    const response = await fetch(`/events/${encodeURIComponent(eventId)}/tdoa-clip-url`);
+                    const body = await response.json();
+                    if (!response.ok) throw new Error(body.detail || response.statusText);
+                    player.onerror = () => {
+                        title.textContent = '定位片段播放失敗';
+                    };
+                    player.src = body.url;
+                    title.textContent = `定位片段 WAV：${eventId}`;
+                    await player.play();
+                } catch (error) {
+                    title.textContent = `定位片段播放失敗：${error}`;
+                    player.removeAttribute('src');
+                    player.load();
+                }
             }
 
             async function sendCommand(deviceId, command) {
@@ -4993,6 +5483,9 @@ def dashboard():
                             renderEventGroups();
                         }
                     }
+                    if (data.type === 'event_audio_update') {
+                        refreshAll();
+                    }
                     if (data.type === 'device_command_ack') {
                         document.getElementById('systemStatus').textContent = `指令回報 ${data.status}`;
                         refreshAll();
@@ -5025,16 +5518,21 @@ def upload_audio(
     device_id: str = Form(...),
     label: Optional[str] = Form(default=None),
     category: Optional[str] = Form(default=None),
+    audio_format: Optional[str] = Form(default=None),
     file: UploadFile = File(...),
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
     verify_upload_token(upload_token)
 
-    if not file.filename or not file.filename.lower().endswith(".wav"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only .wav files are allowed",
-        )
+    header = read_upload_header(file)
+    detected_format = detect_audio_upload_format(
+        filename=file.filename,
+        content_type=file.content_type,
+        header=header,
+        declared_format=audio_format,
+        allowed_formats={"mp3", "wav"},
+    )
+    size_bytes = file_size_from_upload(file)
 
     category_folder = audio_category_folder(label=label, category=category)
     audio_path = build_audio_path(
@@ -5042,6 +5540,7 @@ def upload_audio(
         event_id=event_id,
         label=label,
         category=category,
+        audio_format=detected_format,
     )
     bucket = get_gcs_bucket()
     blob = bucket.blob(audio_path)
@@ -5050,9 +5549,20 @@ def upload_audio(
         file.file.seek(0)
         blob.upload_from_file(
             file.file,
-            content_type=file.content_type or "audio/wav",
+            content_type=audio_content_type(detected_format),
         )
-        update_event_audio_path(event_id=event_id, audio_path=audio_path)
+        update_event_audio_path(
+            event_id=event_id,
+            audio_path=audio_path,
+            audio_format=detected_format,
+            audio_size_bytes=size_bytes,
+        )
+        logger.info(
+            "[AUDIO_UPLOAD] type=primary format=%s bytes=%s device=%s",
+            detected_format,
+            size_bytes,
+            device_id,
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -5069,4 +5579,78 @@ def upload_audio(
         "label": label,
         "category": category_folder,
         "audio_path": audio_path,
+        "audio_format": detected_format,
+        "size_bytes": size_bytes,
+    }
+
+
+@app.post("/upload-tdoa-clip")
+def upload_tdoa_clip(
+    event_id: str = Form(...),
+    device_id: str = Form(...),
+    label: Optional[str] = Form(default=None),
+    category: Optional[str] = Form(default=None),
+    file: UploadFile = File(...),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+
+    header = read_upload_header(file)
+    detected_format = detect_audio_upload_format(
+        filename=file.filename,
+        content_type=file.content_type,
+        header=header,
+        declared_format="wav",
+        allowed_formats={"wav"},
+    )
+    size_bytes = file_size_from_upload(file)
+    category_folder = audio_category_folder(label=label, category=category)
+    clip_path = build_audio_path(
+        device_id=device_id,
+        event_id=event_id,
+        label=label,
+        category=category,
+        audio_format=detected_format,
+        role="tdoa_clip",
+    )
+    bucket = get_gcs_bucket()
+    blob = bucket.blob(clip_path)
+
+    try:
+        file.file.seek(0)
+        blob.upload_from_file(
+            file.file,
+            content_type=audio_content_type(detected_format),
+        )
+        update_event_tdoa_clip(
+            event_id=event_id,
+            tdoa_clip_path=clip_path,
+            tdoa_clip_format=detected_format,
+            tdoa_clip_size_bytes=size_bytes,
+        )
+        logger.info(
+            "[AUDIO_UPLOAD] type=tdoa_clip format=%s bytes=%s device=%s",
+            detected_format,
+            size_bytes,
+            device_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload TDOA clip",
+        ) from exc
+    finally:
+        file.file.close()
+
+    return {
+        "status": "success",
+        "message": "TDOA clip uploaded",
+        "event_id": event_id,
+        "device_id": device_id,
+        "label": label,
+        "category": category_folder,
+        "tdoa_clip_path": clip_path,
+        "tdoa_clip_format": detected_format,
+        "tdoa_clip_size_bytes": size_bytes,
+        "size_bytes": size_bytes,
     }

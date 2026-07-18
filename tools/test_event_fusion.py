@@ -34,6 +34,18 @@ def make_connection() -> sqlite3.Connection:
             rms_peak REAL,
             label TEXT,
             audio_path TEXT,
+            audio_format TEXT,
+            audio_size_bytes INTEGER,
+            source_pcm_size_bytes INTEGER,
+            audio_encoding_status TEXT,
+            tdoa_clip_path TEXT,
+            tdoa_clip_format TEXT,
+            tdoa_clip_size_bytes INTEGER,
+            tdoa_clip_start_sample INTEGER,
+            tdoa_clip_end_sample INTEGER,
+            tdoa_clip_peak_sample INTEGER,
+            tdoa_clip_duration_ms INTEGER,
+            tdoa_clip_source TEXT,
             note TEXT,
             timing_version INTEGER,
             timing_source TEXT,
@@ -90,6 +102,18 @@ def make_connection() -> sqlite3.Connection:
             ai_probability REAL,
             aircraft_probability REAL,
             audio_path TEXT,
+            audio_format TEXT,
+            audio_size_bytes INTEGER,
+            source_pcm_size_bytes INTEGER,
+            audio_encoding_status TEXT,
+            tdoa_clip_path TEXT,
+            tdoa_clip_format TEXT,
+            tdoa_clip_size_bytes INTEGER,
+            tdoa_clip_start_sample INTEGER,
+            tdoa_clip_end_sample INTEGER,
+            tdoa_clip_peak_sample INTEGER,
+            tdoa_clip_duration_ms INTEGER,
+            tdoa_clip_source TEXT,
             timing_version INTEGER,
             timing_source TEXT,
             capture_start_time_ms INTEGER,
@@ -136,6 +160,18 @@ def add_event(
             rms_peak,
             label,
             audio_path,
+            audio_format,
+            audio_size_bytes,
+            source_pcm_size_bytes,
+            audio_encoding_status,
+            tdoa_clip_path,
+            tdoa_clip_format,
+            tdoa_clip_size_bytes,
+            tdoa_clip_start_sample,
+            tdoa_clip_end_sample,
+            tdoa_clip_peak_sample,
+            tdoa_clip_duration_ms,
+            tdoa_clip_source,
             note,
             timing_version,
             timing_source,
@@ -151,7 +187,7 @@ def add_event(
             rms_peak_time_ms,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -161,7 +197,19 @@ def add_event(
             121.565 + (hash(event_id) % 10) * 0.0001,
             0.8,
             label,
-            f"audio/drone/{device_id}/20260718/{event_id}.wav",
+            f"audio/drone/{device_id}/20260718/{event_id}.mp3",
+            "mp3",
+            24000,
+            160000,
+            "MP3_SUCCESS",
+            f"audio/drone/{device_id}/20260718/{event_id}_tdoa_clip.wav",
+            "wav",
+            64044,
+            26000,
+            58000,
+            16000,
+            2000,
+            "RMS_PEAK",
             "probability_aircraft=0.900000, confidence=0.900000",
             1,
             "PCM_SAMPLE_INDEX",
@@ -251,6 +299,38 @@ def run_service_tests() -> None:
     assert_equal(duplicate["id"], group1["id"], "Test 4 duplicate group id")
     assert_equal(after_duplicate, before_duplicate, "Test 4 duplicate observation count")
 
+    refreshed_record = dict(a03_record)
+    refreshed_record["audio_path"] = "audio/drone/node_A03/20260718/evt_a03_002_updated.mp3"
+    refreshed_record["audio_size_bytes"] = 18000
+    refreshed_record["audio_encoding_status"] = "MP3_SUCCESS"
+    refreshed_record["tdoa_clip_path"] = (
+        "audio/drone/node_A03/20260718/evt_a03_002_tdoa_clip.wav"
+    )
+    refreshed = process_event(
+        connection,
+        refreshed_record,
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(refreshed["id"], group1["id"], "Test 4b refreshed group id")
+    assert_equal(observation_count(connection), before_duplicate, "Test 4b observation count")
+    refreshed_detail = get_event_group_detail(connection, group1["id"], is_postgres=False)
+    refreshed_observation = next(
+        item
+        for item in refreshed_detail["observations"]
+        if item["event_id"] == "evt_a03_002"
+    )
+    assert_equal(
+        refreshed_observation["audio_path"],
+        refreshed_record["audio_path"],
+        "Test 4b audio_path refreshed",
+    )
+    assert_equal(
+        refreshed_observation["audio_size_bytes"],
+        18000,
+        "Test 4b audio_size_bytes refreshed",
+    )
+
     same_device = process_event(
         connection,
         add_event(connection, "evt_a01_003", "node_A01", "aircraft", base + timedelta(seconds=2.5)),
@@ -297,6 +377,16 @@ def run_service_tests() -> None:
         timed_observation["sample_rate_hz"],
         16000,
         "Test 11 sample_rate_hz copied",
+    )
+    assert_equal(
+        timed_observation["audio_format"],
+        "mp3",
+        "Test 12 audio_format copied",
+    )
+    assert_equal(
+        timed_observation["tdoa_clip_format"],
+        "wav",
+        "Test 12 tdoa_clip_format copied",
     )
 
 
