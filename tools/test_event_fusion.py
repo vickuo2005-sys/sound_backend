@@ -34,6 +34,18 @@ def make_connection() -> sqlite3.Connection:
             label TEXT,
             audio_path TEXT,
             note TEXT,
+            timing_version INTEGER,
+            timing_source TEXT,
+            capture_start_time_ms INTEGER,
+            event_start_sample INTEGER,
+            event_end_sample INTEGER,
+            rms_peak_sample INTEGER,
+            sample_rate_hz INTEGER,
+            channel_count INTEGER,
+            audio_duration_ms INTEGER,
+            device_event_time_ms INTEGER,
+            event_end_time_ms INTEGER,
+            rms_peak_time_ms INTEGER,
             created_at TEXT
         )
         """
@@ -77,6 +89,18 @@ def make_connection() -> sqlite3.Connection:
             ai_probability REAL,
             aircraft_probability REAL,
             audio_path TEXT,
+            timing_version INTEGER,
+            timing_source TEXT,
+            capture_start_time_ms INTEGER,
+            event_start_sample INTEGER,
+            event_end_sample INTEGER,
+            rms_peak_sample INTEGER,
+            sample_rate_hz INTEGER,
+            channel_count INTEGER,
+            audio_duration_ms INTEGER,
+            device_event_time_ms INTEGER,
+            event_end_time_ms INTEGER,
+            rms_peak_time_ms INTEGER,
             created_at TEXT,
             observation_kind TEXT DEFAULT 'fusion'
         )
@@ -112,9 +136,21 @@ def add_event(
             label,
             audio_path,
             note,
+            timing_version,
+            timing_source,
+            capture_start_time_ms,
+            event_start_sample,
+            event_end_sample,
+            rms_peak_sample,
+            sample_rate_hz,
+            channel_count,
+            audio_duration_ms,
+            device_event_time_ms,
+            event_end_time_ms,
+            rms_peak_time_ms,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -126,6 +162,18 @@ def add_event(
             label,
             f"audio/drone/{device_id}/20260718/{event_id}.wav",
             "probability_aircraft=0.900000, confidence=0.900000",
+            1,
+            "PCM_SAMPLE_INDEX",
+            int(event_time.timestamp() * 1000) - 2000,
+            32000,
+            80000,
+            42000,
+            16000,
+            1,
+            5000,
+            int(event_time.timestamp() * 1000),
+            int(event_time.timestamp() * 1000) + 3000,
+            int(event_time.timestamp() * 1000) + 625,
             created_at,
         ),
     )
@@ -226,6 +274,22 @@ def run_service_tests() -> None:
     assert_equal(len(groups), 2, "Test 9 limit")
     detail = get_event_group_detail(connection, group1["id"], is_postgres=False)
     assert_equal(len(detail["observations"]), 4, "Test 10 observation detail count")
+    timed_observation = detail["observations"][0]
+    assert_equal(
+        timed_observation["timing_source"],
+        "PCM_SAMPLE_INDEX",
+        "Test 11 timing source copied",
+    )
+    assert_equal(
+        timed_observation["event_start_sample"],
+        32000,
+        "Test 11 event_start_sample copied",
+    )
+    assert_equal(
+        timed_observation["sample_rate_hz"],
+        16000,
+        "Test 11 sample_rate_hz copied",
+    )
 
 
 def run_route_failure_test() -> None:
@@ -258,6 +322,18 @@ def run_route_failure_test() -> None:
                     rms_peak=0.75,
                     label="aircraft",
                     note="probability_aircraft=0.900000, confidence=0.900000",
+                    timing_version=1,
+                    timing_source="PCM_SAMPLE_INDEX",
+                    capture_start_time_ms=1000000,
+                    event_start_sample=16000,
+                    event_end_sample=64000,
+                    rms_peak_sample=28000,
+                    sample_rate_hz=16000,
+                    channel_count=1,
+                    device_event_time_ms=1001000,
+                    event_end_time_ms=1004000,
+                    rms_peak_time_ms=1001750,
+                    audio_duration_ms=4000,
                 ),
                 upload_token="test-token-123",
             )
@@ -265,10 +341,16 @@ def run_route_failure_test() -> None:
         assert_equal(result["status"], "success", "Test 8 POST status")
         with sqlite3.connect(main.DB_NAME) as connection:
             row = connection.execute(
-                "SELECT COUNT(*) FROM events WHERE event_id = ?",
+                """
+                SELECT timing_source, event_start_sample, sample_rate_hz
+                FROM events
+                WHERE event_id = ?
+                """,
                 ("evt_failure_safe",),
             ).fetchone()
-            assert_equal(int(row[0]), 1, "Test 8 original event persisted")
+            assert_equal(row[0], "PCM_SAMPLE_INDEX", "Test 8 timing source persisted")
+            assert_equal(row[1], 16000, "Test 8 event_start_sample persisted")
+            assert_equal(row[2], 16000, "Test 8 sample_rate_hz persisted")
 
     main.process_event_fusion_for_event = original_fusion
     main.DB_NAME = original_db_name

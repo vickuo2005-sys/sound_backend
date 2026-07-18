@@ -92,9 +92,18 @@ class SoundEvent(BaseModel):
     local_audio_path: Optional[str] = None
     audio_path: Optional[str] = None
     note: Optional[str] = None
+    timing_version: Optional[int] = None
+    timing_source: Optional[str] = None
+    capture_start_time_ms: Optional[int] = None
+    event_start_sample: Optional[int] = None
+    event_end_sample: Optional[int] = None
+    rms_peak_sample: Optional[int] = None
+    sample_rate_hz: Optional[int] = None
+    channel_count: Optional[int] = None
     device_event_time_ms: Optional[float] = None
     event_start_time_ms: Optional[float] = None
     event_end_time_ms: Optional[float] = None
+    rms_peak_time_ms: Optional[int] = None
     rms_peak_offset_ms: Optional[float] = None
     sample_rate: Optional[int] = None
     audio_duration_ms: Optional[float] = None
@@ -197,9 +206,18 @@ EVENT_COLUMNS = [
     "audio_path",
     "note",
     "created_at",
+    "timing_version",
+    "timing_source",
+    "capture_start_time_ms",
+    "event_start_sample",
+    "event_end_sample",
+    "rms_peak_sample",
+    "sample_rate_hz",
+    "channel_count",
     "device_event_time_ms",
     "event_start_time_ms",
     "event_end_time_ms",
+    "rms_peak_time_ms",
     "rms_peak_offset_ms",
     "sample_rate",
     "audio_duration_ms",
@@ -207,6 +225,20 @@ EVENT_COLUMNS = [
     "time_sync_rtt_ms",
     "corrected_arrival_time_ms",
     "timing_quality",
+]
+
+EVENT_WRITE_COLUMNS = [column for column in EVENT_COLUMNS if column != "id"]
+
+NEW_TIMING_METADATA_COLUMNS = [
+    "timing_version",
+    "timing_source",
+    "capture_start_time_ms",
+    "event_start_sample",
+    "event_end_sample",
+    "rms_peak_sample",
+    "sample_rate_hz",
+    "channel_count",
+    "rms_peak_time_ms",
 ]
 
 DEVICE_STATUS_COLUMNS = [
@@ -363,9 +395,18 @@ def init_sqlite_db() -> None:
                 audio_path TEXT,
                 note TEXT,
                 created_at TEXT,
+                timing_version INTEGER,
+                timing_source TEXT,
+                capture_start_time_ms INTEGER,
+                event_start_sample INTEGER,
+                event_end_sample INTEGER,
+                rms_peak_sample INTEGER,
+                sample_rate_hz INTEGER,
+                channel_count INTEGER,
                 device_event_time_ms REAL,
                 event_start_time_ms REAL,
                 event_end_time_ms REAL,
+                rms_peak_time_ms INTEGER,
                 rms_peak_offset_ms REAL,
                 sample_rate INTEGER,
                 audio_duration_ms REAL,
@@ -378,9 +419,18 @@ def init_sqlite_db() -> None:
         )
         for column_name, column_definition in [
             ("audio_path", "TEXT"),
+            ("timing_version", "INTEGER"),
+            ("timing_source", "TEXT"),
+            ("capture_start_time_ms", "INTEGER"),
+            ("event_start_sample", "INTEGER"),
+            ("event_end_sample", "INTEGER"),
+            ("rms_peak_sample", "INTEGER"),
+            ("sample_rate_hz", "INTEGER"),
+            ("channel_count", "INTEGER"),
             ("device_event_time_ms", "REAL"),
             ("event_start_time_ms", "REAL"),
             ("event_end_time_ms", "REAL"),
+            ("rms_peak_time_ms", "INTEGER"),
             ("rms_peak_offset_ms", "REAL"),
             ("sample_rate", "INTEGER"),
             ("audio_duration_ms", "REAL"),
@@ -544,6 +594,18 @@ def init_sqlite_db() -> None:
                 aircraft_probability REAL,
                 audio_path TEXT,
                 event_timestamp TEXT,
+                timing_version INTEGER,
+                timing_source TEXT,
+                capture_start_time_ms INTEGER,
+                event_start_sample INTEGER,
+                event_end_sample INTEGER,
+                rms_peak_sample INTEGER,
+                sample_rate_hz INTEGER,
+                channel_count INTEGER,
+                audio_duration_ms INTEGER,
+                device_event_time_ms INTEGER,
+                event_end_time_ms INTEGER,
+                rms_peak_time_ms INTEGER,
                 weight REAL,
                 corrected_arrival_time_ms REAL,
                 time_sync_rtt_ms REAL,
@@ -567,6 +629,18 @@ def init_sqlite_db() -> None:
             ("aircraft_probability", "REAL"),
             ("audio_path", "TEXT"),
             ("event_timestamp", "TEXT"),
+            ("timing_version", "INTEGER"),
+            ("timing_source", "TEXT"),
+            ("capture_start_time_ms", "INTEGER"),
+            ("event_start_sample", "INTEGER"),
+            ("event_end_sample", "INTEGER"),
+            ("rms_peak_sample", "INTEGER"),
+            ("sample_rate_hz", "INTEGER"),
+            ("channel_count", "INTEGER"),
+            ("audio_duration_ms", "INTEGER"),
+            ("device_event_time_ms", "INTEGER"),
+            ("event_end_time_ms", "INTEGER"),
+            ("rms_peak_time_ms", "INTEGER"),
             ("weight", "REAL"),
             ("corrected_arrival_time_ms", "REAL"),
             ("time_sync_rtt_ms", "REAL"),
@@ -659,9 +733,18 @@ def init_postgres_db() -> None:
                         audio_path TEXT,
                         note TEXT,
                         created_at TEXT,
+                        timing_version INTEGER,
+                        timing_source TEXT,
+                        capture_start_time_ms BIGINT,
+                        event_start_sample BIGINT,
+                        event_end_sample BIGINT,
+                        rms_peak_sample BIGINT,
+                        sample_rate_hz INTEGER,
+                        channel_count INTEGER,
                         device_event_time_ms DOUBLE PRECISION,
                         event_start_time_ms DOUBLE PRECISION,
                         event_end_time_ms DOUBLE PRECISION,
+                        rms_peak_time_ms BIGINT,
                         rms_peak_offset_ms DOUBLE PRECISION,
                         sample_rate INTEGER,
                         audio_duration_ms DOUBLE PRECISION,
@@ -702,9 +785,18 @@ def init_postgres_db() -> None:
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS created_at TEXT"
                 )
                 for statement in [
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS timing_version INTEGER",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS timing_source TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS capture_start_time_ms BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_start_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak_sample BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS sample_rate_hz INTEGER",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS channel_count INTEGER",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS device_event_time_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_start_time_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak_time_ms BIGINT",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak_offset_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS sample_rate INTEGER",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_duration_ms DOUBLE PRECISION",
@@ -860,6 +952,18 @@ def init_postgres_db() -> None:
                         aircraft_probability DOUBLE PRECISION,
                         audio_path TEXT,
                         event_timestamp TIMESTAMPTZ,
+                        timing_version INTEGER,
+                        timing_source TEXT,
+                        capture_start_time_ms BIGINT,
+                        event_start_sample BIGINT,
+                        event_end_sample BIGINT,
+                        rms_peak_sample BIGINT,
+                        sample_rate_hz INTEGER,
+                        channel_count INTEGER,
+                        audio_duration_ms BIGINT,
+                        device_event_time_ms BIGINT,
+                        event_end_time_ms BIGINT,
+                        rms_peak_time_ms BIGINT,
                         weight DOUBLE PRECISION,
                         corrected_arrival_time_ms DOUBLE PRECISION,
                         time_sync_rtt_ms DOUBLE PRECISION,
@@ -883,6 +987,18 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_path TEXT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_timestamp TIMESTAMPTZ",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS timing_version INTEGER",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS timing_source TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS capture_start_time_ms BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_start_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_end_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS rms_peak_sample BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS sample_rate_hz INTEGER",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS channel_count INTEGER",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_duration_ms BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS device_event_time_ms BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_end_time_ms BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS rms_peak_time_ms BIGINT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
@@ -1007,90 +1123,108 @@ def timing_quality_for_event(event: SoundEvent) -> str:
     return "poor"
 
 
-def event_values(event: SoundEvent, created_at: str) -> tuple:
-    return (
+def has_new_timing_metadata(event: SoundEvent) -> bool:
+    return any(getattr(event, column) is not None for column in NEW_TIMING_METADATA_COLUMNS)
+
+
+def sanitize_timing_metadata(event: SoundEvent) -> None:
+    if not has_new_timing_metadata(event):
+        return
+
+    problems = []
+    if event.timing_version is not None and event.timing_version < 1:
+        problems.append("timing_version must be >= 1")
+    if event.sample_rate_hz is not None and event.sample_rate_hz <= 0:
+        problems.append("sample_rate_hz must be > 0")
+    if event.channel_count is not None and event.channel_count <= 0:
+        problems.append("channel_count must be > 0")
+    for column in ("event_start_sample", "event_end_sample", "rms_peak_sample"):
+        value = getattr(event, column)
+        if value is not None and value < 0:
+            problems.append(f"{column} must be >= 0")
+    if event.audio_duration_ms is not None and event.audio_duration_ms < 0:
+        problems.append("audio_duration_ms must be >= 0")
+    if (
+        event.event_start_sample is not None
+        and event.event_end_sample is not None
+        and event.event_end_sample < event.event_start_sample
+    ):
+        problems.append("event_end_sample must be >= event_start_sample")
+    if (
+        event.rms_peak_sample is not None
+        and event.event_end_sample is not None
+        and event.rms_peak_sample > event.event_end_sample
+    ):
+        problems.append("rms_peak_sample must be <= event_end_sample")
+
+    if not problems:
+        return
+
+    logger.warning(
+        "Invalid timing metadata ignored for event_id=%s: %s",
         event.event_id,
-        event.device_id,
-        event.timestamp,
-        event.latitude,
-        event.longitude,
-        event.duration_s,
-        event.rms_peak,
-        event.label,
-        event.audio_file_name,
-        event.local_audio_path,
-        event.audio_path,
-        event.note,
-        created_at,
-        event.device_event_time_ms,
-        event.event_start_time_ms,
-        event.event_end_time_ms,
-        event.rms_peak_offset_ms,
-        event.sample_rate,
-        event.audio_duration_ms,
-        event.time_sync_offset_ms,
-        event.time_sync_rtt_ms,
-        corrected_arrival_time_ms(event),
-        timing_quality_for_event(event),
+        "; ".join(problems),
     )
+    for column in NEW_TIMING_METADATA_COLUMNS:
+        setattr(event, column, None)
+    event.audio_duration_ms = None
+
+
+def event_values(event: SoundEvent, created_at: str) -> tuple:
+    values = {
+        "event_id": event.event_id,
+        "device_id": event.device_id,
+        "timestamp": event.timestamp,
+        "latitude": event.latitude,
+        "longitude": event.longitude,
+        "duration_s": event.duration_s,
+        "rms_peak": event.rms_peak,
+        "label": event.label,
+        "audio_file_name": event.audio_file_name,
+        "local_audio_path": event.local_audio_path,
+        "audio_path": event.audio_path,
+        "note": event.note,
+        "created_at": created_at,
+        "timing_version": event.timing_version,
+        "timing_source": event.timing_source,
+        "capture_start_time_ms": event.capture_start_time_ms,
+        "event_start_sample": event.event_start_sample,
+        "event_end_sample": event.event_end_sample,
+        "rms_peak_sample": event.rms_peak_sample,
+        "sample_rate_hz": event.sample_rate_hz,
+        "channel_count": event.channel_count,
+        "device_event_time_ms": event.device_event_time_ms,
+        "event_start_time_ms": event.event_start_time_ms,
+        "event_end_time_ms": event.event_end_time_ms,
+        "rms_peak_time_ms": event.rms_peak_time_ms,
+        "rms_peak_offset_ms": event.rms_peak_offset_ms,
+        "sample_rate": event.sample_rate,
+        "audio_duration_ms": event.audio_duration_ms,
+        "time_sync_offset_ms": event.time_sync_offset_ms,
+        "time_sync_rtt_ms": event.time_sync_rtt_ms,
+        "corrected_arrival_time_ms": corrected_arrival_time_ms(event),
+        "timing_quality": timing_quality_for_event(event),
+    }
+    return tuple(values[column] for column in EVENT_WRITE_COLUMNS)
 
 
 def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
+    columns = ", ".join(EVENT_WRITE_COLUMNS)
+    placeholders = ", ".join(["%s"] * len(EVENT_WRITE_COLUMNS))
+    update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
+    update_clause = ",\n                        ".join(
+        f"{column} = EXCLUDED.{column}" for column in update_columns
+    )
     connection = get_postgres_connection()
     try:
         with connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    INSERT INTO events (
-                        event_id,
-                        device_id,
-                        timestamp,
-                        latitude,
-                        longitude,
-                        duration_s,
-                        rms_peak,
-                        label,
-                        audio_file_name,
-                        local_audio_path,
-                        audio_path,
-                        note,
-                        created_at,
-                        device_event_time_ms,
-                        event_start_time_ms,
-                        event_end_time_ms,
-                        rms_peak_offset_ms,
-                        sample_rate,
-                        audio_duration_ms,
-                        time_sync_offset_ms,
-                        time_sync_rtt_ms,
-                        corrected_arrival_time_ms,
-                        timing_quality
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    f"""
+                    INSERT INTO events ({columns})
+                    VALUES ({placeholders})
                     ON CONFLICT (event_id) DO UPDATE SET
-                        device_id = EXCLUDED.device_id,
-                        timestamp = EXCLUDED.timestamp,
-                        latitude = EXCLUDED.latitude,
-                        longitude = EXCLUDED.longitude,
-                        duration_s = EXCLUDED.duration_s,
-                        rms_peak = EXCLUDED.rms_peak,
-                        label = EXCLUDED.label,
-                        audio_file_name = EXCLUDED.audio_file_name,
-                        local_audio_path = EXCLUDED.local_audio_path,
-                        audio_path = EXCLUDED.audio_path,
-                        note = EXCLUDED.note,
-                        created_at = EXCLUDED.created_at,
-                        device_event_time_ms = EXCLUDED.device_event_time_ms,
-                        event_start_time_ms = EXCLUDED.event_start_time_ms,
-                        event_end_time_ms = EXCLUDED.event_end_time_ms,
-                        rms_peak_offset_ms = EXCLUDED.rms_peak_offset_ms,
-                        sample_rate = EXCLUDED.sample_rate,
-                        audio_duration_ms = EXCLUDED.audio_duration_ms,
-                        time_sync_offset_ms = EXCLUDED.time_sync_offset_ms,
-                        time_sync_rtt_ms = EXCLUDED.time_sync_rtt_ms,
-                        corrected_arrival_time_ms = EXCLUDED.corrected_arrival_time_ms,
-                        timing_quality = EXCLUDED.timing_quality
+                        {update_clause}
                     RETURNING id
                     """,
                     event_values(event, created_at),
@@ -1102,6 +1236,13 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
 
 
 def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
+    columns = ", ".join(EVENT_WRITE_COLUMNS)
+    placeholders = ", ".join(["?"] * len(EVENT_WRITE_COLUMNS))
+    update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
+    update_clause = ",\n                    ".join(
+        f"{column} = ?" for column in update_columns
+    )
+    values = event_values(event, created_at)
     with get_sqlite_connection() as connection:
         existing = connection.execute(
             "SELECT id FROM events WHERE event_id = ? LIMIT 1",
@@ -1111,66 +1252,21 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
         if existing:
             db_id = int(existing["id"])
             connection.execute(
-                """
+                f"""
                 UPDATE events
                 SET
-                    device_id = ?,
-                    timestamp = ?,
-                    latitude = ?,
-                    longitude = ?,
-                    duration_s = ?,
-                    rms_peak = ?,
-                    label = ?,
-                    audio_file_name = ?,
-                    local_audio_path = ?,
-                    audio_path = ?,
-                    note = ?,
-                    created_at = ?,
-                    device_event_time_ms = ?,
-                    event_start_time_ms = ?,
-                    event_end_time_ms = ?,
-                    rms_peak_offset_ms = ?,
-                    sample_rate = ?,
-                    audio_duration_ms = ?,
-                    time_sync_offset_ms = ?,
-                    time_sync_rtt_ms = ?,
-                    corrected_arrival_time_ms = ?,
-                    timing_quality = ?
+                    {update_clause}
                 WHERE id = ?
                 """,
-                event_values(event, created_at)[1:] + (db_id,),
+                values[1:] + (db_id,),
             )
         else:
             cursor = connection.execute(
-                """
-                INSERT INTO events (
-                    event_id,
-                    device_id,
-                    timestamp,
-                    latitude,
-                    longitude,
-                    duration_s,
-                    rms_peak,
-                    label,
-                    audio_file_name,
-                    local_audio_path,
-                    audio_path,
-                    note,
-                    created_at,
-                    device_event_time_ms,
-                    event_start_time_ms,
-                    event_end_time_ms,
-                    rms_peak_offset_ms,
-                    sample_rate,
-                    audio_duration_ms,
-                    time_sync_offset_ms,
-                    time_sync_rtt_ms,
-                    corrected_arrival_time_ms,
-                    timing_quality
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                f"""
+                INSERT INTO events ({columns})
+                VALUES ({placeholders})
                 """,
-                event_values(event, created_at),
+                values,
             )
             db_id = int(cursor.lastrowid)
 
@@ -3071,6 +3167,7 @@ async def create_event(
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
     verify_upload_token(upload_token)
+    sanitize_timing_metadata(event)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
     device_row = None
@@ -4490,6 +4587,27 @@ def dashboard():
                 return Number.isFinite(lat) && Number.isFinite(lng) ? 'GPS 有' : 'GPS 無';
             }
 
+            function timingValue(value) {
+                return value === null || value === undefined || value === '' ? '--' : safe(value);
+            }
+
+            function observationTimingHtml(item) {
+                return `
+                    <div class="event-detail">
+                        Timing Source ${timingValue(item.timing_source)} /
+                        Device Event Time ${timingValue(item.device_event_time_ms)}
+                    </div>
+                    <div class="event-detail">
+                        Event Start Sample ${timingValue(item.event_start_sample)} /
+                        RMS Peak Sample ${timingValue(item.rms_peak_sample)}
+                    </div>
+                    <div class="event-detail">
+                        Sample Rate ${timingValue(item.sample_rate_hz)} /
+                        Audio Duration ${timingValue(item.audio_duration_ms)}
+                    </div>
+                `;
+            }
+
             async function selectEventGroup(groupId) {
                 if (selectedEventGroupId === groupId) {
                     selectedEventGroupId = null;
@@ -4526,6 +4644,7 @@ def dashboard():
                     const observationHtml = observations.length
                         ? observations.map(item => `
                             <div class="event-detail">節點 ${safe(item.device_id)} / ${safe(item.event_timestamp)} / RMS ${safe(item.rms_peak)} / AI ${safe(item.ai_probability)} / ${gpsLabel(item)}</div>
+                            ${observationTimingHtml(item)}
                         `).join('')
                         : selected ? '<div class="event-detail">尚無 observation 明細</div>' : '';
                     return `

@@ -8,6 +8,20 @@ from typing import Any, Optional
 ACTIVE_STATUS = "ACTIVE"
 CLOSED_STATUS = "CLOSED"
 FUSION_KIND = "fusion"
+TIMING_METADATA_FIELDS = [
+    "timing_version",
+    "timing_source",
+    "capture_start_time_ms",
+    "event_start_sample",
+    "event_end_sample",
+    "rms_peak_sample",
+    "sample_rate_hz",
+    "channel_count",
+    "audio_duration_ms",
+    "device_event_time_ms",
+    "event_end_time_ms",
+    "rms_peak_time_ms",
+]
 
 
 def parse_datetime(value: Any) -> Optional[datetime]:
@@ -73,6 +87,13 @@ def parse_float(value: Any) -> Optional[float]:
         except ValueError:
             return None
     return None
+
+
+def parse_int(value: Any) -> Optional[int]:
+    number = parse_float(value)
+    if number is None:
+        return None
+    return int(round(number))
 
 
 def ai_probability_from_event(event_record: dict) -> Optional[float]:
@@ -324,10 +345,22 @@ def insert_observation(
             ai_probability,
             aircraft_probability,
             audio_path,
+            timing_version,
+            timing_source,
+            capture_start_time_ms,
+            event_start_sample,
+            event_end_sample,
+            rms_peak_sample,
+            sample_rate_hz,
+            channel_count,
+            audio_duration_ms,
+            device_event_time_ms,
+            event_end_time_ms,
+            rms_peak_time_ms,
             created_at,
             observation_kind
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     params = (
         observation_id,
@@ -343,6 +376,18 @@ def insert_observation(
         ai_probability,
         ai_probability,
         event_record.get("audio_path"),
+        parse_int(event_record.get("timing_version")),
+        event_record.get("timing_source"),
+        parse_int(event_record.get("capture_start_time_ms")),
+        parse_int(event_record.get("event_start_sample")),
+        parse_int(event_record.get("event_end_sample")),
+        parse_int(event_record.get("rms_peak_sample")),
+        parse_int(event_record.get("sample_rate_hz")),
+        parse_int(event_record.get("channel_count")),
+        parse_int(event_record.get("audio_duration_ms")),
+        parse_int(event_record.get("device_event_time_ms")),
+        parse_int(event_record.get("event_end_time_ms")),
+        parse_int(event_record.get("rms_peak_time_ms")),
         db_time(now, is_postgres),
         FUSION_KIND,
     )
@@ -561,6 +606,18 @@ def get_event_group_detail(
                 rms_peak,
                 ai_probability,
                 audio_path,
+                timing_version,
+                timing_source,
+                capture_start_time_ms,
+                event_start_sample,
+                event_end_sample,
+                rms_peak_sample,
+                sample_rate_hz,
+                channel_count,
+                audio_duration_ms,
+                device_event_time_ms,
+                event_end_time_ms,
+                rms_peak_time_ms,
                 created_at
             FROM event_group_observations
             WHERE group_id = %s
