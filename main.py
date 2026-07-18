@@ -3506,11 +3506,20 @@ def dashboard():
             .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
             .side-stack {
                 min-height: 0;
-                display: grid;
-                grid-template-rows: minmax(142px, auto) repeat(3, minmax(170px, 1fr));
+                display: flex;
+                flex-direction: column;
                 gap: 12px;
+                overflow-y: auto;
+                padding-right: 4px;
             }
-            .side-stack .panel { height: 100%; }
+            .side-stack .panel {
+                flex: 0 0 auto;
+                min-height: 170px;
+            }
+            .side-stack .audio-panel { min-height: 156px; }
+            .side-stack .alert-panel { min-height: 190px; }
+            .side-stack .event-groups-panel { min-height: 330px; }
+            .side-stack .target-panel { min-height: 230px; }
             .panel h2 {
                 font-size: 15px;
                 margin: 0;
@@ -3651,6 +3660,34 @@ def dashboard():
             .event-detail {
                 color: var(--muted);
                 line-height: 1.35;
+                overflow-wrap: anywhere;
+            }
+            .timing-box {
+                margin-top: 8px;
+                padding: 9px;
+                border: 1px solid rgba(74,163,255,.34);
+                border-radius: 8px;
+                background: rgba(74,163,255,.08);
+            }
+            .timing-title {
+                color: var(--accent);
+                font-weight: 900;
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+            .timing-grid {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 5px 10px;
+                font-size: 12px;
+            }
+            .timing-grid span {
+                color: var(--muted);
+                overflow-wrap: anywhere;
+            }
+            .timing-grid strong {
+                color: var(--text);
+                font-weight: 800;
                 overflow-wrap: anywhere;
             }
             .preview-actions {
@@ -3970,7 +4007,8 @@ def dashboard():
                 .map-panel { order: 2; }
                 .side-stack {
                     order: 3;
-                    grid-template-rows: auto minmax(220px, 36vh) minmax(200px, auto) minmax(200px, auto);
+                    max-height: none;
+                    overflow: visible;
                 }
                 #map { min-height: 300px; }
                 .timeline { grid-column: auto; order: 4; }
@@ -4017,7 +4055,7 @@ def dashboard():
             </section>
 
             <aside class="side-stack">
-                <section class="panel">
+                <section class="panel audio-panel">
                     <h2>音檔播放</h2>
                     <div class="audio-player" id="audioPlayerBox">
                         <div class="title" id="audioPlayerTitle">請選擇事件查看音檔</div>
@@ -4025,22 +4063,22 @@ def dashboard():
                     </div>
                 </section>
 
-                <section class="panel">
+                <section class="panel alert-panel">
                     <h2>即時警示</h2>
                     <div class="panel-body right-scroll" id="alertList"></div>
                 </section>
 
-                <section class="panel">
-                    <h2>聲源估測</h2>
-                    <div class="panel-body right-scroll" id="targetEstimateList">
-                        <div class="subtitle">目前沒有多節點融合估測</div>
-                    </div>
-                </section>
-
-                <section class="panel">
+                <section class="panel event-groups-panel">
                     <h2>事件群組</h2>
                     <div class="panel-body right-scroll" id="eventGroupList">
                         <div class="subtitle">目前沒有事件群組</div>
+                    </div>
+                </section>
+
+                <section class="panel target-panel">
+                    <h2>聲源估測</h2>
+                    <div class="panel-body right-scroll" id="targetEstimateList">
+                        <div class="subtitle">目前沒有多節點融合估測</div>
                     </div>
                 </section>
             </aside>
@@ -4593,17 +4631,16 @@ def dashboard():
 
             function observationTimingHtml(item) {
                 return `
-                    <div class="event-detail">
-                        Timing Source ${timingValue(item.timing_source)} /
-                        Device Event Time ${timingValue(item.device_event_time_ms)}
-                    </div>
-                    <div class="event-detail">
-                        Event Start Sample ${timingValue(item.event_start_sample)} /
-                        RMS Peak Sample ${timingValue(item.rms_peak_sample)}
-                    </div>
-                    <div class="event-detail">
-                        Sample Rate ${timingValue(item.sample_rate_hz)} /
-                        Audio Duration ${timingValue(item.audio_duration_ms)}
+                    <div class="timing-box">
+                        <div class="timing-title">Timing Metadata</div>
+                        <div class="timing-grid">
+                            <span>Timing Source</span><strong>${timingValue(item.timing_source)}</strong>
+                            <span>Device Event Time</span><strong>${timingValue(item.device_event_time_ms)}</strong>
+                            <span>Event Start Sample</span><strong>${timingValue(item.event_start_sample)}</strong>
+                            <span>RMS Peak Sample</span><strong>${timingValue(item.rms_peak_sample)}</strong>
+                            <span>Sample Rate</span><strong>${timingValue(item.sample_rate_hz)}</strong>
+                            <span>Audio Duration</span><strong>${timingValue(item.audio_duration_ms)}</strong>
+                        </div>
                     </div>
                 `;
             }
