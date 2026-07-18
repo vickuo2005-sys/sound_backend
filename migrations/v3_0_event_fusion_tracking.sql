@@ -8,6 +8,9 @@
 
 create extension if not exists pgcrypto;
 
+create unique index if not exists events_event_id_key
+    on events (event_id);
+
 create table if not exists event_groups (
     id uuid primary key default gen_random_uuid(),
     group_kind text default 'fusion',
@@ -103,11 +106,32 @@ begin
     if not exists (
         select 1
         from pg_constraint
+        where conname = 'event_group_observations_group_id_fkey'
+    ) then
+        alter table event_group_observations
+            add constraint event_group_observations_group_id_fkey
+            foreign key (group_id) references event_groups(id)
+            on delete cascade;
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint
         where conname = 'event_group_observations_event_db_id_fkey'
     ) then
         alter table event_group_observations
             add constraint event_group_observations_event_db_id_fkey
             foreign key (event_db_id) references events(id);
+    end if;
+
+    if not exists (
+        select 1
+        from pg_constraint
+        where conname = 'event_group_observations_event_id_fkey'
+    ) then
+        alter table event_group_observations
+            add constraint event_group_observations_event_id_fkey
+            foreign key (event_id) references events(event_id);
     end if;
 exception
     when duplicate_object then null;

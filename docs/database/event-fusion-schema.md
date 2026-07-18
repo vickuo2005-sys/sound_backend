@@ -9,6 +9,7 @@ Migration 檔案：
 ```mermaid
 erDiagram
     EVENTS ||--o| EVENT_GROUP_OBSERVATIONS : "event_db_id"
+    EVENTS ||--o| EVENT_GROUP_OBSERVATIONS : "event_id"
     EVENT_GROUPS ||--o{ EVENT_GROUP_OBSERVATIONS : "group_id"
 
     EVENTS {
@@ -60,7 +61,7 @@ erDiagram
 目前 `events.id` 是 PostgreSQL `BIGSERIAL` 主鍵，APP 上傳的 `event_id` 是文字欄位。為了不破壞既有 API 與舊資料，`event_group_observations` 同時保留：
 
 - `event_db_id`：對應 `events.id`，可作資料庫 FK。
-- `event_id`：對應 APP 送來的事件字串，用於 idempotency 與 Dashboard 顯示。
+- `event_id`：對應 APP 送來的事件字串，也加上 FK 到 `events.event_id`，用於 idempotency 與 Dashboard 顯示。
 
 ## Unique 規則
 
