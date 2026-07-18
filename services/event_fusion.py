@@ -8,6 +8,11 @@ from typing import Any, Optional
 ACTIVE_STATUS = "ACTIVE"
 CLOSED_STATUS = "CLOSED"
 FUSION_KIND = "fusion"
+LOCAL_EVENT_TIMEZONE = timezone(timedelta(hours=8))
+LOCAL_EVENT_TIME_FORMATS = (
+    "%Y/%m/%d %H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+)
 TIMING_METADATA_FIELDS = [
     "timing_version",
     "timing_source",
@@ -32,14 +37,24 @@ def parse_datetime(value: Any) -> Optional[datetime]:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
     if isinstance(value, str):
+        text = value.strip()
         try:
-            normalized = value.replace("Z", "+00:00")
+            normalized = text.replace("Z", "+00:00")
             parsed = datetime.fromisoformat(normalized)
             if parsed.tzinfo is None:
                 return parsed.replace(tzinfo=timezone.utc)
             return parsed.astimezone(timezone.utc)
         except ValueError:
-            return None
+            pass
+
+        for date_format in LOCAL_EVENT_TIME_FORMATS:
+            try:
+                parsed = datetime.strptime(text, date_format)
+                return parsed.replace(tzinfo=LOCAL_EVENT_TIMEZONE).astimezone(
+                    timezone.utc
+                )
+            except ValueError:
+                continue
     return None
 
 

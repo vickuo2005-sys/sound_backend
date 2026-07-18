@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from services.event_fusion import (  # noqa: E402
     get_event_group_detail,
     list_event_groups,
+    parse_datetime,
     process_event,
 )
 
@@ -204,6 +205,13 @@ def assert_equal(actual, expected, message: str) -> None:
 def run_service_tests() -> None:
     connection = make_connection()
     base = datetime(2026, 7, 18, 4, 0, 0, tzinfo=timezone.utc)
+
+    parsed_local_time = parse_datetime("2026/07/18 16:47:41")
+    assert_equal(
+        parsed_local_time,
+        datetime(2026, 7, 18, 8, 47, 41, tzinfo=timezone.utc),
+        "Test 0 local APP timestamp parsing",
+    )
 
     group1 = process_event(
         connection,
