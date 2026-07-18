@@ -1,0 +1,285 @@
+import os
+import asyncio
+import sqlite3
+import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from services.event_fusion import (  # noqa: E402
+    get_event_group_detail,
+    list_event_groups,
+    process_event,
+)
+
+
+def make_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """
+        CREATE TABLE events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT UNIQUE,
+            device_id TEXT,
+            timestamp TEXT,
+            latitude REAL,
+            longitude REAL,
+            rms_peak REAL,
+            label TEXT,
+            audio_path TEXT,
+            note TEXT,
+            created_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE event_groups (
+            id TEXT PRIMARY KEY,
+            group_kind TEXT DEFAULT 'fusion',
+            label TEXT,
+            group_label TEXT,
+            status TEXT DEFAULT 'ACTIVE',
+            first_event_time TEXT,
+            last_event_time TEXT,
+            start_time TEXT,
+            end_time TEXT,
+            node_count INTEGER DEFAULT 0,
+            estimated_lat REAL,
+            estimated_lng REAL,
+            localization_method TEXT,
+            method TEXT,
+            confidence REAL,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE event_group_observations (
+            id TEXT PRIMARY KEY,
+            group_id TEXT,
+            event_db_id INTEGER,
+            event_id TEXT,
+            device_id TEXT,
+            label TEXT,
+            event_timestamp TEXT,
+            latitude REAL,
+            longitude REAL,
+            rms_peak REAL,
+            ai_probability REAL,
+            aircraft_probability REAL,
+            audio_path TEXT,
+            created_at TEXT,
+            observation_kind TEXT DEFAULT 'fusion'
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX event_group_observations_fusion_event_id_key
+        ON event_group_observations (event_id)
+        WHERE observation_kind = 'fusion'
+        """
+    )
+    return connection
+
+
+def add_event(
+    connection: sqlite3.Connection,
+    event_id: str,
+    device_id: str,
+    label: str,
+    event_time: datetime,
+) -> dict:
+    created_at = event_time.isoformat()
+    cursor = connection.execute(
+        """
+        INSERT INTO events (
+            event_id,
+            device_id,
+            timestamp,
+            latitude,
+            longitude,
+            rms_peak,
+            label,
+            audio_path,
+            note,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            event_id,
+            device_id,
+            event_time.isoformat(),
+            25.033 + (hash(device_id) % 10) * 0.0001,
+            121.565 + (hash(event_id) % 10) * 0.0001,
+            0.8,
+            label,
+            f"audio/drone/{device_id}/20260718/{event_id}.wav",
+            "probability_aircraft=0.900000, confidence=0.900000",
+            created_at,
+        ),
+    )
+    connection.commit()
+    row = connection.execute(
+        "SELECT * FROM events WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    return dict(row)
+
+
+def observation_count(connection: sqlite3.Connection) -> int:
+    row = connection.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM event_group_observations
+        WHERE observation_kind = 'fusion'
+        """
+    ).fetchone()
+    return int(row["total"])
+
+
+def assert_equal(actual, expected, message: str) -> None:
+    if actual != expected:
+        raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
+
+
+def run_service_tests() -> None:
+    connection = make_connection()
+    base = datetime(2026, 7, 18, 4, 0, 0, tzinfo=timezone.utc)
+
+    group1 = process_event(
+        connection,
+        add_event(connection, "evt_a01_000", "node_A01", "aircraft", base),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(group1["node_count"], 1, "Test 1 node_count")
+
+    group1b = process_event(
+        connection,
+        add_event(connection, "evt_a02_001", "node_A02", "aircraft", base + timedelta(seconds=1)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(group1b["id"], group1["id"], "Test 2 group id")
+    assert_equal(group1b["node_count"], 2, "Test 2 node_count")
+
+    a03_record = add_event(connection, "evt_a03_002", "node_A03", "aircraft", base + timedelta(seconds=2))
+    group1c = process_event(
+        connection,
+        a03_record,
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(group1c["id"], group1["id"], "Test 3 group id")
+    assert_equal(group1c["node_count"], 3, "Test 3 node_count")
+
+    before_duplicate = observation_count(connection)
+    duplicate = process_event(
+        connection,
+        dict(a03_record),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    after_duplicate = observation_count(connection)
+    assert_equal(duplicate["id"], group1["id"], "Test 4 duplicate group id")
+    assert_equal(after_duplicate, before_duplicate, "Test 4 duplicate observation count")
+
+    same_device = process_event(
+        connection,
+        add_event(connection, "evt_a01_003", "node_A01", "aircraft", base + timedelta(seconds=2.5)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(same_device["id"], group1["id"], "Test 5 same device group id")
+    assert_equal(same_device["node_count"], 3, "Test 5 distinct node_count")
+
+    group2 = process_event(
+        connection,
+        add_event(connection, "evt_a04_008", "node_A04", "aircraft", base + timedelta(seconds=8)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    if group2["id"] == group1["id"]:
+        raise AssertionError("Test 6 expected a new group after fusion window")
+
+    other_group = process_event(
+        connection,
+        add_event(connection, "evt_other_009", "node_A02", "non_aircraft", base + timedelta(seconds=2)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    if other_group["id"] == group1["id"]:
+        raise AssertionError("Test 7 expected a different group for different label")
+
+    groups = list_event_groups(connection, is_postgres=False, limit=2)
+    assert_equal(len(groups), 2, "Test 9 limit")
+    detail = get_event_group_detail(connection, group1["id"], is_postgres=False)
+    assert_equal(len(detail["observations"]), 4, "Test 10 observation detail count")
+
+
+def run_route_failure_test() -> None:
+    os.environ.pop("DATABASE_URL", None)
+    os.environ["UPLOAD_TOKEN"] = "test-token-123"
+
+    import main  # noqa: E402
+
+    original_db_name = main.DB_NAME
+    original_fusion = main.process_event_fusion_for_event
+    original_logger_disabled = main.logger.disabled
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+        main.DB_NAME = str(Path(temp_dir) / "sound_events.db")
+        main.init_sqlite_db()
+        main.logger.disabled = True
+
+        def failing_fusion(event_id: str):
+            raise RuntimeError(f"forced fusion failure for {event_id}")
+
+        main.process_event_fusion_for_event = failing_fusion
+        result = asyncio.run(
+            main.create_event(
+                main.SoundEvent(
+                    event_id="evt_failure_safe",
+                    device_id="node_A99",
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    latitude=25.033,
+                    longitude=121.565,
+                    duration_s=1.2,
+                    rms_peak=0.75,
+                    label="aircraft",
+                    note="probability_aircraft=0.900000, confidence=0.900000",
+                ),
+                upload_token="test-token-123",
+            )
+        )
+        assert_equal(result["status"], "success", "Test 8 POST status")
+        with sqlite3.connect(main.DB_NAME) as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM events WHERE event_id = ?",
+                ("evt_failure_safe",),
+            ).fetchone()
+            assert_equal(int(row[0]), 1, "Test 8 original event persisted")
+
+    main.process_event_fusion_for_event = original_fusion
+    main.DB_NAME = original_db_name
+    main.logger.disabled = original_logger_disabled
+
+
+def main() -> None:
+    run_service_tests()
+    run_route_failure_test()
+    print("Event Fusion tests passed")
+
+
+if __name__ == "__main__":
+    main()
