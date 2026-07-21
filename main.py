@@ -135,6 +135,11 @@ class LocationUpdate(BaseModel):
     app_status: Optional[str] = None
     last_ai_label: Optional[str] = None
     last_upload_status: Optional[str] = None
+    time_sync_offset_ms: Optional[float] = None
+    time_sync_rtt_ms: Optional[float] = None
+    time_sync_quality: Optional[str] = None
+    time_sync_at: Optional[str] = None
+    last_time_sync_at: Optional[str] = None
 
 
 class DeviceCommandCreate(BaseModel):
@@ -294,6 +299,11 @@ DEVICE_STATUS_COLUMNS = [
     "app_status",
     "last_ai_label",
     "last_upload_status",
+    "time_sync_offset_ms",
+    "time_sync_rtt_ms",
+    "time_sync_quality",
+    "time_sync_at",
+    "last_time_sync_at",
     "last_event_id",
     "last_event_at",
     "last_command_id",
@@ -536,6 +546,11 @@ def init_sqlite_db() -> None:
                 app_status TEXT,
                 last_ai_label TEXT,
                 last_upload_status TEXT,
+                time_sync_offset_ms REAL,
+                time_sync_rtt_ms REAL,
+                time_sync_quality TEXT,
+                time_sync_at TEXT,
+                last_time_sync_at TEXT,
                 last_event_id TEXT,
                 last_event_at TEXT,
                 last_command_id INTEGER,
@@ -556,6 +571,11 @@ def init_sqlite_db() -> None:
             ("app_status", "TEXT"),
             ("last_ai_label", "TEXT"),
             ("last_upload_status", "TEXT"),
+            ("time_sync_offset_ms", "REAL"),
+            ("time_sync_rtt_ms", "REAL"),
+            ("time_sync_quality", "TEXT"),
+            ("time_sync_at", "TEXT"),
+            ("last_time_sync_at", "TEXT"),
             ("last_event_id", "TEXT"),
             ("last_event_at", "TEXT"),
             ("last_command_id", "INTEGER"),
@@ -954,6 +974,11 @@ def init_postgres_db() -> None:
                         app_status TEXT,
                         last_ai_label TEXT,
                         last_upload_status TEXT,
+                        time_sync_offset_ms DOUBLE PRECISION,
+                        time_sync_rtt_ms DOUBLE PRECISION,
+                        time_sync_quality TEXT,
+                        time_sync_at TIMESTAMPTZ,
+                        last_time_sync_at TIMESTAMPTZ,
                         last_event_id TEXT,
                         last_event_at TIMESTAMPTZ,
                         last_command_id BIGINT,
@@ -974,6 +999,11 @@ def init_postgres_db() -> None:
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS app_status TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_ai_label TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_quality TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_at TIMESTAMPTZ",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_time_sync_at TIMESTAMPTZ",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_event_id TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_event_at TIMESTAMPTZ",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_command_id BIGINT",
@@ -1750,6 +1780,28 @@ def serialize_db_row(row: dict) -> dict:
     return serialized
 
 
+def time_sync_quality_from_rtt(rtt_ms: Optional[float]) -> str:
+    if rtt_ms is None or rtt_ms < 0:
+        return "missing"
+    if rtt_ms <= 50:
+        return "good"
+    if rtt_ms <= 150:
+        return "medium"
+    if rtt_ms <= 300:
+        return "poor"
+    return "bad"
+
+
+def normalize_time_sync_quality(
+    quality: Optional[str],
+    rtt_ms: Optional[float],
+) -> str:
+    normalized = (quality or "").strip().lower()
+    if normalized in {"good", "medium", "poor", "bad", "stale", "missing"}:
+        return normalized
+    return time_sync_quality_from_rtt(rtt_ms)
+
+
 def upsert_device_location(
     device_id: str,
     latitude: float,
@@ -1762,7 +1814,23 @@ def upsert_device_location(
     app_status: Optional[str] = None,
     last_ai_label: Optional[str] = None,
     last_upload_status: Optional[str] = None,
+    time_sync_offset_ms: Optional[float] = None,
+    time_sync_rtt_ms: Optional[float] = None,
+    time_sync_quality: Optional[str] = None,
+    time_sync_at: Optional[str] = None,
+    last_time_sync_at: Optional[str] = None,
 ) -> dict:
+    normalized_time_sync_quality = normalize_time_sync_quality(
+        time_sync_quality,
+        time_sync_rtt_ms,
+    )
+    parsed_time_sync_at = parse_datetime(time_sync_at) or parse_datetime(
+        last_time_sync_at
+    )
+    if parsed_time_sync_at is None and time_sync_offset_ms is not None:
+        parsed_time_sync_at = datetime.now(timezone.utc)
+    sqlite_time_sync_at = parsed_time_sync_at.isoformat() if parsed_time_sync_at else None
+
     if not use_postgres():
         now = current_time_iso()
         with get_sqlite_connection() as connection:
@@ -1782,9 +1850,14 @@ def upsert_device_location(
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    time_sync_offset_ms,
+                    time_sync_rtt_ms,
+                    time_sync_quality,
+                    time_sync_at,
+                    last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -1798,6 +1871,11 @@ def upsert_device_location(
                     app_status = excluded.app_status,
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
+                    time_sync_offset_ms = excluded.time_sync_offset_ms,
+                    time_sync_rtt_ms = excluded.time_sync_rtt_ms,
+                    time_sync_quality = excluded.time_sync_quality,
+                    time_sync_at = excluded.time_sync_at,
+                    last_time_sync_at = excluded.last_time_sync_at,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -1813,6 +1891,11 @@ def upsert_device_location(
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    time_sync_offset_ms,
+                    time_sync_rtt_ms,
+                    normalized_time_sync_quality,
+                    sqlite_time_sync_at,
+                    sqlite_time_sync_at,
                     now,
                 ),
             )
@@ -1848,11 +1931,17 @@ def upsert_device_location(
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        time_sync_offset_ms,
+                        time_sync_rtt_ms,
+                        time_sync_quality,
+                        time_sync_at,
+                        last_time_sync_at,
                         updated_at
                     )
                     VALUES (
                         %s, %s, %s, now(), 'online',
-                        %s, %s, %s, %s, %s, %s, %s, %s, now()
+                        %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, now()
                     )
                     ON CONFLICT (device_id) DO UPDATE SET
                         latitude = EXCLUDED.latitude,
@@ -1867,6 +1956,11 @@ def upsert_device_location(
                         app_status = EXCLUDED.app_status,
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
+                        time_sync_offset_ms = EXCLUDED.time_sync_offset_ms,
+                        time_sync_rtt_ms = EXCLUDED.time_sync_rtt_ms,
+                        time_sync_quality = EXCLUDED.time_sync_quality,
+                        time_sync_at = EXCLUDED.time_sync_at,
+                        last_time_sync_at = EXCLUDED.last_time_sync_at,
                         updated_at = now()
                     RETURNING
                         {columns}
@@ -1883,6 +1977,11 @@ def upsert_device_location(
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        time_sync_offset_ms,
+                        time_sync_rtt_ms,
+                        normalized_time_sync_quality,
+                        parsed_time_sync_at,
+                        parsed_time_sync_at,
                     ),
                 )
                 row = cursor.fetchone()
@@ -1894,6 +1993,17 @@ def upsert_device_location(
 def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     if not event.device_id or event.latitude is None or event.longitude is None:
         return None
+
+    has_event_time_sync = (
+        event.time_sync_offset_ms is not None or event.time_sync_rtt_ms is not None
+    )
+    event_time_sync_quality = (
+        timing_quality_for_event(event) if has_event_time_sync else None
+    )
+    event_time_sync_at = (
+        datetime.now(timezone.utc) if has_event_time_sync else None
+    )
+    sqlite_event_time_sync_at = event_time_sync_at.isoformat() if event_time_sync_at else None
 
     if not use_postgres():
         now = current_time_iso()
@@ -1910,9 +2020,14 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     status,
                     last_ai_label,
                     last_upload_status,
+                    time_sync_offset_ms,
+                    time_sync_rtt_ms,
+                    time_sync_quality,
+                    time_sync_at,
+                    last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'event', ?, 'metadata_uploaded', ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'event', ?, 'metadata_uploaded', ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -1922,6 +2037,11 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     status = 'event',
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
+                    time_sync_offset_ms = COALESCE(excluded.time_sync_offset_ms, device_status.time_sync_offset_ms),
+                    time_sync_rtt_ms = COALESCE(excluded.time_sync_rtt_ms, device_status.time_sync_rtt_ms),
+                    time_sync_quality = COALESCE(excluded.time_sync_quality, device_status.time_sync_quality),
+                    time_sync_at = COALESCE(excluded.time_sync_at, device_status.time_sync_at),
+                    last_time_sync_at = COALESCE(excluded.last_time_sync_at, device_status.last_time_sync_at),
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -1932,6 +2052,11 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     event.event_id,
                     now,
                     event.label,
+                    event.time_sync_offset_ms,
+                    event.time_sync_rtt_ms,
+                    event_time_sync_quality,
+                    sqlite_event_time_sync_at,
+                    sqlite_event_time_sync_at,
                     now,
                 ),
             )
@@ -1963,9 +2088,17 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         status,
                         last_ai_label,
                         last_upload_status,
+                        time_sync_offset_ms,
+                        time_sync_rtt_ms,
+                        time_sync_quality,
+                        time_sync_at,
+                        last_time_sync_at,
                         updated_at
                     )
-                    VALUES (%s, %s, %s, now(), %s, now(), 'event', %s, 'metadata_uploaded', now())
+                    VALUES (
+                        %s, %s, %s, now(), %s, now(), 'event', %s, 'metadata_uploaded',
+                        %s, %s, %s, %s, %s, now()
+                    )
                     ON CONFLICT (device_id) DO UPDATE SET
                         latitude = EXCLUDED.latitude,
                         longitude = EXCLUDED.longitude,
@@ -1975,6 +2108,11 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         status = 'event',
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
+                        time_sync_offset_ms = COALESCE(EXCLUDED.time_sync_offset_ms, device_status.time_sync_offset_ms),
+                        time_sync_rtt_ms = COALESCE(EXCLUDED.time_sync_rtt_ms, device_status.time_sync_rtt_ms),
+                        time_sync_quality = COALESCE(EXCLUDED.time_sync_quality, device_status.time_sync_quality),
+                        time_sync_at = COALESCE(EXCLUDED.time_sync_at, device_status.time_sync_at),
+                        last_time_sync_at = COALESCE(EXCLUDED.last_time_sync_at, device_status.last_time_sync_at),
                         updated_at = now()
                     RETURNING
                         {columns}
@@ -1985,6 +2123,11 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         event.longitude,
                         event.event_id,
                         event.label,
+                        event.time_sync_offset_ms,
+                        event.time_sync_rtt_ms,
+                        event_time_sync_quality,
+                        event_time_sync_at,
+                        event_time_sync_at,
                     ),
                 )
                 row = cursor.fetchone()
@@ -3525,8 +3668,15 @@ def health():
 def time_sync():
     now = datetime.now(timezone.utc)
     return {
+        "status": "success",
         "server_time_ms": int(now.timestamp() * 1000),
         "server_time_iso": now.isoformat(),
+        "algorithm": "client_midpoint_offset",
+        "quality_thresholds_ms": {
+            "good": 50,
+            "medium": 150,
+            "poor": 300,
+        },
     }
 
 
@@ -3669,6 +3819,11 @@ async def update_location(location: LocationUpdate):
         app_status=location.app_status,
         last_ai_label=location.last_ai_label,
         last_upload_status=location.last_upload_status,
+        time_sync_offset_ms=location.time_sync_offset_ms,
+        time_sync_rtt_ms=location.time_sync_rtt_ms,
+        time_sync_quality=location.time_sync_quality,
+        time_sync_at=location.time_sync_at,
+        last_time_sync_at=location.last_time_sync_at,
     )
 
     await dashboard_manager.broadcast(
@@ -3683,6 +3838,9 @@ async def update_location(location: LocationUpdate):
         "device_id": location.device_id,
         "latitude": location.latitude,
         "longitude": location.longitude,
+        "time_sync_quality": device_row.get("time_sync_quality"),
+        "time_sync_rtt_ms": device_row.get("time_sync_rtt_ms"),
+        "time_sync_at": device_row.get("time_sync_at"),
     }
 
 
@@ -4609,15 +4767,29 @@ def dashboard():
                 return Number.isFinite(number) ? `${number.toFixed(1)} m` : '--';
             }
 
+            function formatMs(value) {
+                const number = Number(value);
+                return Number.isFinite(number) ? `${number.toFixed(1)} ms` : '--';
+            }
+
             function displayTimeSyncQuality(value) {
                 const text = String(value || '').toLowerCase();
                 if (!text) return '--';
                 if (text === 'good') return 'good';
                 if (text === 'medium') return 'medium';
                 if (text === 'poor') return 'poor';
+                if (text === 'bad') return 'bad';
+                if (text === 'stale') return 'stale';
                 if (text.includes('insufficient')) return 'insufficient';
                 if (text === 'missing') return 'missing';
                 return safe(value);
+            }
+
+            function timeSyncClass(value) {
+                const text = String(value || '').toLowerCase();
+                if (text === 'good') return 'good';
+                if (text === 'medium') return '';
+                return 'warn';
             }
 
             function yesNo(value) {
@@ -4838,6 +5010,10 @@ def dashboard():
                         <div class="map-info-row"><span>狀態</span><span>${displayStatus(device.status)}</span></div>
                         <div class="map-info-row"><span>模式</span><span>${displayMode(device.upload_mode)}</span></div>
                         <div class="map-info-row"><span>監聽中</span><span>${yesNo(device.is_listening)}</span></div>
+                        <div class="map-info-row"><span>時間同步</span><span>${displayTimeSyncQuality(device.time_sync_quality)}</span></div>
+                        <div class="map-info-row"><span>同步 RTT</span><span>${formatMs(device.time_sync_rtt_ms)}</span></div>
+                        <div class="map-info-row"><span>同步 offset</span><span>${formatMs(device.time_sync_offset_ms)}</span></div>
+                        <div class="map-info-row"><span>同步時間</span><span>${safe(device.time_sync_at || device.last_time_sync_at)}</span></div>
                     </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
@@ -5317,10 +5493,14 @@ def dashboard():
                             <span class="mini-chip ${device.is_listening ? 'good' : ''}">監聽 ${yesNo(device.is_listening)}</span>
                             <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
                             <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '等待中'}</span>
+                            <span class="mini-chip ${timeSyncClass(device.time_sync_quality)}">同步 ${displayTimeSyncQuality(device.time_sync_quality)}</span>
                         </div>
                         <div class="kv">
                             <span>電量</span><strong>${safe(device.battery)}</strong>
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
+                            <span>同步 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
+                            <span>同步 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
+                            <span>最後同步</span><strong>${safe(device.time_sync_at || device.last_time_sync_at)}</strong>
                             <span>最後連線</span><strong>${safe(device.last_seen)}</strong>
                             <span>最後事件</span><strong>${safe(device.last_event_at)}</strong>
                         </div>
