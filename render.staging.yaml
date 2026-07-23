@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: sound-backend-staging
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: NODE_WEBSOCKET_ENABLED
+        value: "true"
+      - key: COMMAND_WEBSOCKET_ENABLED
+        value: "true"
+      - key: COMMAND_REST_FALLBACK_ENABLED
+        value: "true"
+      - key: LIVE_AUDIO_ENABLED
+        value: "false"
+      - key: LIVE_AUDIO_DEFAULT_CODEC
+        value: pcm_s16le
+      - key: LIVE_AUDIO_MAX_CONCURRENT_STREAMS
+        value: "1"
+      - key: EVENT_UPLOAD_RETRY_ENABLED
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: UPLOAD_TOKEN
+        sync: false
+      - key: DEVICE_TOKEN
+        sync: false
+      - key: STREAM_TOKEN_SECRET
+        sync: false
+      - key: DASHBOARD_AUTH_SECRET
+        sync: false

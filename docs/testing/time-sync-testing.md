@@ -50,11 +50,15 @@ Expected app behavior:
 - App repeats sync every 30 seconds.
 - Each sync run takes three samples and keeps the lowest RTT sample.
 - GPS `/location-update` continues every 2 seconds.
-- Location payload includes the latest fresh time sync metadata.
+- Location payload includes the latest time sync metadata when available.
 - If sync fails, sound detection and GPS continue.
 - If sync is stale, location payload reports `time_sync_quality = stale`.
-- Event payloads include `time_sync_offset_ms` and `time_sync_rtt_ms` only when
-  the sync sample is fresh.
+- Event payloads snapshot the current sync state at `event_saved` time:
+  `time_sync_version`, offset, RTT, quality, sync timestamp, and age.
+- Stale event snapshots keep the offset and corrected arrival time, but report
+  `time_sync_quality = stale`.
+- `events` and `event_group_observations` must contain the same time sync
+  snapshot for the same event.
 
 ## Manual Checks
 
@@ -75,3 +79,12 @@ time_sync_at is recent
 
 High RTT or stale sync should not crash the app or backend. It should only lower
 the reported quality.
+
+For an event row, confirm:
+
+```text
+corrected_arrival_time_ms = device_event_time_ms + time_sync_offset_ms
+```
+
+Use the same event in `event_group_observations` to confirm the snapshot fields
+match `events`.

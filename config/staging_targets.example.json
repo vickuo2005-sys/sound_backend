@@ -1,0 +1,12 @@
+{
+  "environment": "staging",
+  "supabase_project_ref": "",
+  "database_host": "",
+  "gcs_project_id": "",
+  "gcs_bucket": "",
+  "gcs_prefix": "staging/",
+  "render_service_name": "sound-backend-staging",
+  "render_base_url": "",
+  "backend_git_branch": "staging",
+  "flutter_application_id": "com.example.sound_detector_clean.staging"
+}

@@ -3,3 +3,12 @@ __pycache__/
 *.pyc
 *.db
 .env
+.secrets/
+*.local.env
+.env*.local
+*.local.json
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore

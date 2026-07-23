@@ -56,8 +56,40 @@ stale    last sync is older than the freshness window
 ```
 
 The app treats a sync sample as fresh for 120 seconds. If the value is stale,
-the app still keeps monitoring and uploading GPS, but reports
-`time_sync_quality = stale`.
+the app still keeps monitoring and can still preserve the event-time sync
+snapshot, but reports `time_sync_quality = stale` so later TDOA selection can
+exclude or down-rank it.
+
+## Event-Time Snapshot
+
+V3.2 Phase 0 requires every accepted `/events` payload to carry the time sync
+state known at the moment the event is built. This is intentionally separate
+from `device_status`, because the latest device offset may drift after the
+sound event happened.
+
+Event snapshots include:
+
+```text
+time_sync_version
+time_sync_offset_ms
+time_sync_rtt_ms
+time_sync_quality
+time_sync_synced_at_ms
+time_sync_age_ms
+corrected_arrival_time_ms
+```
+
+The offset convention is:
+
+```text
+server_time_ms - device_time_ms = time_sync_offset_ms
+```
+
+Therefore:
+
+```text
+corrected_arrival_time_ms = device_event_time_ms + time_sync_offset_ms
+```
 
 ## Data Flow
 
@@ -68,8 +100,8 @@ Flutter node
 -> POST /location-update with time sync status
 -> device_status stores latest per-node sync status
 -> Dashboard displays sync quality per node
--> POST /events includes offset / RTT when fresh
--> events and observations keep timing metadata snapshots
+-> POST /events includes event-time sync snapshot
+-> events and event_group_observations keep the same snapshot
 ```
 
 ## Limits
