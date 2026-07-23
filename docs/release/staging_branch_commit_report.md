@@ -11,6 +11,7 @@ Push status: Not pushed. SECTION B is blocked until `APPROVE STAGING EXECUTION`.
 | `7a1f606` | Runtime | `feat(runtime): prepare staging backend runtime` |
 | `b0031a6` | Database migrations | `feat(database): add staging migration set` |
 | `d6386bd` | Tests and staging tools | `test: add staging validation and smoke tools` |
+| `e2aca7a` | Staging readiness docs and config | `docs: add staging execution readiness package` |
 
 ## Guardrail Checks
 
@@ -22,11 +23,12 @@ Push status: Not pushed. SECTION B is blocked until `APPROVE STAGING EXECUTION`.
 | credentials/key files staged | No |
 | local staging config staged | No |
 | generated APK staged | No |
+| artifacts staged | No |
 | venv/cache staged | No |
 | production token staged | No |
 
-## Remaining Local Work
+## Remaining Local Work Before Cloud Execution
 
-- Documentation/config commit still pending at the time this report was created.
 - `README.md` remains a pre-existing dirty change and requires manual review.
 - Branch must not be pushed until staging cloud execution is approved.
+- Staging cloud resources and real staging migration have not been executed.
