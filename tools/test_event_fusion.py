@@ -59,6 +59,13 @@ def make_connection() -> sqlite3.Connection:
             device_event_time_ms INTEGER,
             event_end_time_ms INTEGER,
             rms_peak_time_ms INTEGER,
+            time_sync_version INTEGER,
+            time_sync_offset_ms REAL,
+            time_sync_rtt_ms REAL,
+            time_sync_quality TEXT,
+            time_sync_synced_at_ms INTEGER,
+            time_sync_age_ms INTEGER,
+            corrected_arrival_time_ms REAL,
             created_at TEXT
         )
         """
@@ -126,6 +133,13 @@ def make_connection() -> sqlite3.Connection:
             device_event_time_ms INTEGER,
             event_end_time_ms INTEGER,
             rms_peak_time_ms INTEGER,
+            time_sync_version INTEGER,
+            time_sync_offset_ms REAL,
+            time_sync_rtt_ms REAL,
+            time_sync_quality TEXT,
+            time_sync_synced_at_ms INTEGER,
+            time_sync_age_ms INTEGER,
+            corrected_arrival_time_ms REAL,
             created_at TEXT,
             observation_kind TEXT DEFAULT 'fusion'
         )
@@ -185,9 +199,16 @@ def add_event(
             device_event_time_ms,
             event_end_time_ms,
             rms_peak_time_ms,
+            time_sync_version,
+            time_sync_offset_ms,
+            time_sync_rtt_ms,
+            time_sync_quality,
+            time_sync_synced_at_ms,
+            time_sync_age_ms,
+            corrected_arrival_time_ms,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -223,6 +244,13 @@ def add_event(
             int(event_time.timestamp() * 1000),
             int(event_time.timestamp() * 1000) + 3000,
             int(event_time.timestamp() * 1000) + 625,
+            1,
+            12.5,
+            30.0,
+            "good",
+            int(event_time.timestamp() * 1000) - 100,
+            100,
+            int(event_time.timestamp() * 1000) + 12.5,
             created_at,
         ),
     )
@@ -388,11 +416,36 @@ def run_service_tests() -> None:
         "wav",
         "Test 12 tdoa_clip_format copied",
     )
+    assert_equal(
+        timed_observation["time_sync_version"],
+        1,
+        "Test 13 time_sync_version copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_quality"],
+        "good",
+        "Test 13 time_sync_quality copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_synced_at_ms"],
+        int(base.timestamp() * 1000) - 100,
+        "Test 13 time_sync_synced_at_ms copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_age_ms"],
+        100,
+        "Test 13 time_sync_age_ms copied",
+    )
+    assert_equal(
+        timed_observation["corrected_arrival_time_ms"],
+        int(base.timestamp() * 1000) + 12.5,
+        "Test 13 corrected arrival copied",
+    )
 
 
 def run_route_failure_test() -> None:
     os.environ.pop("DATABASE_URL", None)
-    os.environ["UPLOAD_TOKEN"] = "test-token-123"
+    os.environ["UPLOAD_TOKEN"] = "test-only-token"
 
     import main  # noqa: E402
 
@@ -433,7 +486,7 @@ def run_route_failure_test() -> None:
                     rms_peak_time_ms=1001750,
                     audio_duration_ms=4000,
                 ),
-                upload_token="test-token-123",
+                upload_token="test-only-token",
             )
         )
         assert_equal(result["status"], "success", "Test 8 POST status")

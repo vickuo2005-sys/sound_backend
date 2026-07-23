@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -10,7 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.pop("DATABASE_URL", None)
-os.environ.setdefault("UPLOAD_TOKEN", "test-token-123")
+os.environ.setdefault("UPLOAD_TOKEN", "test-only-token")
 
 import main  # noqa: E402
 
@@ -175,10 +176,147 @@ def run_location_update_tests() -> None:
         main.DB_NAME = original_db_name
 
 
+def run_event_time_sync_snapshot_tests() -> None:
+    original_db_name = main.DB_NAME
+    original_logger_disabled = main.logger.disabled
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
+            main.DB_NAME = str(Path(temp_dir) / "sound_events.db")
+            main.init_sqlite_db()
+            main.logger.disabled = True
+
+            result = asyncio.run(
+                main.create_event(
+                    main.SoundEvent(
+                        event_id="evt_time_sync_snapshot",
+                        device_id="node_SYNC_A01",
+                        timestamp="2026-07-18T12:03:00+00:00",
+                        latitude=25.033,
+                        longitude=121.565,
+                        duration_s=2.0,
+                        rms_peak=0.8,
+                        label="aircraft",
+                        note="probability_aircraft=0.900000, confidence=0.900000",
+                        timing_version=1,
+                        timing_source="PCM_SAMPLE_INDEX",
+                        capture_start_time_ms=999000,
+                        event_start_sample=16000,
+                        event_end_sample=48000,
+                        rms_peak_sample=32000,
+                        sample_rate_hz=16000,
+                        channel_count=1,
+                        audio_duration_ms=3000,
+                        device_event_time_ms=1_000_000,
+                        event_end_time_ms=1_002_000,
+                        rms_peak_time_ms=1_000_000,
+                        time_sync_version=1,
+                        time_sync_offset_ms=12.5,
+                        time_sync_rtt_ms=30,
+                        time_sync_quality="good",
+                        time_sync_synced_at_ms=999_900,
+                        time_sync_age_ms=100,
+                    ),
+                    upload_token="test-only-token",
+                )
+            )
+            assert_equal(result["status"], "success", "Event snapshot POST status")
+
+            with sqlite3.connect(main.DB_NAME) as connection:
+                connection.row_factory = sqlite3.Row
+                event = dict(
+                    connection.execute(
+                        """
+                        SELECT
+                            time_sync_version,
+                            time_sync_offset_ms,
+                            time_sync_rtt_ms,
+                            time_sync_quality,
+                            time_sync_synced_at_ms,
+                            time_sync_age_ms,
+                            corrected_arrival_time_ms,
+                            timing_quality
+                        FROM events
+                        WHERE event_id = ?
+                        """,
+                        ("evt_time_sync_snapshot",),
+                    ).fetchone()
+                )
+                assert_equal(event["time_sync_version"], 1, "Event sync version")
+                assert_close(event["time_sync_offset_ms"], 12.5, "Event sync offset")
+                assert_close(event["time_sync_rtt_ms"], 30, "Event sync RTT")
+                assert_equal(event["time_sync_quality"], "good", "Event sync quality")
+                assert_equal(event["time_sync_synced_at_ms"], 999_900, "Event sync time")
+                assert_equal(event["time_sync_age_ms"], 100, "Event sync age")
+                assert_close(
+                    event["corrected_arrival_time_ms"],
+                    1_000_012.5,
+                    "Event corrected arrival",
+                )
+                assert_equal(event["timing_quality"], "good", "Event timing quality")
+
+                observation = dict(
+                    connection.execute(
+                        """
+                        SELECT
+                            time_sync_version,
+                            time_sync_offset_ms,
+                            time_sync_rtt_ms,
+                            time_sync_quality,
+                            time_sync_synced_at_ms,
+                            time_sync_age_ms,
+                            corrected_arrival_time_ms
+                        FROM event_group_observations
+                        WHERE event_id = ?
+                        """,
+                        ("evt_time_sync_snapshot",),
+                    ).fetchone()
+                )
+                for key in (
+                    "time_sync_version",
+                    "time_sync_offset_ms",
+                    "time_sync_rtt_ms",
+                    "time_sync_quality",
+                    "time_sync_synced_at_ms",
+                    "time_sync_age_ms",
+                    "corrected_arrival_time_ms",
+                ):
+                    assert_equal(observation[key], event[key], f"Observation snapshot {key}")
+
+            stale = main.SoundEvent(
+                event_id="evt_time_sync_stale",
+                device_id="node_SYNC_A02",
+                timestamp="2026-07-18T12:04:00+00:00",
+                latitude=25.034,
+                longitude=121.566,
+                label="aircraft",
+                device_event_time_ms=2_000_000,
+                time_sync_version=1,
+                time_sync_offset_ms=-10,
+                time_sync_rtt_ms=40,
+                time_sync_synced_at_ms=1_800_000,
+                time_sync_age_ms=int(main.TIME_SYNC_MAX_AGE_SECONDS * 1000) + 1,
+            )
+            main.sanitize_time_sync_metadata(stale)
+            assert_equal(
+                main.timing_quality_for_event(stale),
+                "stale",
+                "Stale timing quality",
+            )
+            assert_close(
+                main.corrected_arrival_time_ms(stale),
+                1_999_990,
+                "Stale corrected arrival still preserved",
+            )
+    finally:
+        main.DB_NAME = original_db_name
+        main.logger.disabled = original_logger_disabled
+
+
 def main_entry() -> None:
     run_quality_tests()
     run_time_sync_route_test()
     run_location_update_tests()
+    run_event_time_sync_snapshot_tests()
     print("Time sync tests passed")
 
 
