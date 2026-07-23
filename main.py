@@ -4,7 +4,9 @@ import math
 import os
 import re
 import sqlite3
+import asyncio
 import csv
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -28,17 +30,24 @@ from google.cloud import storage
 from google.oauth2 import service_account
 from pydantic import BaseModel
 
+from app.protocol import ProtocolError, build_envelope, parse_node_message
 from services.event_fusion import (
     get_event_group_detail as get_fusion_group_detail,
     list_event_groups as list_fusion_groups,
     process_event as process_fusion_event,
 )
+from services.localization import localize_observations
+from services.tracking.tracking_service import (
+    can_associate_track,
+    update_track_from_measurement,
+)
+from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
 
 
 app = FastAPI()
 
 DB_NAME = "sound_events.db"
-DEFAULT_UPLOAD_TOKEN = "test-token-123"
+DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
 EVENT_FUSION_WINDOW_SECONDS = float(os.getenv("EVENT_FUSION_WINDOW_SECONDS", "3") or 3)
 EVENT_GROUP_WINDOW_SECONDS = EVENT_FUSION_WINDOW_SECONDS
@@ -50,6 +59,37 @@ TDOA_MAX_RTT_MS = 300.0
 TDOA_TIME_TOLERANCE_SECONDS = 0.3
 TDOA_MIN_NODE_SPREAD_M = 5.0
 TDOA_MAX_OUTSIDE_BOUNDS_M = 300.0
+TIME_SYNC_MAX_AGE_SECONDS = float(os.getenv("TIME_SYNC_MAX_AGE_SECONDS", "120") or 120)
+LOCALIZATION_ENABLED = os.getenv("LOCALIZATION_ENABLED", "true").lower() == "true"
+GCC_PHAT_ENABLED = os.getenv("GCC_PHAT_ENABLED", "false").lower() == "true"
+TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "true").lower() == "true"
+TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
+TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
+TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
+GCC_MIN_CORRELATION_SCORE = float(os.getenv("GCC_MIN_CORRELATION_SCORE", "0.04") or 0.04)
+TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "15") or 15)
+TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "50") or 50)
+TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "30") or 30)
+TRACK_MIN_CONFIDENCE = float(os.getenv("TRACK_MIN_CONFIDENCE", "0.25") or 0.25)
+TRACK_ALLOW_FALLBACK = os.getenv("TRACK_ALLOW_FALLBACK", "false").lower() == "true"
+NODE_WEBSOCKET_ENABLED = os.getenv("NODE_WEBSOCKET_ENABLED", "true").lower() == "true"
+NODE_HEARTBEAT_INTERVAL_SECONDS = float(
+    os.getenv("NODE_HEARTBEAT_INTERVAL_SECONDS", "5") or 5
+)
+NODE_DEGRADED_TIMEOUT_SECONDS = float(
+    os.getenv("NODE_DEGRADED_TIMEOUT_SECONDS", "10") or 10
+)
+NODE_OFFLINE_TIMEOUT_SECONDS = float(
+    os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
+)
+COMMAND_WEBSOCKET_ENABLED = (
+    os.getenv("COMMAND_WEBSOCKET_ENABLED", "true").lower() == "true"
+)
+LIVE_AUDIO_ENABLED = os.getenv("LIVE_AUDIO_ENABLED", "false").lower() == "true"
+LIVE_AUDIO_RING_BUFFER_SECONDS = float(
+    os.getenv("LIVE_AUDIO_RING_BUFFER_SECONDS", "10") or 10
+)
+LIVE_AUDIO_MAX_FRAME_BYTES = int(os.getenv("LIVE_AUDIO_MAX_FRAME_BYTES", "65536") or 65536)
 
 
 class DashboardConnectionManager:
@@ -77,6 +117,13 @@ class DashboardConnectionManager:
 
 
 dashboard_manager = DashboardConnectionManager()
+node_manager = NodeManager(
+    degraded_after_seconds=NODE_DEGRADED_TIMEOUT_SECONDS,
+    offline_after_seconds=NODE_OFFLINE_TIMEOUT_SECONDS,
+)
+audio_stream_manager = AudioStreamManager(
+    max_buffer_frames=max(1, int(LIVE_AUDIO_RING_BUFFER_SECONDS * 50))
+)
 
 
 class SoundEvent(BaseModel):
@@ -119,8 +166,12 @@ class SoundEvent(BaseModel):
     rms_peak_offset_ms: Optional[float] = None
     sample_rate: Optional[int] = None
     audio_duration_ms: Optional[float] = None
+    time_sync_version: Optional[int] = None
     time_sync_offset_ms: Optional[float] = None
     time_sync_rtt_ms: Optional[float] = None
+    time_sync_quality: Optional[str] = None
+    time_sync_synced_at_ms: Optional[int] = None
+    time_sync_age_ms: Optional[int] = None
 
 
 class LocationUpdate(BaseModel):
@@ -169,6 +220,11 @@ SUPPORTED_DEVICE_COMMANDS = {
     "stop_listening",
     "set_detection_mode",
     "set_collection_mode",
+    "start_live_audio",
+    "stop_live_audio",
+    "request_status",
+    "sync_time",
+    "update_config",
 }
 
 
@@ -250,8 +306,12 @@ EVENT_COLUMNS = [
     "rms_peak_offset_ms",
     "sample_rate",
     "audio_duration_ms",
+    "time_sync_version",
     "time_sync_offset_ms",
     "time_sync_rtt_ms",
+    "time_sync_quality",
+    "time_sync_synced_at_ms",
+    "time_sync_age_ms",
     "corrected_arrival_time_ms",
     "timing_quality",
 ]
@@ -268,6 +328,15 @@ NEW_TIMING_METADATA_COLUMNS = [
     "sample_rate_hz",
     "channel_count",
     "rms_peak_time_ms",
+]
+
+TIME_SYNC_METADATA_COLUMNS = [
+    "time_sync_version",
+    "time_sync_offset_ms",
+    "time_sync_rtt_ms",
+    "time_sync_quality",
+    "time_sync_synced_at_ms",
+    "time_sync_age_ms",
 ]
 
 AUDIO_METADATA_COLUMNS = [
@@ -373,11 +442,84 @@ EVENT_GROUP_OBSERVATION_COLUMNS = [
     "tdoa_clip_source",
     "event_timestamp",
     "weight",
+    "time_sync_version",
+    "time_sync_offset_ms",
+    "time_sync_quality",
+    "time_sync_synced_at_ms",
+    "time_sync_age_ms",
     "corrected_arrival_time_ms",
     "time_sync_rtt_ms",
     "tdoa_used",
     "tdoa_residual_m",
     "observation_kind",
+    "created_at",
+]
+
+LOCALIZATION_RESULT_COLUMNS = [
+    "id",
+    "group_id",
+    "method",
+    "version",
+    "status",
+    "label",
+    "estimated_lat",
+    "estimated_lng",
+    "confidence",
+    "residual_m",
+    "uncertainty_radius_m",
+    "geometry_quality",
+    "reference_device_id",
+    "node_count",
+    "event_time_ms",
+    "input_signature",
+    "diagnostics_json",
+    "created_at",
+]
+
+TARGET_TRACK_COLUMNS = [
+    "id",
+    "label",
+    "status",
+    "origin_lat",
+    "origin_lng",
+    "created_at",
+    "updated_at",
+    "first_event_time_ms",
+    "last_event_time_ms",
+    "point_count",
+    "last_lat",
+    "last_lng",
+    "last_speed_mps",
+    "last_heading_deg",
+    "last_confidence",
+    "velocity_east_mps",
+    "velocity_north_mps",
+    "closed_at",
+]
+
+TARGET_TRACK_POINT_COLUMNS = [
+    "id",
+    "track_id",
+    "group_id",
+    "localization_result_id",
+    "measurement_time_ms",
+    "measured_lat",
+    "measured_lng",
+    "filtered_lat",
+    "filtered_lng",
+    "predicted_lat",
+    "predicted_lng",
+    "velocity_east_mps",
+    "velocity_north_mps",
+    "speed_mps",
+    "heading_deg",
+    "uncertainty_radius_m",
+    "confidence",
+    "rejected_as_outlier",
+    "innovation_m",
+    "state_json",
+    "covariance_json",
+    "diagnostics_json",
     "created_at",
 ]
 
@@ -483,8 +625,12 @@ def init_sqlite_db() -> None:
                 rms_peak_offset_ms REAL,
                 sample_rate INTEGER,
                 audio_duration_ms REAL,
+                time_sync_version INTEGER,
                 time_sync_offset_ms REAL,
                 time_sync_rtt_ms REAL,
+                time_sync_quality TEXT,
+                time_sync_synced_at_ms INTEGER,
+                time_sync_age_ms INTEGER,
                 corrected_arrival_time_ms REAL,
                 timing_quality TEXT
             )
@@ -519,8 +665,12 @@ def init_sqlite_db() -> None:
             ("rms_peak_offset_ms", "REAL"),
             ("sample_rate", "INTEGER"),
             ("audio_duration_ms", "REAL"),
+            ("time_sync_version", "INTEGER"),
             ("time_sync_offset_ms", "REAL"),
             ("time_sync_rtt_ms", "REAL"),
+            ("time_sync_quality", "TEXT"),
+            ("time_sync_synced_at_ms", "INTEGER"),
+            ("time_sync_age_ms", "INTEGER"),
             ("corrected_arrival_time_ms", "REAL"),
             ("timing_quality", "TEXT"),
         ]:
@@ -634,8 +784,15 @@ def init_sqlite_db() -> None:
                 estimated_lat REAL,
                 estimated_lng REAL,
                 localization_method TEXT,
+                localization_status TEXT,
+                localization_version TEXT,
                 confidence REAL,
+                residual_m REAL,
                 uncertainty_radius_m REAL,
+                geometry_quality TEXT,
+                reference_device_id TEXT,
+                localization_node_count INTEGER,
+                localized_at TEXT,
                 method TEXT,
                 tdoa_residual_rmse_m REAL,
                 tdoa_node_count INTEGER,
@@ -658,8 +815,15 @@ def init_sqlite_db() -> None:
             ("estimated_lat", "REAL"),
             ("estimated_lng", "REAL"),
             ("localization_method", "TEXT"),
+            ("localization_status", "TEXT"),
+            ("localization_version", "TEXT"),
             ("confidence", "REAL"),
+            ("residual_m", "REAL"),
             ("uncertainty_radius_m", "REAL"),
+            ("geometry_quality", "TEXT"),
+            ("reference_device_id", "TEXT"),
+            ("localization_node_count", "INTEGER"),
+            ("localized_at", "TEXT"),
             ("method", "TEXT"),
             ("tdoa_residual_rmse_m", "REAL"),
             ("tdoa_node_count", "INTEGER"),
@@ -714,6 +878,11 @@ def init_sqlite_db() -> None:
                 event_end_time_ms INTEGER,
                 rms_peak_time_ms INTEGER,
                 weight REAL,
+                time_sync_version INTEGER,
+                time_sync_offset_ms REAL,
+                time_sync_quality TEXT,
+                time_sync_synced_at_ms INTEGER,
+                time_sync_age_ms INTEGER,
                 corrected_arrival_time_ms REAL,
                 time_sync_rtt_ms REAL,
                 tdoa_used INTEGER DEFAULT 0,
@@ -761,6 +930,11 @@ def init_sqlite_db() -> None:
             ("event_end_time_ms", "INTEGER"),
             ("rms_peak_time_ms", "INTEGER"),
             ("weight", "REAL"),
+            ("time_sync_version", "INTEGER"),
+            ("time_sync_offset_ms", "REAL"),
+            ("time_sync_quality", "TEXT"),
+            ("time_sync_synced_at_ms", "INTEGER"),
+            ("time_sync_age_ms", "INTEGER"),
             ("corrected_arrival_time_ms", "REAL"),
             ("time_sync_rtt_ms", "REAL"),
             ("tdoa_used", "INTEGER DEFAULT 0"),
@@ -826,6 +1000,187 @@ def init_sqlite_db() -> None:
             WHERE observation_kind = 'fusion'
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS localization_results (
+                id TEXT PRIMARY KEY,
+                group_id TEXT,
+                method TEXT,
+                version TEXT,
+                status TEXT,
+                label TEXT,
+                estimated_lat REAL,
+                estimated_lng REAL,
+                confidence REAL,
+                residual_m REAL,
+                uncertainty_radius_m REAL,
+                geometry_quality TEXT,
+                reference_device_id TEXT,
+                node_count INTEGER,
+                event_time_ms REAL,
+                input_signature TEXT,
+                diagnostics_json TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        for column_name, column_definition in [
+            ("group_id", "TEXT"),
+            ("method", "TEXT"),
+            ("version", "TEXT"),
+            ("status", "TEXT"),
+            ("label", "TEXT"),
+            ("estimated_lat", "REAL"),
+            ("estimated_lng", "REAL"),
+            ("confidence", "REAL"),
+            ("residual_m", "REAL"),
+            ("uncertainty_radius_m", "REAL"),
+            ("geometry_quality", "TEXT"),
+            ("reference_device_id", "TEXT"),
+            ("node_count", "INTEGER"),
+            ("event_time_ms", "REAL"),
+            ("input_signature", "TEXT"),
+            ("diagnostics_json", "TEXT"),
+            ("created_at", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="localization_results",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS localization_results_signature_idx
+            ON localization_results (input_signature)
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS localization_results_group_idx
+            ON localization_results (group_id)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS target_tracks (
+                id TEXT PRIMARY KEY,
+                label TEXT,
+                status TEXT DEFAULT 'ACTIVE',
+                origin_lat REAL,
+                origin_lng REAL,
+                created_at TEXT,
+                updated_at TEXT,
+                first_event_time_ms REAL,
+                last_event_time_ms REAL,
+                point_count INTEGER DEFAULT 0,
+                last_lat REAL,
+                last_lng REAL,
+                last_speed_mps REAL,
+                last_heading_deg REAL,
+                last_confidence REAL,
+                velocity_east_mps REAL,
+                velocity_north_mps REAL,
+                closed_at TEXT
+            )
+            """
+        )
+        for column_name, column_definition in [
+            ("label", "TEXT"),
+            ("status", "TEXT DEFAULT 'ACTIVE'"),
+            ("origin_lat", "REAL"),
+            ("origin_lng", "REAL"),
+            ("created_at", "TEXT"),
+            ("updated_at", "TEXT"),
+            ("first_event_time_ms", "REAL"),
+            ("last_event_time_ms", "REAL"),
+            ("point_count", "INTEGER DEFAULT 0"),
+            ("last_lat", "REAL"),
+            ("last_lng", "REAL"),
+            ("last_speed_mps", "REAL"),
+            ("last_heading_deg", "REAL"),
+            ("last_confidence", "REAL"),
+            ("velocity_east_mps", "REAL"),
+            ("velocity_north_mps", "REAL"),
+            ("closed_at", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="target_tracks",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS target_tracks_status_label_idx
+            ON target_tracks (status, label, updated_at)
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS target_track_points (
+                id TEXT PRIMARY KEY,
+                track_id TEXT,
+                group_id TEXT,
+                localization_result_id TEXT,
+                measurement_time_ms REAL,
+                measured_lat REAL,
+                measured_lng REAL,
+                filtered_lat REAL,
+                filtered_lng REAL,
+                predicted_lat REAL,
+                predicted_lng REAL,
+                velocity_east_mps REAL,
+                velocity_north_mps REAL,
+                speed_mps REAL,
+                heading_deg REAL,
+                uncertainty_radius_m REAL,
+                confidence REAL,
+                rejected_as_outlier INTEGER DEFAULT 0,
+                innovation_m REAL,
+                state_json TEXT,
+                covariance_json TEXT,
+                diagnostics_json TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        for column_name, column_definition in [
+            ("track_id", "TEXT"),
+            ("group_id", "TEXT"),
+            ("localization_result_id", "TEXT"),
+            ("measurement_time_ms", "REAL"),
+            ("measured_lat", "REAL"),
+            ("measured_lng", "REAL"),
+            ("filtered_lat", "REAL"),
+            ("filtered_lng", "REAL"),
+            ("predicted_lat", "REAL"),
+            ("predicted_lng", "REAL"),
+            ("velocity_east_mps", "REAL"),
+            ("velocity_north_mps", "REAL"),
+            ("speed_mps", "REAL"),
+            ("heading_deg", "REAL"),
+            ("uncertainty_radius_m", "REAL"),
+            ("confidence", "REAL"),
+            ("rejected_as_outlier", "INTEGER DEFAULT 0"),
+            ("innovation_m", "REAL"),
+            ("state_json", "TEXT"),
+            ("covariance_json", "TEXT"),
+            ("diagnostics_json", "TEXT"),
+            ("created_at", "TEXT"),
+        ]:
+            add_sqlite_column_if_missing(
+                connection=connection,
+                table_name="target_track_points",
+                column_name=column_name,
+                column_definition=column_definition,
+            )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS target_track_points_track_idx
+            ON target_track_points (track_id, measurement_time_ms)
+            """
+        )
         connection.commit()
 
 
@@ -879,8 +1234,12 @@ def init_postgres_db() -> None:
                         rms_peak_offset_ms DOUBLE PRECISION,
                         sample_rate INTEGER,
                         audio_duration_ms DOUBLE PRECISION,
+                        time_sync_version INTEGER,
                         time_sync_offset_ms DOUBLE PRECISION,
                         time_sync_rtt_ms DOUBLE PRECISION,
+                        time_sync_quality TEXT,
+                        time_sync_synced_at_ms BIGINT,
+                        time_sync_age_ms BIGINT,
                         corrected_arrival_time_ms DOUBLE PRECISION,
                         timing_quality TEXT
                     )
@@ -946,8 +1305,12 @@ def init_postgres_db() -> None:
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak_offset_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS sample_rate INTEGER",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_duration_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_version INTEGER",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_quality TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_synced_at_ms BIGINT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS time_sync_age_ms BIGINT",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS timing_quality TEXT",
                 ]:
@@ -1058,8 +1421,15 @@ def init_postgres_db() -> None:
                         estimated_lat DOUBLE PRECISION,
                         estimated_lng DOUBLE PRECISION,
                         localization_method TEXT,
+                        localization_status TEXT,
+                        localization_version TEXT,
                         confidence DOUBLE PRECISION,
+                        residual_m DOUBLE PRECISION,
                         uncertainty_radius_m DOUBLE PRECISION,
+                        geometry_quality TEXT,
+                        reference_device_id TEXT,
+                        localization_node_count INTEGER,
+                        localized_at TIMESTAMPTZ,
                         method TEXT,
                         tdoa_residual_rmse_m DOUBLE PRECISION,
                         tdoa_node_count INTEGER,
@@ -1082,8 +1452,15 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lat DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lng DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_method TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_status TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_version TEXT",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS residual_m DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS uncertainty_radius_m DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS geometry_quality TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS reference_device_id TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_node_count INTEGER",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localized_at TIMESTAMPTZ",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS method TEXT",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS tdoa_residual_rmse_m DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS tdoa_node_count INTEGER",
@@ -1133,6 +1510,11 @@ def init_postgres_db() -> None:
                         event_end_time_ms BIGINT,
                         rms_peak_time_ms BIGINT,
                         weight DOUBLE PRECISION,
+                        time_sync_version INTEGER,
+                        time_sync_offset_ms DOUBLE PRECISION,
+                        time_sync_quality TEXT,
+                        time_sync_synced_at_ms BIGINT,
+                        time_sync_age_ms BIGINT,
                         corrected_arrival_time_ms DOUBLE PRECISION,
                         time_sync_rtt_ms DOUBLE PRECISION,
                         tdoa_used BOOLEAN DEFAULT false,
@@ -1180,6 +1562,11 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS event_end_time_ms BIGINT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS rms_peak_time_ms BIGINT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_version INTEGER",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_quality TEXT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_synced_at_ms BIGINT",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_age_ms BIGINT",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS tdoa_used BOOLEAN DEFAULT false",
@@ -1258,6 +1645,172 @@ def init_postgres_db() -> None:
                     WHERE observation_kind = 'fusion'
                     """
                 )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS localization_results (
+                        id UUID PRIMARY KEY,
+                        group_id UUID REFERENCES event_groups(id) ON DELETE SET NULL,
+                        method TEXT,
+                        version TEXT,
+                        status TEXT,
+                        label TEXT,
+                        estimated_lat DOUBLE PRECISION,
+                        estimated_lng DOUBLE PRECISION,
+                        confidence DOUBLE PRECISION,
+                        residual_m DOUBLE PRECISION,
+                        uncertainty_radius_m DOUBLE PRECISION,
+                        geometry_quality TEXT,
+                        reference_device_id TEXT,
+                        node_count INTEGER,
+                        event_time_ms DOUBLE PRECISION,
+                        input_signature TEXT UNIQUE,
+                        diagnostics_json JSONB,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+                for statement in [
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS group_id UUID",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS method TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS version TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS status TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS label TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS estimated_lat DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS estimated_lng DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS residual_m DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS uncertainty_radius_m DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS geometry_quality TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS reference_device_id TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS node_count INTEGER",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS event_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS input_signature TEXT",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS diagnostics_json JSONB",
+                    "ALTER TABLE localization_results ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+                ]:
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE UNIQUE INDEX IF NOT EXISTS localization_results_signature_idx
+                    ON localization_results (input_signature)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS localization_results_group_idx
+                    ON localization_results (group_id)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS target_tracks (
+                        id UUID PRIMARY KEY,
+                        label TEXT,
+                        status TEXT DEFAULT 'ACTIVE',
+                        origin_lat DOUBLE PRECISION,
+                        origin_lng DOUBLE PRECISION,
+                        created_at TIMESTAMPTZ DEFAULT now(),
+                        updated_at TIMESTAMPTZ DEFAULT now(),
+                        first_event_time_ms DOUBLE PRECISION,
+                        last_event_time_ms DOUBLE PRECISION,
+                        point_count INTEGER DEFAULT 0,
+                        last_lat DOUBLE PRECISION,
+                        last_lng DOUBLE PRECISION,
+                        last_speed_mps DOUBLE PRECISION,
+                        last_heading_deg DOUBLE PRECISION,
+                        last_confidence DOUBLE PRECISION,
+                        velocity_east_mps DOUBLE PRECISION,
+                        velocity_north_mps DOUBLE PRECISION,
+                        closed_at TIMESTAMPTZ
+                    )
+                    """
+                )
+                for statement in [
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS label TEXT",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ACTIVE'",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS origin_lat DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS origin_lng DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS first_event_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_event_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS point_count INTEGER DEFAULT 0",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_lng DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_speed_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_heading_deg DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS last_confidence DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS velocity_east_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS velocity_north_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_tracks ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ",
+                ]:
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS target_tracks_status_label_idx
+                    ON target_tracks (status, label, updated_at DESC)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS target_track_points (
+                        id UUID PRIMARY KEY,
+                        track_id UUID REFERENCES target_tracks(id) ON DELETE CASCADE,
+                        group_id UUID REFERENCES event_groups(id) ON DELETE SET NULL,
+                        localization_result_id UUID REFERENCES localization_results(id) ON DELETE SET NULL,
+                        measurement_time_ms DOUBLE PRECISION,
+                        measured_lat DOUBLE PRECISION,
+                        measured_lng DOUBLE PRECISION,
+                        filtered_lat DOUBLE PRECISION,
+                        filtered_lng DOUBLE PRECISION,
+                        predicted_lat DOUBLE PRECISION,
+                        predicted_lng DOUBLE PRECISION,
+                        velocity_east_mps DOUBLE PRECISION,
+                        velocity_north_mps DOUBLE PRECISION,
+                        speed_mps DOUBLE PRECISION,
+                        heading_deg DOUBLE PRECISION,
+                        uncertainty_radius_m DOUBLE PRECISION,
+                        confidence DOUBLE PRECISION,
+                        rejected_as_outlier BOOLEAN DEFAULT false,
+                        innovation_m DOUBLE PRECISION,
+                        state_json JSONB,
+                        covariance_json JSONB,
+                        diagnostics_json JSONB,
+                        created_at TIMESTAMPTZ DEFAULT now()
+                    )
+                    """
+                )
+                for statement in [
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS track_id UUID",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS group_id UUID",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS localization_result_id UUID",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS measurement_time_ms DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS measured_lat DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS measured_lng DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS filtered_lat DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS filtered_lng DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS predicted_lat DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS predicted_lng DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS velocity_east_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS velocity_north_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS speed_mps DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS heading_deg DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS uncertainty_radius_m DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS rejected_as_outlier BOOLEAN DEFAULT false",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS innovation_m DOUBLE PRECISION",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS state_json JSONB",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS covariance_json JSONB",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS diagnostics_json JSONB",
+                    "ALTER TABLE target_track_points ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+                ]:
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS target_track_points_track_idx
+                    ON target_track_points (track_id, measurement_time_ms)
+                    """
+                )
     finally:
         connection.close()
 
@@ -1287,20 +1840,24 @@ def corrected_arrival_time_ms(event: SoundEvent) -> Optional[float]:
     return None
 
 
+def effective_time_sync_quality_for_event(event: SoundEvent) -> str:
+    quality = (event.time_sync_quality or "").strip().lower()
+    if quality in {"good", "medium", "poor", "bad", "stale", "missing"}:
+        return quality
+
+    if event.time_sync_age_ms is not None:
+        max_age_ms = TIME_SYNC_MAX_AGE_SECONDS * 1000
+        if event.time_sync_age_ms > max_age_ms:
+            return "stale"
+
+    return time_sync_quality_from_rtt(event.time_sync_rtt_ms)
+
+
 def timing_quality_for_event(event: SoundEvent) -> str:
     if corrected_arrival_time_ms(event) is None:
         return "missing"
 
-    if event.time_sync_rtt_ms is None:
-        return "missing"
-
-    if event.time_sync_rtt_ms <= 50:
-        return "good"
-    if event.time_sync_rtt_ms <= 150:
-        return "medium"
-    if event.time_sync_rtt_ms <= 300:
-        return "poor"
-    return "poor"
+    return effective_time_sync_quality_for_event(event)
 
 
 def has_new_timing_metadata(event: SoundEvent) -> bool:
@@ -1352,6 +1909,40 @@ def sanitize_timing_metadata(event: SoundEvent) -> None:
     for column in NEW_TIMING_METADATA_COLUMNS:
         setattr(event, column, None)
     event.audio_duration_ms = None
+
+
+def has_time_sync_metadata(event: SoundEvent) -> bool:
+    return any(getattr(event, column) is not None for column in TIME_SYNC_METADATA_COLUMNS)
+
+
+def sanitize_time_sync_metadata(event: SoundEvent) -> None:
+    if not has_time_sync_metadata(event):
+        return
+
+    problems = []
+    if event.time_sync_version is not None and event.time_sync_version < 1:
+        problems.append("time_sync_version must be >= 1")
+    if event.time_sync_rtt_ms is not None and event.time_sync_rtt_ms < 0:
+        problems.append("time_sync_rtt_ms must be >= 0")
+    if event.time_sync_age_ms is not None and event.time_sync_age_ms < 0:
+        problems.append("time_sync_age_ms must be >= 0")
+    if event.time_sync_quality is not None:
+        normalized_quality = event.time_sync_quality.strip().lower()
+        if normalized_quality not in {"good", "medium", "poor", "bad", "stale", "missing"}:
+            problems.append("time_sync_quality is invalid")
+        else:
+            event.time_sync_quality = normalized_quality
+
+    if not problems:
+        return
+
+    logger.warning(
+        "Invalid time sync metadata ignored for event_id=%s: %s",
+        event.event_id,
+        "; ".join(problems),
+    )
+    for column in TIME_SYNC_METADATA_COLUMNS:
+        setattr(event, column, None)
 
 
 def sanitize_audio_metadata(event: SoundEvent) -> None:
@@ -1453,8 +2044,12 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         "rms_peak_offset_ms": event.rms_peak_offset_ms,
         "sample_rate": event.sample_rate,
         "audio_duration_ms": event.audio_duration_ms,
+        "time_sync_version": event.time_sync_version,
         "time_sync_offset_ms": event.time_sync_offset_ms,
         "time_sync_rtt_ms": event.time_sync_rtt_ms,
+        "time_sync_quality": effective_time_sync_quality_for_event(event),
+        "time_sync_synced_at_ms": event.time_sync_synced_at_ms,
+        "time_sync_age_ms": event.time_sync_age_ms,
         "corrected_arrival_time_ms": corrected_arrival_time_ms(event),
         "timing_quality": timing_quality_for_event(event),
     }
@@ -1761,11 +2356,227 @@ def get_event_fusion_group(group_id: str) -> Optional[dict]:
         )
 
 
+def json_dumps(value: Any) -> str:
+    return json.dumps(value if value is not None else {}, ensure_ascii=False, default=str)
+
+
+def load_tdoa_clip_bytes_for_observation(observation: dict) -> Optional[bytes]:
+    clip_path = observation.get("tdoa_clip_path")
+    if not clip_path:
+        return None
+    try:
+        bucket = get_gcs_bucket()
+        blob = bucket.blob(str(clip_path))
+        return blob.download_as_bytes()
+    except Exception:
+        logger.exception("Failed to load TDOA clip for event_id=%s", observation.get("event_id"))
+        return None
+
+
+def update_event_group_localization_summary(cursor_or_connection: Any, result: dict, is_postgres: bool) -> None:
+    if not result.get("group_id"):
+        return
+    if is_postgres:
+        cursor_or_connection.execute(
+            """
+            UPDATE event_groups
+            SET localization_status = %s,
+                estimated_lat = %s,
+                estimated_lng = %s,
+                localization_method = %s,
+                localization_version = %s,
+                confidence = %s,
+                residual_m = %s,
+                uncertainty_radius_m = %s,
+                geometry_quality = %s,
+                reference_device_id = %s,
+                localization_node_count = %s,
+                localized_at = now(),
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                result.get("status"),
+                result.get("estimated_lat"),
+                result.get("estimated_lng"),
+                result.get("method"),
+                result.get("version"),
+                result.get("confidence"),
+                result.get("residual_m"),
+                result.get("uncertainty_radius_m"),
+                result.get("geometry_quality"),
+                result.get("reference_device_id"),
+                result.get("node_count"),
+                result.get("group_id"),
+            ),
+        )
+        return
+
+    now = current_time_iso()
+    cursor_or_connection.execute(
+        """
+        UPDATE event_groups
+        SET localization_status = ?,
+            estimated_lat = ?,
+            estimated_lng = ?,
+            localization_method = ?,
+            localization_version = ?,
+            confidence = ?,
+            residual_m = ?,
+            uncertainty_radius_m = ?,
+            geometry_quality = ?,
+            reference_device_id = ?,
+            localization_node_count = ?,
+            localized_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            result.get("status"),
+            result.get("estimated_lat"),
+            result.get("estimated_lng"),
+            result.get("method"),
+            result.get("version"),
+            result.get("confidence"),
+            result.get("residual_m"),
+            result.get("uncertainty_radius_m"),
+            result.get("geometry_quality"),
+            result.get("reference_device_id"),
+            result.get("node_count"),
+            now,
+            now,
+            result.get("group_id"),
+        ),
+    )
+
+
+def save_localization_result(group: dict, result: dict) -> dict:
+    now = current_time_iso()
+    diagnostics_text = json_dumps(result.get("diagnostics"))
+    input_signature = result.get("input_signature") or f"{group.get('id')}:{result.get('method')}:{now}"
+    values = {
+        "id": str(uuid.uuid4()),
+        "group_id": group.get("id"),
+        "method": result.get("method"),
+        "version": result.get("version"),
+        "status": result.get("status"),
+        "label": result.get("label") or group.get("label") or group.get("group_label"),
+        "estimated_lat": result.get("estimated_lat"),
+        "estimated_lng": result.get("estimated_lng"),
+        "confidence": result.get("confidence"),
+        "residual_m": result.get("residual_m"),
+        "uncertainty_radius_m": result.get("uncertainty_radius_m"),
+        "geometry_quality": result.get("geometry_quality"),
+        "reference_device_id": result.get("reference_device_id"),
+        "node_count": result.get("node_count"),
+        "event_time_ms": result.get("event_time_ms"),
+        "input_signature": input_signature,
+        "diagnostics_json": diagnostics_text,
+        "created_at": now,
+    }
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO localization_results (
+                            id, group_id, method, version, status, label,
+                            estimated_lat, estimated_lng, confidence, residual_m,
+                            uncertainty_radius_m, geometry_quality, reference_device_id,
+                            node_count, event_time_ms, input_signature, diagnostics_json,
+                            created_at
+                        )
+                        VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, CAST(%s AS JSONB), now()
+                        )
+                        ON CONFLICT (input_signature) DO UPDATE SET
+                            status = EXCLUDED.status,
+                            estimated_lat = EXCLUDED.estimated_lat,
+                            estimated_lng = EXCLUDED.estimated_lng,
+                            confidence = EXCLUDED.confidence,
+                            residual_m = EXCLUDED.residual_m,
+                            uncertainty_radius_m = EXCLUDED.uncertainty_radius_m,
+                            geometry_quality = EXCLUDED.geometry_quality,
+                            reference_device_id = EXCLUDED.reference_device_id,
+                            node_count = EXCLUDED.node_count,
+                            diagnostics_json = EXCLUDED.diagnostics_json
+                        RETURNING *
+                        """,
+                        (
+                            values["id"],
+                            values["group_id"],
+                            values["method"],
+                            values["version"],
+                            values["status"],
+                            values["label"],
+                            values["estimated_lat"],
+                            values["estimated_lng"],
+                            values["confidence"],
+                            values["residual_m"],
+                            values["uncertainty_radius_m"],
+                            values["geometry_quality"],
+                            values["reference_device_id"],
+                            values["node_count"],
+                            values["event_time_ms"],
+                            values["input_signature"],
+                            diagnostics_text,
+                        ),
+                    )
+                    row = serialize_db_row(dict(cursor.fetchone()))
+                    update_event_group_localization_summary(cursor, row, is_postgres=True)
+                    return row
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO localization_results (
+                id, group_id, method, version, status, label,
+                estimated_lat, estimated_lng, confidence, residual_m,
+                uncertainty_radius_m, geometry_quality, reference_device_id,
+                node_count, event_time_ms, input_signature, diagnostics_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(input_signature) DO UPDATE SET
+                status = excluded.status,
+                estimated_lat = excluded.estimated_lat,
+                estimated_lng = excluded.estimated_lng,
+                confidence = excluded.confidence,
+                residual_m = excluded.residual_m,
+                uncertainty_radius_m = excluded.uncertainty_radius_m,
+                geometry_quality = excluded.geometry_quality,
+                reference_device_id = excluded.reference_device_id,
+                node_count = excluded.node_count,
+                diagnostics_json = excluded.diagnostics_json
+            """,
+            tuple(values[column] for column in LOCALIZATION_RESULT_COLUMNS),
+        )
+        row = connection.execute(
+            "SELECT * FROM localization_results WHERE input_signature = ? LIMIT 1",
+            (input_signature,),
+        ).fetchone()
+        payload = serialize_db_row(dict(row))
+        update_event_group_localization_summary(connection, payload, is_postgres=False)
+        connection.commit()
+        return payload
+
+
 def serialize_db_row(row: dict) -> dict:
     serialized = {}
     for key, value in row.items():
         if hasattr(value, "isoformat"):
             serialized[key] = value.isoformat()
+        elif key.endswith("_json") and isinstance(value, str):
+            try:
+                serialized[key] = json.loads(value)
+            except json.JSONDecodeError:
+                serialized[key] = value
         else:
             serialized[key] = value
     if "is_listening" in serialized and serialized["is_listening"] is not None:
@@ -1778,6 +2589,544 @@ def serialize_db_row(row: dict) -> dict:
             serialized.get("status"),
         )
     return serialized
+
+
+def list_localization_results(
+    limit: int = 20,
+    group_id: Optional[str] = None,
+    method: Optional[str] = None,
+    status_filter: Optional[str] = None,
+) -> list[dict]:
+    safe_limit = max(1, min(int(limit or 20), 100))
+    filters = []
+    params: list[Any] = []
+    if group_id:
+        filters.append("group_id = %s")
+        params.append(group_id)
+    if method:
+        filters.append("method = %s")
+        params.append(method)
+    if status_filter:
+        filters.append("status = %s")
+        params.append(status_filter)
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT *
+                        FROM localization_results
+                        {where_clause}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        tuple(params + [safe_limit]),
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM localization_results
+            {where_clause.replace("%s", "?")}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            tuple(params + [safe_limit]),
+        ).fetchall()
+        return [serialize_db_row(dict(row)) for row in rows]
+
+
+def get_localization_result(result_id: str) -> Optional[dict]:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT * FROM localization_results WHERE id = %s LIMIT 1",
+                        (result_id,),
+                    )
+                    row = cursor.fetchone()
+                    return serialize_db_row(dict(row)) if row else None
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        row = connection.execute(
+            "SELECT * FROM localization_results WHERE id = ? LIMIT 1",
+            (result_id,),
+        ).fetchone()
+        return serialize_db_row(dict(row)) if row else None
+
+
+def process_event_group_localization(group_id: str) -> Optional[dict]:
+    if not LOCALIZATION_ENABLED:
+        return None
+    group = get_event_fusion_group(group_id)
+    if not group:
+        return None
+    observations = group.get("observations") or []
+    if not observations:
+        return None
+
+    result = localize_observations(
+        observations,
+        clip_loader=load_tdoa_clip_bytes_for_observation if GCC_PHAT_ENABLED else None,
+        gcc_enabled=GCC_PHAT_ENABLED,
+        sound_speed_mps=SOUND_SPEED_MPS,
+        max_rtt_ms=TDOA_MAX_RTT_MS,
+        max_sync_age_ms=TDOA_MAX_SYNC_AGE_SECONDS * 1000.0,
+        min_correlation_score=GCC_MIN_CORRELATION_SCORE,
+    )
+    result["label"] = group.get("label") or group.get("group_label")
+    saved = save_localization_result(group, result)
+    track = process_tracking_for_localization(saved) if TRACKING_ENABLED else None
+    return {"localization": saved, "track": track}
+
+
+def active_tracks_for_label(label: str) -> list[dict]:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM target_tracks
+                        WHERE status = 'ACTIVE'
+                          AND label = %s
+                        ORDER BY updated_at DESC
+                        LIMIT 25
+                        """,
+                        (label,),
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM target_tracks
+            WHERE status = 'ACTIVE'
+              AND label = ?
+            ORDER BY updated_at DESC
+            LIMIT 25
+            """,
+            (label,),
+        ).fetchall()
+        return [serialize_db_row(dict(row)) for row in rows]
+
+
+def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
+    best: Optional[tuple[float, dict]] = None
+    for track in active_tracks_for_label(str(measurement.get("label") or "")):
+        ok, details = can_associate_track(
+            track,
+            measurement,
+            max_gap_seconds=TRACK_MAX_GAP_SECONDS,
+            max_speed_mps=TRACK_MAX_SPEED_MPS,
+            base_gate_m=TRACK_BASE_GATE_METERS,
+        )
+        if not ok:
+            continue
+        score = float(details.get("distance_m") or 0.0)
+        if best is None or score < best[0]:
+            best = (score, track)
+    return best[1] if best else None
+
+
+def process_tracking_for_localization(localization: dict) -> Optional[dict]:
+    status_value = str(localization.get("status") or "").upper()
+    if status_value == "FALLBACK" and not TRACK_ALLOW_FALLBACK:
+        return None
+    if status_value not in {"SUCCESS", "FALLBACK"}:
+        return None
+    if localization.get("estimated_lat") is None or localization.get("estimated_lng") is None:
+        return None
+    if float(localization.get("confidence") or 0.0) < TRACK_MIN_CONFIDENCE:
+        return None
+
+    measurement = {
+        "group_id": localization.get("group_id"),
+        "localization_result_id": localization.get("id"),
+        "label": localization.get("label"),
+        "estimated_lat": localization.get("estimated_lat"),
+        "estimated_lng": localization.get("estimated_lng"),
+        "confidence": localization.get("confidence"),
+        "uncertainty_radius_m": localization.get("uncertainty_radius_m"),
+        "event_time_ms": localization.get("event_time_ms"),
+    }
+    track = choose_track_for_measurement(measurement)
+    state = update_track_from_measurement(track, measurement)
+    return save_track_point(track, measurement, state)
+
+
+def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> dict:
+    now = current_time_iso()
+    track_id = track.get("id") if track else str(uuid.uuid4())
+    point_id = str(uuid.uuid4())
+    first_time = state["measurement_time_ms"] if track is None else track.get("first_event_time_ms")
+    point_count = int(track.get("point_count") or 0) + 1 if track else 1
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    if track is None:
+                        cursor.execute(
+                            """
+                            INSERT INTO target_tracks (
+                                id, label, status, origin_lat, origin_lng, created_at,
+                                updated_at, first_event_time_ms, last_event_time_ms,
+                                point_count, last_lat, last_lng, last_speed_mps,
+                                last_heading_deg, last_confidence, velocity_east_mps,
+                                velocity_north_mps
+                            )
+                            VALUES (%s, %s, 'ACTIVE', %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                track_id,
+                                measurement.get("label"),
+                                state["origin_lat"],
+                                state["origin_lng"],
+                                first_time,
+                                state["measurement_time_ms"],
+                                point_count,
+                                state["filtered_lat"],
+                                state["filtered_lng"],
+                                state["speed_mps"],
+                                state["heading_deg"],
+                                measurement.get("confidence"),
+                                state["velocity_east_mps"],
+                                state["velocity_north_mps"],
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            UPDATE target_tracks
+                            SET updated_at = now(),
+                                last_event_time_ms = %s,
+                                point_count = %s,
+                                last_lat = %s,
+                                last_lng = %s,
+                                last_speed_mps = %s,
+                                last_heading_deg = %s,
+                                last_confidence = %s,
+                                velocity_east_mps = %s,
+                                velocity_north_mps = %s
+                            WHERE id = %s
+                            """,
+                            (
+                                state["measurement_time_ms"],
+                                point_count,
+                                state["filtered_lat"],
+                                state["filtered_lng"],
+                                state["speed_mps"],
+                                state["heading_deg"],
+                                measurement.get("confidence"),
+                                state["velocity_east_mps"],
+                                state["velocity_north_mps"],
+                                track_id,
+                            ),
+                        )
+                    cursor.execute(
+                        """
+                        INSERT INTO target_track_points (
+                            id, track_id, group_id, localization_result_id,
+                            measurement_time_ms, measured_lat, measured_lng,
+                            filtered_lat, filtered_lng, predicted_lat, predicted_lng,
+                            velocity_east_mps, velocity_north_mps, speed_mps,
+                            heading_deg, uncertainty_radius_m, confidence,
+                            rejected_as_outlier, innovation_m, state_json,
+                            covariance_json, diagnostics_json, created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CAST(%s AS JSONB), CAST(%s AS JSONB), CAST(%s AS JSONB), now())
+                        """,
+                        (
+                            point_id,
+                            track_id,
+                            measurement.get("group_id"),
+                            measurement.get("localization_result_id"),
+                            state["measurement_time_ms"],
+                            measurement.get("estimated_lat"),
+                            measurement.get("estimated_lng"),
+                            state["filtered_lat"],
+                            state["filtered_lng"],
+                            state["predicted_lat"],
+                            state["predicted_lng"],
+                            state["velocity_east_mps"],
+                            state["velocity_north_mps"],
+                            state["speed_mps"],
+                            state["heading_deg"],
+                            measurement.get("uncertainty_radius_m"),
+                            measurement.get("confidence"),
+                            state["rejected_as_outlier"],
+                            state["innovation_m"],
+                            json_dumps(state["state_json"]),
+                            json_dumps(state["covariance_json"]),
+                            json_dumps({"source": "localization_result"}),
+                        ),
+                    )
+                    cursor.execute("SELECT * FROM target_tracks WHERE id = %s", (track_id,))
+                    return serialize_db_row(dict(cursor.fetchone()))
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        if track is None:
+            connection.execute(
+                """
+                INSERT INTO target_tracks (
+                    id, label, status, origin_lat, origin_lng, created_at, updated_at,
+                    first_event_time_ms, last_event_time_ms, point_count, last_lat,
+                    last_lng, last_speed_mps, last_heading_deg, last_confidence,
+                    velocity_east_mps, velocity_north_mps
+                )
+                VALUES (?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    track_id,
+                    measurement.get("label"),
+                    state["origin_lat"],
+                    state["origin_lng"],
+                    now,
+                    now,
+                    first_time,
+                    state["measurement_time_ms"],
+                    point_count,
+                    state["filtered_lat"],
+                    state["filtered_lng"],
+                    state["speed_mps"],
+                    state["heading_deg"],
+                    measurement.get("confidence"),
+                    state["velocity_east_mps"],
+                    state["velocity_north_mps"],
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE target_tracks
+                SET updated_at = ?,
+                    last_event_time_ms = ?,
+                    point_count = ?,
+                    last_lat = ?,
+                    last_lng = ?,
+                    last_speed_mps = ?,
+                    last_heading_deg = ?,
+                    last_confidence = ?,
+                    velocity_east_mps = ?,
+                    velocity_north_mps = ?
+                WHERE id = ?
+                """,
+                (
+                    now,
+                    state["measurement_time_ms"],
+                    point_count,
+                    state["filtered_lat"],
+                    state["filtered_lng"],
+                    state["speed_mps"],
+                    state["heading_deg"],
+                    measurement.get("confidence"),
+                    state["velocity_east_mps"],
+                    state["velocity_north_mps"],
+                    track_id,
+                ),
+            )
+        connection.execute(
+            """
+            INSERT INTO target_track_points (
+                id, track_id, group_id, localization_result_id, measurement_time_ms,
+                measured_lat, measured_lng, filtered_lat, filtered_lng,
+                predicted_lat, predicted_lng, velocity_east_mps, velocity_north_mps,
+                speed_mps, heading_deg, uncertainty_radius_m, confidence,
+                rejected_as_outlier, innovation_m, state_json, covariance_json,
+                diagnostics_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                point_id,
+                track_id,
+                measurement.get("group_id"),
+                measurement.get("localization_result_id"),
+                state["measurement_time_ms"],
+                measurement.get("estimated_lat"),
+                measurement.get("estimated_lng"),
+                state["filtered_lat"],
+                state["filtered_lng"],
+                state["predicted_lat"],
+                state["predicted_lng"],
+                state["velocity_east_mps"],
+                state["velocity_north_mps"],
+                state["speed_mps"],
+                state["heading_deg"],
+                measurement.get("uncertainty_radius_m"),
+                measurement.get("confidence"),
+                1 if state["rejected_as_outlier"] else 0,
+                state["innovation_m"],
+                json_dumps(state["state_json"]),
+                json_dumps(state["covariance_json"]),
+                json_dumps({"source": "localization_result"}),
+                now,
+            ),
+        )
+        connection.commit()
+        row = connection.execute("SELECT * FROM target_tracks WHERE id = ?", (track_id,)).fetchone()
+        return serialize_db_row(dict(row))
+
+
+def list_tracks(status_filter: Optional[str] = None, label: Optional[str] = None, limit: int = 20) -> list[dict]:
+    safe_limit = max(1, min(int(limit or 20), 100))
+    filters = []
+    params: list[Any] = []
+    if status_filter:
+        filters.append("status = %s")
+        params.append(status_filter.upper())
+    if label:
+        filters.append("label = %s")
+        params.append(label)
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT *
+                        FROM target_tracks
+                        {where_clause}
+                        ORDER BY updated_at DESC
+                        LIMIT %s
+                        """,
+                        tuple(params + [safe_limit]),
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM target_tracks
+            {where_clause.replace("%s", "?")}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            tuple(params + [safe_limit]),
+        ).fetchall()
+        return [serialize_db_row(dict(row)) for row in rows]
+
+
+def get_track(track_id: str) -> Optional[dict]:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT * FROM target_tracks WHERE id = %s LIMIT 1", (track_id,))
+                    row = cursor.fetchone()
+                    return serialize_db_row(dict(row)) if row else None
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        row = connection.execute("SELECT * FROM target_tracks WHERE id = ? LIMIT 1", (track_id,)).fetchone()
+        return serialize_db_row(dict(row)) if row else None
+
+
+def list_track_points(track_id: str, limit: int = 100) -> list[dict]:
+    safe_limit = max(1, min(int(limit or 100), 500))
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM target_track_points
+                        WHERE track_id = %s
+                        ORDER BY measurement_time_ms ASC
+                        LIMIT %s
+                        """,
+                        (track_id, safe_limit),
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT *
+            FROM target_track_points
+            WHERE track_id = ?
+            ORDER BY measurement_time_ms ASC
+            LIMIT ?
+            """,
+            (track_id, safe_limit),
+        ).fetchall()
+        return [serialize_db_row(dict(row)) for row in rows]
+
+
+def close_track(track_id: str) -> dict:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE target_tracks
+                        SET status = 'CLOSED',
+                            closed_at = now(),
+                            updated_at = now()
+                        WHERE id = %s
+                        RETURNING *
+                        """,
+                        (track_id,),
+                    )
+                    row = cursor.fetchone()
+                    if not row:
+                        raise HTTPException(status_code=404, detail="Track not found")
+                    return serialize_db_row(dict(row))
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        now = current_time_iso()
+        cursor = connection.execute(
+            """
+            UPDATE target_tracks
+            SET status = 'CLOSED',
+                closed_at = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (now, now, track_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Track not found")
+        connection.commit()
+        row = connection.execute("SELECT * FROM target_tracks WHERE id = ?", (track_id,)).fetchone()
+        return serialize_db_row(dict(row))
 
 
 def time_sync_quality_from_rtt(rtt_ms: Optional[float]) -> str:
@@ -2261,6 +3610,105 @@ def create_device_command(command: DeviceCommandCreate) -> dict:
         connection.close()
 
 
+def set_device_command_status(
+    command_id: int,
+    device_id: str,
+    command_status: str,
+    message: Optional[str] = None,
+) -> Optional[dict]:
+    normalized_status = command_status.strip().lower()
+    updated_at = current_time_iso()
+
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE device_commands
+                SET status = ?,
+                    executed_at = CASE
+                        WHEN ? IN ('succeeded', 'failed', 'expired', 'done') THEN ?
+                        ELSE executed_at
+                    END,
+                    ack_message = COALESCE(?, ack_message)
+                WHERE id = ?
+                  AND device_id = ?
+                """,
+                (
+                    normalized_status,
+                    normalized_status,
+                    updated_at,
+                    message,
+                    command_id,
+                    device_id,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE device_status
+                SET last_command_id = ?, updated_at = ?
+                WHERE device_id = ?
+                """,
+                (command_id, updated_at, device_id),
+            )
+            connection.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = connection.execute(
+                f"""
+                SELECT {", ".join(DEVICE_COMMAND_COLUMNS)}
+                FROM device_commands
+                WHERE id = ? AND device_id = ?
+                LIMIT 1
+                """,
+                (command_id, device_id),
+            ).fetchone()
+            return serialize_db_row(dict(row)) if row else None
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    UPDATE device_commands
+                    SET status = %s,
+                        executed_at = CASE
+                            WHEN %s IN ('succeeded', 'failed', 'expired', 'done') THEN now()
+                            ELSE executed_at
+                        END,
+                        ack_message = COALESCE(%s, ack_message)
+                    WHERE id = %s
+                      AND device_id = %s
+                    RETURNING {", ".join(DEVICE_COMMAND_COLUMNS)}
+                    """,
+                    (
+                        normalized_status,
+                        normalized_status,
+                        message,
+                        command_id,
+                        device_id,
+                    ),
+                )
+                row = cursor.fetchone()
+                cursor.execute(
+                    """
+                    UPDATE device_status
+                    SET last_command_id = %s, updated_at = now()
+                    WHERE device_id = %s
+                    """,
+                    (command_id, device_id),
+                )
+                return serialize_db_row(dict(row)) if row else None
+    finally:
+        connection.close()
+
+
+realtime_command_service = RealtimeCommandService(
+    node_manager=node_manager,
+    status_updater=set_device_command_status,
+)
+
+
 def get_pending_device_command(device_id: str) -> Optional[dict]:
     columns = ", ".join(DEVICE_COMMAND_COLUMNS)
 
@@ -2665,7 +4113,12 @@ def build_events_csv() -> str:
 
 
 def verify_upload_token(upload_token: Optional[str]) -> None:
-    expected_token = os.getenv("UPLOAD_TOKEN", DEFAULT_UPLOAD_TOKEN)
+    expected_token = os.getenv("UPLOAD_TOKEN", DEFAULT_UPLOAD_TOKEN).strip()
+    if not expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Upload token is not configured",
+        )
     if upload_token != expected_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2690,6 +4143,11 @@ def parse_float_value(value: Any) -> Optional[float]:
         except ValueError:
             return None
     return None
+
+
+def parse_int_value(value: Any) -> Optional[int]:
+    parsed = parse_float_value(value)
+    return int(parsed) if parsed is not None else None
 
 
 def event_aircraft_probability(row: dict) -> Optional[float]:
@@ -3032,6 +4490,11 @@ def build_fusion_observations(event: SoundEvent, created_at: str) -> list[dict]:
             "event_timestamp": event_time,
             "weight": weight,
             "label": row.get("label") or "aircraft",
+            "time_sync_version": parse_int_value(row.get("time_sync_version")),
+            "time_sync_offset_ms": parse_float_value(row.get("time_sync_offset_ms")),
+            "time_sync_quality": row.get("time_sync_quality") or row.get("timing_quality"),
+            "time_sync_synced_at_ms": parse_int_value(row.get("time_sync_synced_at_ms")),
+            "time_sync_age_ms": parse_int_value(row.get("time_sync_age_ms")),
             "corrected_arrival_time_ms": parse_float_value(
                 row.get("corrected_arrival_time_ms")
             ),
@@ -3213,6 +4676,11 @@ def store_target_estimate(estimate: dict) -> dict:
                                 audio_path,
                                 event_timestamp,
                                 weight,
+                                time_sync_version,
+                                time_sync_offset_ms,
+                                time_sync_quality,
+                                time_sync_synced_at_ms,
+                                time_sync_age_ms,
                                 corrected_arrival_time_ms,
                                 time_sync_rtt_ms,
                                 tdoa_used,
@@ -3220,7 +4688,7 @@ def store_target_estimate(estimate: dict) -> dict:
                                 observation_kind,
                                 created_at
                             )
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 str(uuid.uuid4()),
@@ -3238,6 +4706,11 @@ def store_target_estimate(estimate: dict) -> dict:
                                 if hasattr(item.get("event_timestamp"), "isoformat")
                                 else item.get("event_timestamp"),
                                 item.get("weight"),
+                                item.get("time_sync_version"),
+                                item.get("time_sync_offset_ms"),
+                                item.get("time_sync_quality"),
+                                item.get("time_sync_synced_at_ms"),
+                                item.get("time_sync_age_ms"),
                                 item.get("corrected_arrival_time_ms"),
                                 item.get("time_sync_rtt_ms"),
                                 bool(item.get("tdoa_used")),
@@ -3319,6 +4792,11 @@ def store_target_estimate(estimate: dict) -> dict:
                         audio_path,
                         event_timestamp,
                         weight,
+                        time_sync_version,
+                        time_sync_offset_ms,
+                        time_sync_quality,
+                        time_sync_synced_at_ms,
+                        time_sync_age_ms,
                         corrected_arrival_time_ms,
                         time_sync_rtt_ms,
                         tdoa_used,
@@ -3326,7 +4804,7 @@ def store_target_estimate(estimate: dict) -> dict:
                         observation_kind,
                         created_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(uuid.uuid4()),
@@ -3342,6 +4820,11 @@ def store_target_estimate(estimate: dict) -> dict:
                         item.get("audio_path"),
                         timestamp.isoformat() if hasattr(timestamp, "isoformat") else timestamp,
                         item.get("weight"),
+                        item.get("time_sync_version"),
+                        item.get("time_sync_offset_ms"),
+                        item.get("time_sync_quality"),
+                        item.get("time_sync_synced_at_ms"),
+                        item.get("time_sync_age_ms"),
                         item.get("corrected_arrival_time_ms"),
                         item.get("time_sync_rtt_ms"),
                         1 if item.get("tdoa_used") else 0,
@@ -3373,8 +4856,13 @@ def target_estimate_payload(estimate: dict) -> dict:
         observations.append(
             {
                 "device_id": item.get("device_id"),
-                "corrected_arrival_time_ms": item.get("corrected_arrival_time_ms"),
+                "time_sync_version": item.get("time_sync_version"),
+                "time_sync_offset_ms": item.get("time_sync_offset_ms"),
                 "time_sync_rtt_ms": item.get("time_sync_rtt_ms"),
+                "time_sync_quality": item.get("time_sync_quality"),
+                "time_sync_synced_at_ms": item.get("time_sync_synced_at_ms"),
+                "time_sync_age_ms": item.get("time_sync_age_ms"),
+                "corrected_arrival_time_ms": item.get("corrected_arrival_time_ms"),
                 "tdoa_used": bool(item.get("tdoa_used")),
                 "tdoa_residual_m": item.get("tdoa_residual_m"),
             }
@@ -3687,12 +5175,14 @@ async def create_event(
 ):
     verify_upload_token(upload_token)
     sanitize_timing_metadata(event)
+    sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
     existing_event = get_event_by_event_id(event.event_id)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
     device_row = None
     event_group = None
+    localization_package = None
 
     try:
         event_group = process_event_fusion_for_event(event.event_id)
@@ -3725,6 +5215,29 @@ async def create_event(
                 "group": event_group,
             }
         )
+        if is_alert_event_label(event.label) and not is_existing_event:
+            try:
+                localization_package = process_event_group_localization(event_group["id"])
+            except Exception:
+                logger.exception(
+                    "Localization failed for event_group=%s",
+                    event_group.get("id"),
+                )
+
+    if localization_package and localization_package.get("localization"):
+        await dashboard_manager.broadcast(
+            {
+                "type": "localization_result",
+                "localization": localization_package.get("localization"),
+            }
+        )
+        if localization_package.get("track"):
+            await dashboard_manager.broadcast(
+                {
+                    "type": "track_update",
+                    "track": localization_package.get("track"),
+                }
+            )
 
     if is_existing_event and has_audio_metadata(event):
         await dashboard_manager.broadcast(
@@ -3794,6 +5307,113 @@ def event_group_detail(group_id: str):
     }
 
 
+@app.get("/event-groups/{group_id}/localization")
+def event_group_localization(group_id: str):
+    group = get_event_fusion_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Event group not found")
+    results = list_localization_results(limit=20, group_id=group_id)
+    return {
+        "status": "success",
+        "group": group,
+        "localization_results": results,
+        "latest": results[0] if results else None,
+    }
+
+
+@app.post("/event-groups/{group_id}/localize")
+async def event_group_localize(group_id: str):
+    group = get_event_fusion_group(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Event group not found")
+    package = process_event_group_localization(group_id)
+    if not package:
+        raise HTTPException(status_code=400, detail="Localization could not be created")
+    await dashboard_manager.broadcast(
+        {
+            "type": "localization_result",
+            "localization": package.get("localization"),
+        }
+    )
+    if package.get("track"):
+        await dashboard_manager.broadcast(
+            {
+                "type": "track_update",
+                "track": package.get("track"),
+            }
+        )
+    return {"status": "success", **package}
+
+
+@app.get("/localization-results")
+def localization_results(
+    limit: int = Query(default=20, ge=1, le=100),
+    group_id: Optional[str] = Query(default=None),
+    method: Optional[str] = Query(default=None),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+):
+    results = list_localization_results(
+        limit=limit,
+        group_id=group_id,
+        method=method,
+        status_filter=status_filter,
+    )
+    return {
+        "status": "success",
+        "count": len(results),
+        "localization_results": results,
+    }
+
+
+@app.get("/tracks")
+def tracks(
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    label: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
+    return {"status": "success", "count": len(rows), "tracks": rows}
+
+
+@app.get("/tracks/{track_id}")
+def track_detail(track_id: str):
+    track = get_track(track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return {
+        "status": "success",
+        "track": track,
+        "points": list_track_points(track_id, limit=200),
+    }
+
+
+@app.get("/tracks/{track_id}/points")
+def track_points(track_id: str, limit: int = Query(default=100, ge=1, le=500)):
+    if not get_track(track_id):
+        raise HTTPException(status_code=404, detail="Track not found")
+    points = list_track_points(track_id, limit=limit)
+    return {"status": "success", "count": len(points), "points": points}
+
+
+@app.post("/tracks/{track_id}/close")
+async def close_track_endpoint(track_id: str):
+    track = close_track(track_id)
+    await dashboard_manager.broadcast({"type": "track_update", "track": track})
+    return {"status": "success", "track": track}
+
+
+@app.post("/localization-results/{result_id}/track")
+async def localization_result_track(result_id: str):
+    result = get_localization_result(result_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Localization result not found")
+    track = process_tracking_for_localization(result)
+    if not track:
+        raise HTTPException(status_code=400, detail="Track could not be created")
+    await dashboard_manager.broadcast({"type": "track_update", "track": track})
+    return {"status": "success", "track": track}
+
+
 @app.get("/events")
 def list_events():
     events = list_recent_events()
@@ -3857,20 +5477,78 @@ def device_status():
 
 @app.post("/device-command")
 async def device_command(command: DeviceCommandCreate):
-    row = create_device_command(command)
+    command_to_create = command
+    normalized_command = command.command.strip().lower()
+    dashboard_stream_args: Optional[dict[str, Any]] = None
+    if normalized_command == "start_live_audio":
+        stream_id = str(uuid.uuid4())
+        stream_token = secrets.token_urlsafe(24)
+        subscriber_token = secrets.token_urlsafe(24)
+        audio_stream_manager.start_session(
+            device_id=command.device_id,
+            stream_id=stream_id,
+            stream_token=stream_token,
+            subscriber_token=subscriber_token,
+        )
+        stream_args = {
+            "stream_id": stream_id,
+            "stream_token": stream_token,
+            "selected_audio_codec": os.getenv("LIVE_AUDIO_DEFAULT_CODEC", "pcm_s16le"),
+            "sample_rate_hz": 16000,
+            "channel_count": 1,
+            "frame_duration_ms": 20,
+            "expires_at_ms": int((datetime.now(timezone.utc) + timedelta(seconds=60)).timestamp() * 1000),
+        }
+        if isinstance(command.value, dict):
+            stream_args.update(command.value)
+        dashboard_stream_args = {
+            "stream_id": stream_id,
+            "subscriber_token": subscriber_token,
+            "selected_audio_codec": stream_args.get("selected_audio_codec", "pcm_s16le"),
+            "sample_rate_hz": stream_args.get("sample_rate_hz", 16000),
+            "channel_count": stream_args.get("channel_count", 1),
+            "frame_duration_ms": stream_args.get("frame_duration_ms", 20),
+            "expires_at_ms": stream_args.get("expires_at_ms"),
+        }
+        command_to_create = DeviceCommandCreate(
+            device_id=command.device_id,
+            command=command.command,
+            value=stream_args,
+            issued_by=command.issued_by,
+        )
+
+    row = create_device_command(command_to_create)
+    delivered_over_websocket = False
+    if COMMAND_WEBSOCKET_ENABLED and row.get("id") is not None:
+        try:
+            delivered_over_websocket = await realtime_command_service.push_command(
+                device_id=command_to_create.device_id,
+                command_id=int(row.get("id")),
+                command=command_to_create.command,
+                value=command_to_create.value,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to push command over websocket for device_id=%s command_id=%s",
+                command_to_create.device_id,
+                row.get("id"),
+            )
     await dashboard_manager.broadcast(
         {
             "type": "device_command_created",
-            "device_id": command.device_id,
+            "device_id": command_to_create.device_id,
             "command_id": row.get("id"),
-            "command": command.command,
-            "status": row.get("status"),
+            "command": command_to_create.command,
+            "status": "sent" if delivered_over_websocket else row.get("status"),
+            "delivery": "websocket" if delivered_over_websocket else "polling",
         }
     )
     return {
         "ok": True,
         "command_id": row.get("id"),
-        "status": row.get("status", "pending"),
+        "status": "sent" if delivered_over_websocket else row.get("status", "pending"),
+        "delivery": "websocket" if delivered_over_websocket else "polling",
+        "stream": dashboard_stream_args,
     }
 
 
@@ -3991,6 +5669,360 @@ def event_tdoa_clip_url(event_id: str):
     }
 
 
+@app.get("/nodes/live")
+def nodes_live():
+    return {
+        "status": "success",
+        "count": len(node_manager.live_states()),
+        "nodes": node_manager.live_states(),
+        "heartbeat_policy": {
+            "client_interval_seconds": NODE_HEARTBEAT_INTERVAL_SECONDS,
+            "degraded_after_seconds": NODE_DEGRADED_TIMEOUT_SECONDS,
+            "offline_after_seconds": NODE_OFFLINE_TIMEOUT_SECONDS,
+        },
+    }
+
+
+@app.get("/audio-streams")
+def audio_streams():
+    sessions = audio_stream_manager.list_sessions()
+    return {
+        "status": "success",
+        "enabled": LIVE_AUDIO_ENABLED,
+        "count": len(sessions),
+        "streams": sessions,
+    }
+
+
+async def broadcast_node_state(device_id: str, event_type: str = "node_live_update") -> None:
+    state = node_manager.get(device_id)
+    payload = (
+        state.to_public_dict(
+            NODE_DEGRADED_TIMEOUT_SECONDS,
+            NODE_OFFLINE_TIMEOUT_SECONDS,
+        )
+        if state
+        else node_manager.disconnected_state(device_id)
+    )
+    await dashboard_manager.broadcast({"type": event_type, "node": payload})
+
+
+def command_id_from_payload(payload: dict) -> Optional[int]:
+    raw_id = payload.get("command_id")
+    if raw_id is None:
+        return None
+    try:
+        return int(str(raw_id))
+    except (TypeError, ValueError):
+        return None
+
+
+@app.websocket("/ws/node/{device_id}")
+async def node_control_websocket(websocket: WebSocket, device_id: str):
+    if not NODE_WEBSOCKET_ENABLED:
+        await websocket.close(code=1013)
+        return
+
+    await websocket.accept()
+    state = None
+    disconnect_reason = "client_disconnected"
+    try:
+        try:
+            raw_hello = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+            hello = parse_node_message(raw_hello, expected_device_id=device_id)
+            if hello.message_type != "hello":
+                raise ProtocolError("First node websocket message must be hello")
+        except (asyncio.TimeoutError, ProtocolError) as exc:
+            await websocket.send_json(
+                build_envelope(
+                    message_type="protocol_error",
+                    device_id=device_id,
+                    payload={"error": str(exc)},
+                )
+            )
+            await websocket.close(code=1008)
+            return
+
+        state = await node_manager.register(
+            device_id=device_id,
+            websocket=websocket,
+            protocol_version=hello.protocol_version,
+            hello_payload=hello.payload,
+        )
+        await websocket.send_json(
+            build_envelope(
+                message_type="hello_ack",
+                device_id=device_id,
+                payload={
+                    "connection_id": state.connection_id,
+                    "generation": state.generation,
+                    "heartbeat_interval_seconds": NODE_HEARTBEAT_INTERVAL_SECONDS,
+                    "server_time_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
+                },
+            )
+        )
+        await broadcast_node_state(device_id, "node_connected")
+
+        while True:
+            raw_message = await websocket.receive_text()
+            try:
+                envelope = parse_node_message(raw_message, expected_device_id=device_id)
+            except ProtocolError as exc:
+                await websocket.send_json(
+                    build_envelope(
+                        message_type="protocol_error",
+                        device_id=device_id,
+                        payload={"error": str(exc)},
+                    )
+                )
+                continue
+
+            if envelope.message_type in {"heartbeat", "status_update"}:
+                node_state = await node_manager.update_heartbeat(
+                    device_id=device_id,
+                    connection_id=state.connection_id,
+                    payload=envelope.payload,
+                )
+                if node_state:
+                    await dashboard_manager.broadcast(
+                        {
+                            "type": "node_heartbeat",
+                            "node": node_state,
+                        }
+                    )
+                continue
+
+            if envelope.message_type == "command_ack":
+                command_id = command_id_from_payload(envelope.payload)
+                if command_id is not None:
+                    row = set_device_command_status(
+                        command_id,
+                        device_id,
+                        "acknowledged",
+                        envelope.payload.get("message") or "websocket ack",
+                    )
+                    await dashboard_manager.broadcast(
+                        {
+                            "type": "device_command_ack",
+                            "device_id": device_id,
+                            "command_id": command_id,
+                            "status": row.get("status") if row else "acknowledged",
+                            "message": envelope.payload.get("message"),
+                        }
+                    )
+                continue
+
+            if envelope.message_type == "command_result":
+                command_id = command_id_from_payload(envelope.payload)
+                raw_status = str(envelope.payload.get("status") or "").lower()
+                if raw_status in {"running", "started"}:
+                    final_status = "running"
+                elif raw_status in {"ok", "done", "success", "succeeded"}:
+                    final_status = "succeeded"
+                else:
+                    final_status = "failed"
+                if command_id is not None:
+                    row = set_device_command_status(
+                        command_id,
+                        device_id,
+                        final_status,
+                        envelope.payload.get("message") or raw_status,
+                    )
+                    await dashboard_manager.broadcast(
+                        {
+                            "type": "device_command_result",
+                            "device_id": device_id,
+                            "command_id": command_id,
+                            "status": row.get("status") if row else final_status,
+                            "message": envelope.payload.get("message"),
+                        }
+                    )
+                continue
+
+            if envelope.message_type == "stream_started":
+                state.streaming = True
+                await broadcast_node_state(device_id)
+                continue
+
+            if envelope.message_type == "stream_stopped":
+                state.streaming = False
+                await broadcast_node_state(device_id)
+                continue
+
+    except WebSocketDisconnect:
+        disconnect_reason = "websocket_disconnect"
+    except Exception:
+        disconnect_reason = "server_error"
+        logger.exception("Node websocket failed for device_id=%s", device_id)
+    finally:
+        if state is not None:
+            await node_manager.unregister(
+                device_id=device_id,
+                connection_id=state.connection_id,
+                reason=disconnect_reason,
+            )
+            await broadcast_node_state(device_id, "node_disconnected")
+
+
+@app.websocket("/ws/audio/{device_id}")
+async def audio_stream_websocket(websocket: WebSocket, device_id: str):
+    await websocket.accept()
+    if not LIVE_AUDIO_ENABLED:
+        await websocket.send_json(
+            {
+                "type": "audio_stream_rejected",
+                "reason": "LIVE_AUDIO_ENABLED is false",
+            }
+        )
+        await websocket.close(code=1013)
+        return
+
+    stream_id = websocket.headers.get("x-stream-id") or ""
+    stream_token = websocket.headers.get("x-stream-token")
+    upload_token = websocket.headers.get("x-upload-token")
+    try:
+        verify_upload_token(upload_token)
+    except HTTPException:
+        await websocket.send_json(
+            {
+                "type": "audio_stream_rejected",
+                "reason": "invalid upload token",
+            }
+        )
+        await websocket.close(code=1008)
+        return
+
+    if not stream_id or not audio_stream_manager.validate_session_token(
+        stream_id=stream_id,
+        device_id=device_id,
+        stream_token=stream_token,
+    ):
+        await websocket.send_json(
+            {
+                "type": "audio_stream_rejected",
+                "reason": "invalid stream session",
+            }
+        )
+        await websocket.close(code=1008)
+        return
+
+    await websocket.send_json(
+        {
+            "type": "audio_stream_ready",
+            "device_id": device_id,
+            "stream_id": stream_id,
+            "selected_audio_codec": "pcm_s16le",
+        }
+    )
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if "bytes" in message and message["bytes"] is not None:
+                result = audio_stream_manager.accept_frame(
+                    device_id=device_id,
+                    raw_frame=message["bytes"],
+                )
+                if not result.get("accepted"):
+                    await websocket.send_json(
+                        {
+                            "type": "audio_frame_rejected",
+                            **result,
+                        }
+                    )
+                continue
+            if "text" in message and message["text"]:
+                payload = message["text"]
+                if payload == "stop":
+                    break
+                await websocket.send_json(
+                    {
+                        "type": "audio_stream_info",
+                        "sessions": audio_stream_manager.list_sessions(),
+                    }
+                )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        audio_stream_manager.stop_session(stream_id)
+
+
+@app.websocket("/ws/audio-monitor/{stream_id}")
+async def audio_monitor_websocket(websocket: WebSocket, stream_id: str):
+    await websocket.accept()
+    if not LIVE_AUDIO_ENABLED:
+        await websocket.send_json(
+            {
+                "type": "audio_monitor_rejected",
+                "reason": "LIVE_AUDIO_ENABLED is false",
+            }
+        )
+        await websocket.close(code=1013)
+        return
+
+    try:
+        auth_message = await asyncio.wait_for(websocket.receive_json(), timeout=5.0)
+    except Exception:
+        await websocket.send_json(
+            {
+                "type": "audio_monitor_rejected",
+                "reason": "subscriber auth timeout",
+            }
+        )
+        await websocket.close(code=1008)
+        return
+
+    subscriber_token = None
+    if isinstance(auth_message, dict):
+        subscriber_token = auth_message.get("subscriber_token")
+
+    try:
+        subscriber_id, queue, session = audio_stream_manager.subscribe(
+            stream_id=stream_id,
+            subscriber_token=str(subscriber_token or ""),
+            max_queue_frames=150,
+        )
+    except ValueError as exc:
+        await websocket.send_json(
+            {
+                "type": "audio_monitor_rejected",
+                "reason": str(exc),
+            }
+        )
+        await websocket.close(code=1008)
+        return
+
+    await websocket.send_json(
+        {
+            "type": "audio_monitor_ready",
+            "stream_id": stream_id,
+            "subscriber_id": subscriber_id,
+            "session": session,
+        }
+    )
+
+    try:
+        while True:
+            try:
+                raw_frame = await asyncio.wait_for(queue.get(), timeout=10.0)
+            except asyncio.TimeoutError:
+                await websocket.send_json(
+                    {
+                        "type": "audio_monitor_heartbeat",
+                        "stream_id": stream_id,
+                    }
+                )
+                continue
+            await websocket.send_bytes(raw_frame)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        audio_stream_manager.unsubscribe(
+            stream_id=stream_id,
+            subscriber_id=subscriber_id,
+        )
+
+
 @app.websocket("/ws/dashboard")
 async def dashboard_websocket(websocket: WebSocket):
     await dashboard_manager.connect(websocket)
@@ -4018,7 +6050,7 @@ def dashboard():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>聲音偵測戰情室 V2.1</title>
+        <title>?脤?菜葫?唳?摰?V4.0</title>
         <style>
             :root {
                 --bg: #0f1115;
@@ -4336,6 +6368,52 @@ def dashboard():
                 width: 100%;
                 height: 40px;
             }
+            .live-audio-panel .panel-body {
+                display: grid;
+                gap: 8px;
+            }
+            .live-audio-controls {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto auto;
+                gap: 8px;
+                align-items: center;
+            }
+            .live-audio-controls select {
+                width: 100%;
+                min-width: 0;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: var(--panel-2);
+                color: var(--text);
+                padding: 7px 9px;
+                font-size: 12px;
+            }
+            .live-audio-status {
+                color: var(--muted);
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .live-audio-meters {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px;
+            }
+            .live-audio-meter {
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                padding: 8px;
+                background: var(--panel-3);
+            }
+            .live-audio-meter span {
+                display: block;
+                color: var(--muted);
+                font-size: 11px;
+            }
+            .live-audio-meter strong {
+                display: block;
+                margin-top: 3px;
+                font-size: 14px;
+            }
             .right-scroll {
                 flex: 1 1 0;
                 min-height: 0;
@@ -4609,69 +6687,86 @@ def dashboard():
     <body>
         <header>
             <div>
-                <h1>聲音偵測戰情室 V2.1</h1>
-                <div class="subtitle">多節點聲音偵測、即時定位、遠端控制與事件追蹤</div>
+                <h1>?脤?菜葫?唳?摰?V4.0</h1>
+                <div class="subtitle">憭?暺?喳皜研??雿?蝡舀?嗉?鈭辣餈質馱</div>
             </div>
             <div class="header-actions">
-                <a class="link-button" href="/events/export.csv">匯出事件 CSV</a>
+                <a class="link-button" href="/events/export.csv">?臬鈭辣 CSV</a>
             </div>
         </header>
 
         <section class="topbar">
-            <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
-            <div class="stat"><div class="label">目前警示</div><div class="value" id="activeAlertCount">0</div></div>
-            <div class="stat"><div class="label">今日目標聲</div><div class="value" id="todayDroneCount">0</div></div>
-            <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
+            <div class="stat"><div class="label">?函?蝭暺?/div><div class="value" id="onlineCount">0</div></div>
+            <div class="stat"><div class="label">?桀?霅衣內</div><div class="value" id="activeAlertCount">0</div></div>
+            <div class="stat"><div class="label">隞?格???/div><div class="value" id="todayDroneCount">0</div></div>
+            <div class="stat"><div class="label">蝟餌絞???/div><div class="value" id="systemStatus">頛銝?/div></div>
         </section>
 
         <main class="layout">
             <section class="panel">
-                <h2>節點控制</h2>
+                <h2>蝭暺??/h2>
                 <div class="panel-body" id="nodeList"></div>
             </section>
 
             <section class="panel map-panel">
-                <h2>即時地圖</h2>
+                <h2>?單??啣?</h2>
                 <div id="map"></div>
-                <div class="map-note">只有 aircraft / drone 事件會觸發警示動畫；GPS 更新只用來維持節點位置。</div>
+                <div class="map-note">?芣? aircraft / drone 鈭辣?孛?潸郎蝷箏??恬?GPS ?湔?芰靘雁??暺?蝵柴?/div>
             </section>
 
             <aside class="side-stack">
                 <section class="panel audio-panel">
-                    <h2>音檔播放</h2>
+                    <h2>?單??剜</h2>
                     <div class="audio-player" id="audioPlayerBox">
-                        <div class="title" id="audioPlayerTitle">請選擇事件查看音檔</div>
+                        <div class="title" id="audioPlayerTitle">隢??隞嗆?瑼?/div>
                         <audio id="eventAudioPlayer" controls></audio>
                     </div>
                 </section>
 
+                <section class="panel live-audio-panel">
+                    <h2>即時監聽</h2>
+                    <div class="panel-body">
+                        <div class="live-audio-controls">
+                            <select id="liveAudioDeviceSelect" aria-label="選擇節點"></select>
+                            <button class="primary" type="button" onclick="startLiveAudioMonitor()">開始</button>
+                            <button type="button" onclick="stopLiveAudioMonitor()">停止</button>
+                        </div>
+                        <div class="live-audio-status" id="liveAudioStatus">尚未開始即時監聽</div>
+                        <div class="live-audio-meters">
+                            <div class="live-audio-meter"><span>Frames</span><strong id="liveAudioFrameCount">0</strong></div>
+                            <div class="live-audio-meter"><span>Stream</span><strong id="liveAudioStreamId">-</strong></div>
+                            <div class="live-audio-meter"><span>Buffer</span><strong id="liveAudioBufferMs">0 ms</strong></div>
+                        </div>
+                    </div>
+                </section>
+
                 <section class="panel alert-panel">
-                    <h2>即時警示</h2>
+                    <h2>?單?霅衣內</h2>
                     <div class="panel-body right-scroll" id="alertList"></div>
                 </section>
 
                 <section class="panel event-groups-panel">
-                    <h2>事件群組</h2>
+                    <h2>鈭辣蝢斤?</h2>
                     <div class="panel-body right-scroll" id="eventGroupList">
-                        <div class="subtitle">目前沒有事件群組</div>
+                        <div class="subtitle">?桀?瘝?鈭辣蝢斤?</div>
                     </div>
                 </section>
 
                 <section class="panel target-panel">
-                    <h2>聲源估測</h2>
+                    <h2>?脫?隡唳葫</h2>
                     <div class="panel-body right-scroll" id="targetEstimateList">
-                        <div class="subtitle">目前沒有多節點融合估測</div>
+                        <div class="subtitle">?桀?瘝?憭?暺??摯皜?/div>
                     </div>
                 </section>
             </aside>
 
             <section class="panel timeline">
-                <h2>事件時間軸</h2>
+                <h2>鈭辣??頠?/h2>
                 <div class="panel-body">
                     <div class="filters">
-                        <button data-filter="all" class="active" onclick="setFilter('all')">全部</button>
-                        <button data-filter="drone" onclick="setFilter('drone')">只看目標聲</button>
-                        <button data-filter="other" onclick="setFilter('other')">只看其他聲音</button>
+                        <button data-filter="all" class="active" onclick="setFilter('all')">?券</button>
+                        <button data-filter="drone" onclick="setFilter('drone')">?芰??格???/button>
+                        <button data-filter="other" onclick="setFilter('other')">?芰??嗡??脤</button>
                     </div>
                     <div id="timelineList"></div>
                 </div>
@@ -4688,6 +6783,8 @@ def dashboard():
             const markers = new Map();
             const targetEstimates = new Map();
             const eventGroups = new Map();
+            const localizationResults = new Map();
+            const tracks = new Map();
             const targetEstimateMarkers = new Map();
             const targetEstimateCircles = new Map();
             const alertUntil = new Map();
@@ -4697,6 +6794,11 @@ def dashboard():
             let selectedTargetEstimateId = null;
             let selectedEventGroupId = null;
             let currentFilter = 'all';
+            let liveAudioSocket = null;
+            let liveAudioContext = null;
+            let liveAudioNextPlayTime = 0;
+            let liveAudioFrameCount = 0;
+            let liveAudioCurrentStreamId = '';
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : value;
@@ -4726,39 +6828,42 @@ def dashboard():
 
             function displayStatus(status) {
                 const value = String(status || '').toLowerCase();
-                if (value === 'online') return '在線';
-                if (value === 'event') return '警示中';
-                if (value === 'offline') return '離線';
+                if (value === 'online') return '?函?';
+                if (value === 'event') return '霅衣內銝?;
+                if (value === 'offline') return '?Ｙ?';
                 return safe(status);
             }
 
             function displayMode(mode) {
                 const value = String(mode || '').toLowerCase();
-                if (value === 'detection') return '偵測模式';
-                if (value === 'collection') return '蒐集模式';
+                if (value === 'detection') return '?菜葫璅∪?';
+                if (value === 'collection') return '??璅∪?';
                 return safe(mode);
             }
 
             function displayEventLabel(label) {
                 const value = String(label || '').toLowerCase();
-                if (value === 'aircraft' || value === 'drone') return '目標聲';
-                if (value === 'non_aircraft' || value === 'other') return '非目標聲';
-                if (value === 'sound_event') return '聲音事件';
+                if (value === 'aircraft' || value === 'drone') return '?格???;
+                if (value === 'non_aircraft' || value === 'other') return '?璅';
+                if (value === 'sound_event') return '?脤鈭辣';
                 return safe(label);
             }
 
             function displayGroupStatus(status) {
                 const value = String(status || '').toUpperCase();
-                if (value === 'ACTIVE') return '進行中';
-                if (value === 'CLOSED') return '已結束';
+                if (value === 'ACTIVE') return '?脰?銝?;
+                if (value === 'CLOSED') return '撌脩???;
                 return safe(status);
             }
 
             function displayEstimateMethod(method) {
                 const value = String(method || '').toLowerCase();
-                if (value === 'tdoa_timestamp') return '粗略 TDOA';
-                if (value === 'weighted_centroid_fallback') return 'TDOA 失敗，使用融合估計';
-                if (value === 'weighted_centroid') return '多節點融合';
+                if (value === 'tdoa_timestamp' || value === 'timestamp_tdoa') return '時間差定位';
+                if (value === 'hybrid_tdoa') return '混合式定位';
+                if (value === 'gcc_phat_tdoa') return '波形定位';
+                if (value === 'kalman_track') return '軌跡追蹤';
+                if (value === 'weighted_centroid_fallback') return '定位失敗，使用融合估計';
+                if (value === 'weighted_centroid') return '融合估計';
                 return safe(method);
             }
 
@@ -4793,7 +6898,7 @@ def dashboard():
             }
 
             function yesNo(value) {
-                return value ? '是' : '否';
+                return value ? '?? : '??;
             }
 
             function isTarget(label) {
@@ -4816,11 +6921,11 @@ def dashboard():
             }
 
             function markerShape(deviceId) {
-                if (deviceId === 'node_A01') return '○';
-                if (deviceId === 'node_A02') return '□';
-                if (deviceId === 'node_A03') return '△';
-                if (deviceId === 'node_A04') return '◇';
-                return '⬡';
+                if (deviceId === 'node_A01') return '??;
+                if (deviceId === 'node_A02') return '??;
+                if (deviceId === 'node_A03') return '??;
+                if (deviceId === 'node_A04') return '??;
+                return '漎?;
             }
 
             function markerShapeClass(deviceId) {
@@ -4980,7 +7085,7 @@ def dashboard():
                             : '--';
                         const active = isTargetEstimateActive(this.estimate);
                         this.div.innerHTML = `
-                            <div class="target-estimate-marker ${active ? 'active' : ''}" title="聲源估測">
+                            <div class="target-estimate-marker ${active ? 'active' : ''}" title="?脫?隡唳葫">
                                 <span class="target-corner tl"></span>
                                 <span class="target-corner tr"></span>
                                 <span class="target-corner bl"></span>
@@ -5002,18 +7107,18 @@ def dashboard():
                 infoWindow.setContent(`
                     <div class="map-info-card">
                         <strong>${safe(device.device_id)}</strong>
-                        <div class="map-info-row"><span>緯度</span><span>${safe(device.latitude)}</span></div>
-                        <div class="map-info-row"><span>經度</span><span>${safe(device.longitude)}</span></div>
-                        <div class="map-info-row"><span>最後連線</span><span>${safe(device.last_seen)}</span></div>
-                        <div class="map-info-row"><span>最後事件</span><span>${safe(device.last_event_id)}</span></div>
-                        <div class="map-info-row"><span>事件時間</span><span>${safe(device.last_event_at)}</span></div>
-                        <div class="map-info-row"><span>狀態</span><span>${displayStatus(device.status)}</span></div>
-                        <div class="map-info-row"><span>模式</span><span>${displayMode(device.upload_mode)}</span></div>
-                        <div class="map-info-row"><span>監聽中</span><span>${yesNo(device.is_listening)}</span></div>
-                        <div class="map-info-row"><span>時間同步</span><span>${displayTimeSyncQuality(device.time_sync_quality)}</span></div>
-                        <div class="map-info-row"><span>同步 RTT</span><span>${formatMs(device.time_sync_rtt_ms)}</span></div>
-                        <div class="map-info-row"><span>同步 offset</span><span>${formatMs(device.time_sync_offset_ms)}</span></div>
-                        <div class="map-info-row"><span>同步時間</span><span>${safe(device.time_sync_at || device.last_time_sync_at)}</span></div>
+                        <div class="map-info-row"><span>蝺臬漲</span><span>${safe(device.latitude)}</span></div>
+                        <div class="map-info-row"><span>蝬漲</span><span>${safe(device.longitude)}</span></div>
+                        <div class="map-info-row"><span>?敺??</span><span>${safe(device.last_seen)}</span></div>
+                        <div class="map-info-row"><span>?敺?隞?/span><span>${safe(device.last_event_id)}</span></div>
+                        <div class="map-info-row"><span>鈭辣??</span><span>${safe(device.last_event_at)}</span></div>
+                        <div class="map-info-row"><span>???/span><span>${displayStatus(device.status)}</span></div>
+                        <div class="map-info-row"><span>璅∪?</span><span>${displayMode(device.upload_mode)}</span></div>
+                        <div class="map-info-row"><span>??銝?/span><span>${yesNo(device.is_listening)}</span></div>
+                        <div class="map-info-row"><span>???郊</span><span>${displayTimeSyncQuality(device.time_sync_quality)}</span></div>
+                        <div class="map-info-row"><span>?郊 RTT</span><span>${formatMs(device.time_sync_rtt_ms)}</span></div>
+                        <div class="map-info-row"><span>?郊 offset</span><span>${formatMs(device.time_sync_offset_ms)}</span></div>
+                        <div class="map-info-row"><span>?郊??</span><span>${safe(device.time_sync_at || device.last_time_sync_at)}</span></div>
                     </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
@@ -5079,17 +7184,17 @@ def dashboard():
 
                 infoWindow.setContent(`
                     <div class="map-info-card">
-                        <strong>聲源估測</strong>
-                        <div class="map-info-row"><span>類別</span><span>${safe(estimate.label)}</span></div>
-                        <div class="map-info-row"><span>信心值</span><span>${Number(estimate.confidence || 0).toFixed(2)}</span></div>
-                        <div class="map-info-row"><span>位置</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
-                        <div class="map-info-row"><span>估測範圍</span><span>${safe(estimate.uncertainty_radius_m)} m</span></div>
-                        <div class="map-info-row"><span>節點數</span><span>${safe(estimate.node_count)}</span></div>
-                        <div class="map-info-row"><span>參與節點</span><span>${(estimate.devices || []).join(', ') || '-'}</span></div>
-                        <div class="map-info-row"><span>定位方法</span><span>${displayEstimateMethod(estimate.method)}</span></div>
-                        <div class="map-info-row"><span>同步品質</span><span>${displayTimeSyncQuality(estimate.time_sync_quality)}</span></div>
+                        <strong>?脫?隡唳葫</strong>
+                        <div class="map-info-row"><span>憿</span><span>${safe(estimate.label)}</span></div>
+                        <div class="map-info-row"><span>靽∪???/span><span>${Number(estimate.confidence || 0).toFixed(2)}</span></div>
+                        <div class="map-info-row"><span>雿蔭</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>隡唳葫蝭?</span><span>${safe(estimate.uncertainty_radius_m)} m</span></div>
+                        <div class="map-info-row"><span>蝭暺</span><span>${safe(estimate.node_count)}</span></div>
+                        <div class="map-info-row"><span>??蝭暺?/span><span>${(estimate.devices || []).join(', ') || '-'}</span></div>
+                        <div class="map-info-row"><span>摰??寞?</span><span>${displayEstimateMethod(estimate.method)}</span></div>
+                        <div class="map-info-row"><span>?郊?釭</span><span>${displayTimeSyncQuality(estimate.time_sync_quality)}</span></div>
                         <div class="map-info-row"><span>TDOA residual</span><span>${displayResidual(estimate.tdoa_residual_rmse_m)}</span></div>
-                        <div class="map-info-row"><span>更新時間</span><span>${safe(estimate.updated_at)}</span></div>
+                        <div class="map-info-row"><span>?湔??</span><span>${safe(estimate.updated_at)}</span></div>
                     </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
@@ -5175,20 +7280,20 @@ def dashboard():
                 if (!list) return;
                 const estimates = targetEstimateValues().slice(0, 8);
                 if (!estimates.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有多節點融合估測</div>';
+                    list.innerHTML = '<div class="subtitle">?桀?瘝?憭?暺??摯皜?/div>';
                     return;
                 }
                 list.innerHTML = estimates.map(estimate => `
                     <div class="event-row target ${targetEstimateId(estimate) === selectedTargetEstimateId ? 'selected' : ''}" data-estimate-id="${attrSafe(targetEstimateId(estimate))}">
-                        <div class="event-title"><span>聲源估測</span><span>${safe(estimate.label)}</span></div>
-                        <div class="event-detail">節點 ${safe(estimate.node_count)} / 信心 ${Number(estimate.confidence || 0).toFixed(2)}</div>
-                        <div class="event-detail">方法 ${displayEstimateMethod(estimate.method)} / 同步 ${displayTimeSyncQuality(estimate.time_sync_quality)}</div>
+                        <div class="event-title"><span>?脫?隡唳葫</span><span>${safe(estimate.label)}</span></div>
+                        <div class="event-detail">蝭暺?${safe(estimate.node_count)} / 靽∪? ${Number(estimate.confidence || 0).toFixed(2)}</div>
+                        <div class="event-detail">?寞? ${displayEstimateMethod(estimate.method)} / ?郊 ${displayTimeSyncQuality(estimate.time_sync_quality)}</div>
                         <div class="event-detail">TDOA residual ${displayResidual(estimate.tdoa_residual_rmse_m)}</div>
-                        <div class="event-detail">位置 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
-                        <div class="event-detail">範圍 ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
+                        <div class="event-detail">雿蔭 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
+                        <div class="event-detail">蝭? ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
                         ${targetEstimateId(estimate) === selectedTargetEstimateId
-                            ? '<div class="preview-actions"><span class="preview-status">已在地圖預覽</span><button class="preview-close" type="button" data-close-preview="1">關閉預覽</button></div>'
-                            : '<div class="event-detail">點選可在地圖預覽位置</div>'}
+                            ? '<div class="preview-actions"><span class="preview-status">撌脣?啣??汗</span><button class="preview-close" type="button" data-close-preview="1">???汗</button></div>'
+                            : '<div class="event-detail">暺?臬?啣??汗雿蔭</div>'}
                     </div>
                 `).join('');
                 list.querySelectorAll('[data-estimate-id]').forEach(row => {
@@ -5222,7 +7327,7 @@ def dashboard():
             function gpsLabel(observation) {
                 const lat = Number(observation?.latitude);
                 const lng = Number(observation?.longitude);
-                return Number.isFinite(lat) && Number.isFinite(lng) ? 'GPS 有' : 'GPS 無';
+                return Number.isFinite(lat) && Number.isFinite(lng) ? 'GPS ?? : 'GPS ??;
             }
 
             function timingValue(value) {
@@ -5263,11 +7368,11 @@ def dashboard():
             function observationAudioHtml(item) {
                 const eventId = attrSafe(item.event_id);
                 const primaryButton = item.audio_path
-                    ? `<button onclick="event.stopPropagation(); selectEventAudio('${eventId}')">播放主要音訊</button>`
-                    : '<span class="mini-chip warn">主要音訊未上傳</span>';
+                    ? `<button onclick="event.stopPropagation(); selectEventAudio('${eventId}')">?剜銝餉??唾?</button>`
+                    : '<span class="mini-chip warn">銝餉??唾??芯???/span>';
                 const clipButton = item.tdoa_clip_path
-                    ? `<button onclick="event.stopPropagation(); playTdoaClip('${eventId}')">播放定位片段 WAV</button>`
-                    : '<span class="mini-chip warn">定位片段未上傳</span>';
+                    ? `<button onclick="event.stopPropagation(); playTdoaClip('${eventId}')">?剜摰??挾 WAV</button>`
+                    : '<span class="mini-chip warn">摰??挾?芯???/span>';
                 return `
                     <div class="timing-box">
                         <div class="timing-title">Smart Audio Upload</div>
@@ -5305,7 +7410,7 @@ def dashboard():
                         selectedEventGroupId = eventGroupId(group);
                     }
                 } catch (error) {
-                    document.getElementById('systemStatus').textContent = '事件群組讀取失敗';
+                    document.getElementById('systemStatus').textContent = '鈭辣蝢斤?霈?仃??;
                 }
                 renderEventGroups();
             }
@@ -5315,7 +7420,7 @@ def dashboard():
                 if (!list) return;
                 const groups = eventGroupValues().slice(0, 8);
                 if (!groups.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有事件群組</div>';
+                    list.innerHTML = '<div class="subtitle">?桀?瘝?鈭辣蝢斤?</div>';
                     return;
                 }
                 list.innerHTML = groups.map(group => {
@@ -5324,16 +7429,16 @@ def dashboard():
                     const observations = selected ? (group.observations || []) : [];
                     const observationHtml = observations.length
                         ? observations.map(item => `
-                            <div class="event-detail">節點 ${safe(item.device_id)} / ${safe(item.event_timestamp)} / RMS ${safe(item.rms_peak)} / AI ${safe(item.ai_probability)} / ${gpsLabel(item)}</div>
+                            <div class="event-detail">蝭暺?${safe(item.device_id)} / ${safe(item.event_timestamp)} / RMS ${safe(item.rms_peak)} / AI ${safe(item.ai_probability)} / ${gpsLabel(item)}</div>
                             ${observationTimingHtml(item)}
                             ${observationAudioHtml(item)}
                         `).join('')
-                        : selected ? '<div class="event-detail">尚無 observation 明細</div>' : '';
+                        : selected ? '<div class="event-detail">撠 observation ?敦</div>' : '';
                     return `
                         <div class="event-row ${selected ? 'selected' : ''}" data-event-group-id="${attrSafe(groupId)}">
                             <div class="event-title"><span>Group ${shortGroupId(group)}</span><span>${displayGroupStatus(group.status)}</span></div>
-                            <div class="event-detail">類別 ${displayEventLabel(group.label)} / 節點 ${safe(group.node_count)}</div>
-                            <div class="event-detail">最後時間 ${safe(group.last_event_time)}</div>
+                            <div class="event-detail">憿 ${displayEventLabel(group.label)} / 蝭暺?${safe(group.node_count)}</div>
+                            <div class="event-detail">?敺???${safe(group.last_event_time)}</div>
                             <div class="event-detail">${(group.devices || []).join(', ') || '-'}</div>
                             ${observationHtml}
                         </div>
@@ -5366,32 +7471,32 @@ def dashboard():
                 const event = eventById(eventId);
 
                 if (!event) {
-                    title.textContent = '找不到此事件';
+                    title.textContent = '?曆??唳迨鈭辣';
                     player.removeAttribute('src');
                     player.load();
                     return;
                 }
 
                 if (!event.audio_path) {
-                    title.textContent = `${event.event_id} 尚無音檔`;
+                    title.textContent = `${event.event_id} 撠?單?`;
                     player.removeAttribute('src');
                     player.load();
                     return;
                 }
 
                 try {
-                    title.textContent = `音檔載入中：${event.event_id}`;
+                    title.textContent = `?單?頛銝哨?${event.event_id}`;
                     const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
                     player.onerror = () => {
-                        title.textContent = '音檔載入失敗：請確認 GCS Object Viewer 權限或檔案是否存在。';
+                        title.textContent = '?單?頛憭望?嚗?蝣箄? GCS Object Viewer 甈???獢?血??具?;
                     };
                     player.src = body.url;
                     title.textContent = `${displayEventLabel(event.label)} / ${safe(event.device_id)} / ${safe(event.timestamp)}`;
                     await player.play();
                 } catch (error) {
-                    title.textContent = `音檔播放失敗：${error}`;
+                    title.textContent = `?單??剜憭望?嚗?{error}`;
                     player.removeAttribute('src');
                     player.load();
                 }
@@ -5405,21 +7510,212 @@ def dashboard():
                 const title = document.getElementById('audioPlayerTitle');
                 const player = document.getElementById('eventAudioPlayer');
                 try {
-                    title.textContent = `定位片段載入中：${eventId}`;
+                    title.textContent = `摰??挾頛銝哨?${eventId}`;
                     const response = await fetch(`/events/${encodeURIComponent(eventId)}/tdoa-clip-url`);
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
                     player.onerror = () => {
-                        title.textContent = '定位片段播放失敗';
+                        title.textContent = '摰??挾?剜憭望?';
                     };
                     player.src = body.url;
-                    title.textContent = `定位片段 WAV：${eventId}`;
+                    title.textContent = `摰??挾 WAV嚗?{eventId}`;
                     await player.play();
                 } catch (error) {
-                    title.textContent = `定位片段播放失敗：${error}`;
+                    title.textContent = `摰??挾?剜憭望?嚗?{error}`;
                     player.removeAttribute('src');
                     player.load();
                 }
+            }
+
+            function setLiveAudioStatus(message) {
+                const target = document.getElementById('liveAudioStatus');
+                if (target) target.textContent = message;
+            }
+
+            function refreshLiveAudioDeviceSelect() {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                if (!select) return;
+                const previous = select.value;
+                const values = visibleDeviceValues();
+                select.innerHTML = values.length
+                    ? values.map(device => `<option value="${attrSafe(device.device_id)}">${safe(device.device_id)}</option>`).join('')
+                    : '<option value="">沒有可用節點</option>';
+                if (previous && values.some(device => device.device_id === previous)) {
+                    select.value = previous;
+                }
+            }
+
+            function updateLiveAudioMeters(bufferMs = 0) {
+                const frameTarget = document.getElementById('liveAudioFrameCount');
+                const streamTarget = document.getElementById('liveAudioStreamId');
+                const bufferTarget = document.getElementById('liveAudioBufferMs');
+                if (frameTarget) frameTarget.textContent = String(liveAudioFrameCount);
+                if (streamTarget) streamTarget.textContent = liveAudioCurrentStreamId ? liveAudioCurrentStreamId.slice(0, 8) : '-';
+                if (bufferTarget) bufferTarget.textContent = `${Math.max(0, Math.round(bufferMs))} ms`;
+            }
+
+            async function startLiveAudioMonitor() {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                const deviceId = select?.value || '';
+                if (!deviceId) {
+                    setLiveAudioStatus('請先選擇節點');
+                    return;
+                }
+                await stopLiveAudioMonitor(false);
+                setLiveAudioStatus(`正在要求 ${deviceId} 開始即時音訊...`);
+
+                try {
+                    const response = await fetch('/device-command', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_id: deviceId,
+                            command: 'start_live_audio',
+                            value: null,
+                            issued_by: 'dashboard_live_audio',
+                        }),
+                    });
+                    const body = await response.json();
+                    if (!response.ok || !body.stream) {
+                        throw new Error(body.detail || '後端沒有回傳 stream 資訊');
+                    }
+                    openLiveAudioMonitorSocket(body.stream, deviceId);
+                } catch (error) {
+                    setLiveAudioStatus(`即時音訊啟動失敗：${error}`);
+                }
+            }
+
+            function openLiveAudioMonitorSocket(stream, deviceId) {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const streamId = stream.stream_id;
+                const subscriberToken = stream.subscriber_token;
+                liveAudioCurrentStreamId = streamId || '';
+                liveAudioFrameCount = 0;
+                updateLiveAudioMeters();
+
+                if (!streamId || !subscriberToken) {
+                    setLiveAudioStatus('stream_id 或 subscriber token 缺失');
+                    return;
+                }
+
+                liveAudioSocket = new WebSocket(`${protocol}//${window.location.host}/ws/audio-monitor/${encodeURIComponent(streamId)}`);
+                liveAudioSocket.binaryType = 'arraybuffer';
+                liveAudioSocket.onopen = () => {
+                    liveAudioSocket.send(JSON.stringify({ subscriber_token: subscriberToken }));
+                    setLiveAudioStatus(`已連線，等待 ${deviceId} 音訊 frame...`);
+                };
+                liveAudioSocket.onmessage = async event => {
+                    if (typeof event.data === 'string') {
+                        handleLiveAudioControlMessage(event.data);
+                        return;
+                    }
+                    await playLiveAudioFrame(event.data);
+                };
+                liveAudioSocket.onerror = () => {
+                    setLiveAudioStatus('即時音訊連線發生錯誤');
+                };
+                liveAudioSocket.onclose = () => {
+                    setLiveAudioStatus('即時音訊已停止');
+                };
+            }
+
+            function handleLiveAudioControlMessage(raw) {
+                try {
+                    const message = JSON.parse(raw);
+                    if (message.type === 'audio_monitor_ready') {
+                        setLiveAudioStatus('即時音訊已就緒');
+                    } else if (message.type === 'audio_monitor_rejected') {
+                        setLiveAudioStatus(`即時音訊被拒絕：${message.reason || '-'}`);
+                    }
+                } catch (_) {
+                    // Ignore non-JSON control text.
+                }
+            }
+
+            async function stopLiveAudioMonitor(sendStopCommand = true) {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                const deviceId = select?.value || '';
+                const socket = liveAudioSocket;
+                liveAudioSocket = null;
+                if (socket) {
+                    try { socket.close(); } catch (_) {}
+                }
+                liveAudioNextPlayTime = 0;
+                if (sendStopCommand && deviceId) {
+                    try {
+                        await fetch('/device-command', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                device_id: deviceId,
+                                command: 'stop_live_audio',
+                                value: null,
+                                issued_by: 'dashboard_live_audio',
+                            }),
+                        });
+                    } catch (_) {}
+                }
+                if (sendStopCommand) setLiveAudioStatus('即時音訊已停止');
+            }
+
+            function parsePcm16Frame(arrayBuffer) {
+                if (!arrayBuffer || arrayBuffer.byteLength < 52) return null;
+                const view = new DataView(arrayBuffer);
+                const magic = String.fromCharCode(
+                    view.getUint8(0),
+                    view.getUint8(1),
+                    view.getUint8(2),
+                    view.getUint8(3),
+                );
+                if (magic !== 'SDAF') return null;
+                const headerLength = view.getUint16(6, false);
+                const sampleRate = view.getUint32(40, false);
+                const channelCount = view.getUint16(44, false);
+                const codec = view.getUint8(46);
+                const payloadLength = view.getUint32(48, false);
+                if (codec !== 1 || sampleRate <= 0 || channelCount < 1) return null;
+                if (headerLength + payloadLength > arrayBuffer.byteLength) return null;
+                const samples = new Int16Array(arrayBuffer.slice(headerLength, headerLength + payloadLength));
+                return { sampleRate, channelCount, samples };
+            }
+
+            async function playLiveAudioFrame(arrayBuffer) {
+                const frame = parsePcm16Frame(arrayBuffer);
+                if (!frame) {
+                    setLiveAudioStatus('收到不支援的音訊 frame');
+                    return;
+                }
+                if (!liveAudioContext) {
+                    liveAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (liveAudioContext.state === 'suspended') {
+                    await liveAudioContext.resume();
+                }
+
+                const sampleCount = Math.floor(frame.samples.length / frame.channelCount);
+                const audioBuffer = liveAudioContext.createBuffer(
+                    frame.channelCount,
+                    sampleCount,
+                    frame.sampleRate,
+                );
+                for (let channel = 0; channel < frame.channelCount; channel += 1) {
+                    const channelData = audioBuffer.getChannelData(channel);
+                    for (let i = 0; i < sampleCount; i += 1) {
+                        channelData[i] = frame.samples[i * frame.channelCount + channel] / 32768;
+                    }
+                }
+
+                const source = liveAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(liveAudioContext.destination);
+                const now = liveAudioContext.currentTime;
+                if (liveAudioNextPlayTime < now + 0.04) {
+                    liveAudioNextPlayTime = now + 0.08;
+                }
+                source.start(liveAudioNextPlayTime);
+                liveAudioNextPlayTime += audioBuffer.duration;
+                liveAudioFrameCount += 1;
+                updateLiveAudioMeters((liveAudioNextPlayTime - now) * 1000);
             }
 
             async function sendCommand(deviceId, command) {
@@ -5436,10 +7732,10 @@ def dashboard():
                     });
                     const body = await response.json();
                     if (!response.ok) throw new Error(body.detail || response.statusText);
-                    document.getElementById('systemStatus').textContent = `指令 #${body.command_id} 已送出`;
+                    document.getElementById('systemStatus').textContent = `?誘 #${body.command_id} 撌脤`;
                 } catch (error) {
-                    document.getElementById('systemStatus').textContent = '指令送出失敗';
-                    alert(`指令送出失敗：${error}`);
+                    document.getElementById('systemStatus').textContent = '?誘?憭望?';
+                    alert(`?誘?憭望?嚗?{error}`);
                 }
             }
 
@@ -5472,7 +7768,7 @@ def dashboard():
                     events.length = 80;
                 }
 
-                document.getElementById('systemStatus').textContent = `模擬警示：${deviceId}`;
+                document.getElementById('systemStatus').textContent = `璅⊥霅衣內嚗?{deviceId}`;
                 renderAll();
             }
 
@@ -5480,7 +7776,7 @@ def dashboard():
                 const list = document.getElementById('nodeList');
                 const values = visibleDeviceValues();
                 if (!values.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有節點狀態</div>';
+                    list.innerHTML = '<div class="subtitle">?桀?瘝?蝭暺???/div>';
                     return;
                 }
                 list.innerHTML = values.map(device => `
@@ -5490,26 +7786,26 @@ def dashboard():
                             <span class="pill ${isOnlineDevice(device) ? 'online' : 'offline'}">${displayStatus(device.status)}</span>
                         </div>
                         <div class="node-meta">
-                            <span class="mini-chip ${device.is_listening ? 'good' : ''}">監聽 ${yesNo(device.is_listening)}</span>
+                            <span class="mini-chip ${device.is_listening ? 'good' : ''}">?? ${yesNo(device.is_listening)}</span>
                             <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
-                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '等待中'}</span>
-                            <span class="mini-chip ${timeSyncClass(device.time_sync_quality)}">同步 ${displayTimeSyncQuality(device.time_sync_quality)}</span>
+                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '甇?虜' : '蝑?銝?}</span>
+                            <span class="mini-chip ${timeSyncClass(device.time_sync_quality)}">?郊 ${displayTimeSyncQuality(device.time_sync_quality)}</span>
                         </div>
                         <div class="kv">
-                            <span>電量</span><strong>${safe(device.battery)}</strong>
+                            <span>?駁?</span><strong>${safe(device.battery)}</strong>
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
-                            <span>同步 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
-                            <span>同步 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
-                            <span>最後同步</span><strong>${safe(device.time_sync_at || device.last_time_sync_at)}</strong>
-                            <span>最後連線</span><strong>${safe(device.last_seen)}</strong>
-                            <span>最後事件</span><strong>${safe(device.last_event_at)}</strong>
+                            <span>?郊 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
+                            <span>?郊 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
+                            <span>?敺?甇?/span><strong>${safe(device.time_sync_at || device.last_time_sync_at)}</strong>
+                            <span>?敺??</span><strong>${safe(device.last_seen)}</strong>
+                            <span>?敺?隞?/span><strong>${safe(device.last_event_at)}</strong>
                         </div>
                         <div class="actions">
-                            <button class="primary" onclick="sendCommand('${device.device_id}', 'start_listening')">開始</button>
-                            <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">停止</button>
-                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">偵測模式</button>
-                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">蒐集模式</button>
-                            <button class="warn" onclick="simulateAlert('${device.device_id}')">模擬警示</button>
+                            <button class="primary" onclick="sendCommand('${device.device_id}', 'start_listening')">??</button>
+                            <button class="danger" onclick="sendCommand('${device.device_id}', 'stop_listening')">?迫</button>
+                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_detection_mode')">?菜葫璅∪?</button>
+                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${device.device_id}', 'set_collection_mode')">??璅∪?</button>
+                            <button class="warn" onclick="simulateAlert('${device.device_id}')">璅⊥霅衣內</button>
                         </div>
                     </div>
                 `).join('');
@@ -5524,13 +7820,13 @@ def dashboard():
                             <div>
                                 <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
-                                <div class="event-detail">目標機率 ${noteValue(event.note, 'probability_aircraft')} / 信心值 ${noteValue(event.note, 'confidence')}</div>
+                                <div class="event-detail">?格?璈? ${noteValue(event.note, 'probability_aircraft')} / 靽∪???${noteValue(event.note, 'confidence')}</div>
                                 <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
                             </div>
-                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">待上傳</span>'}</div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">?舀??/span>' : '<span class="mini-chip warn">敺???/span>'}</div>
                         </div>
                     </div>
-                `).join('') : '<div class="subtitle">目前沒有目標聲警示</div>';
+                `).join('') : '<div class="subtitle">?桀?瘝??格??脰郎蝷?/div>';
             }
 
             function noteValue(note, key) {
@@ -5551,12 +7847,12 @@ def dashboard():
                             <div>
                                 <div class="event-title"><span>${displayEventLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
-                                <div class="event-detail">信心值 ${noteValue(event.note, 'confidence')} / 模式 ${noteValue(event.note, 'upload_mode')}</div>
+                                <div class="event-detail">靽∪???${noteValue(event.note, 'confidence')} / 璅∪? ${noteValue(event.note, 'upload_mode')}</div>
                             </div>
-                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">無音檔</span>'}</div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">?舀??/span>' : '<span class="mini-chip warn">?⊿瑼?/span>'}</div>
                         </div>
                     </div>
-                `).join('') : '<div class="subtitle">目前沒有事件</div>';
+                `).join('') : '<div class="subtitle">?桀?瘝?鈭辣</div>';
             }
 
             function renderSummary() {
@@ -5568,7 +7864,7 @@ def dashboard():
                 document.getElementById('onlineCount').textContent = online;
                 document.getElementById('activeAlertCount').textContent = active;
                 document.getElementById('todayDroneCount').textContent = drone.length;
-                document.getElementById('systemStatus').textContent = values.length ? '即時運作' : '等待資料';
+                document.getElementById('systemStatus').textContent = values.length ? '?單???' : '蝑?鞈?';
             }
 
             function renderAll() {
@@ -5594,6 +7890,7 @@ def dashboard():
                 }
                 cleanupTargetEstimateMarkers(activeEstimateIds);
                 renderNodes();
+                refreshLiveAudioDeviceSelect();
                 renderAlerts();
                 renderTargetEstimates();
                 renderEventGroups();
@@ -5601,18 +7898,63 @@ def dashboard():
                 renderSummary();
             }
 
+            function localizationToEstimate(result) {
+                if (!result) return null;
+                return {
+                    group_id: `loc_${result.id || result.input_signature || result.group_id}`,
+                    id: result.id,
+                    source_group_id: result.group_id,
+                    label: result.label,
+                    estimated_lat: result.estimated_lat,
+                    estimated_lng: result.estimated_lng,
+                    confidence: result.confidence,
+                    uncertainty_radius_m: result.uncertainty_radius_m,
+                    method: result.method,
+                    node_count: result.node_count,
+                    devices: result.diagnostics_json?.selected_device_ids || [],
+                    tdoa_residual_rmse_m: result.residual_m,
+                    time_sync_quality: result.geometry_quality,
+                    created_at: result.created_at,
+                    updated_at: result.created_at,
+                };
+            }
+
+            function trackToEstimate(track) {
+                if (!track) return null;
+                return {
+                    group_id: `track_${track.id}`,
+                    id: track.id,
+                    label: track.label,
+                    estimated_lat: track.last_lat,
+                    estimated_lng: track.last_lng,
+                    confidence: track.last_confidence,
+                    uncertainty_radius_m: 30,
+                    method: 'kalman_track',
+                    node_count: track.point_count,
+                    devices: [`track ${String(track.id || '').slice(0, 8)}`],
+                    tdoa_residual_rmse_m: null,
+                    time_sync_quality: track.status,
+                    created_at: track.created_at,
+                    updated_at: track.updated_at,
+                };
+            }
+
             async function refreshAll() {
                 try {
-                    const [statusResponse, eventsResponse, estimatesResponse, groupsResponse] = await Promise.all([
+                    const [statusResponse, eventsResponse, estimatesResponse, groupsResponse, localizationResponse, tracksResponse] = await Promise.all([
                         fetch('/device-status'),
                         fetch('/events'),
                         fetch('/target-estimates?limit=10'),
                         fetch('/event-groups?limit=8'),
+                        fetch('/localization-results?limit=10'),
+                        fetch('/tracks?limit=10'),
                     ]);
                     const statusData = await statusResponse.json();
                     const eventsData = await eventsResponse.json();
                     const estimatesData = await estimatesResponse.json();
                     const groupsData = await groupsResponse.json();
+                    const localizationData = await localizationResponse.json();
+                    const tracksData = await tracksResponse.json();
                     devices.clear();
                     (statusData.devices || [])
                         .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
@@ -5621,12 +7963,26 @@ def dashboard():
                     targetEstimates.clear();
                     (Array.isArray(estimatesData) ? estimatesData : (estimatesData.estimates || []))
                         .forEach(estimate => targetEstimates.set(estimate.group_id, estimate));
+                    localizationResults.clear();
+                    (localizationData.localization_results || [])
+                        .forEach(result => {
+                            localizationResults.set(result.id, result);
+                            const estimate = localizationToEstimate(result);
+                            if (estimate) targetEstimates.set(estimate.group_id, estimate);
+                        });
+                    tracks.clear();
+                    (tracksData.tracks || [])
+                        .forEach(track => {
+                            tracks.set(track.id, track);
+                            const estimate = trackToEstimate(track);
+                            if (estimate) targetEstimates.set(estimate.group_id, estimate);
+                        });
                     eventGroups.clear();
                     (groupsData.event_groups || [])
                         .forEach(group => eventGroups.set(eventGroupId(group), group));
                     renderAll();
                 } catch (error) {
-                    document.getElementById('systemStatus').textContent = '資料讀取失敗';
+                    document.getElementById('systemStatus').textContent = '鞈?霈?仃??;
                 }
             }
 
@@ -5663,11 +8019,36 @@ def dashboard():
                             renderEventGroups();
                         }
                     }
+                    if (data.type === 'localization_result') {
+                        const result = data.localization || data;
+                        if (result.id) {
+                            localizationResults.set(result.id, result);
+                            const estimate = localizationToEstimate(result);
+                            if (estimate) {
+                                targetEstimates.set(estimate.group_id, estimate);
+                                selectedTargetEstimateId = null;
+                                updateTargetEstimateOnMap(estimate);
+                            }
+                            renderTargetEstimates();
+                        }
+                    }
+                    if (data.type === 'track_update') {
+                        const track = data.track || data;
+                        if (track.id) {
+                            tracks.set(track.id, track);
+                            const estimate = trackToEstimate(track);
+                            if (estimate) {
+                                targetEstimates.set(estimate.group_id, estimate);
+                                updateTargetEstimateOnMap(estimate);
+                            }
+                            renderTargetEstimates();
+                        }
+                    }
                     if (data.type === 'event_audio_update') {
                         refreshAll();
                     }
                     if (data.type === 'device_command_ack') {
-                        document.getElementById('systemStatus').textContent = `指令回報 ${data.status}`;
+                        document.getElementById('systemStatus').textContent = `?誘? ${data.status}`;
                         refreshAll();
                     }
                 };
