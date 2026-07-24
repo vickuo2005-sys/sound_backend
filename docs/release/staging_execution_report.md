@@ -1,13 +1,13 @@
 # Staging Execution Report
 
 Date: 2026-07-24  
-Scope: SECTION A local preparation only  
-Cloud execution gate: Not approved  
-Required approval phrase for cloud execution: `APPROVE STAGING EXECUTION`
+Scope: SECTION A local preparation plus approved SECTION B GitHub push attempt  
+Cloud execution gate: Approved by user phrase `APPROVE STAGING EXECUTION`  
+Remaining gated actions: `APPROVE CANARY INSTALL`, `APPROVE STAGING LIVE AUDIO`
 
 ## 1. Executive Summary
 
-Local staging preparation is complete. Backend staging commits were created locally, Flutter was initialized as a local Git repository, local validation passed, staging target files and secret-generation tooling were prepared, and a staging APK artifact is available. No production resource was touched. No staging cloud resource was created because cloud execution is blocked until the approval phrase is provided.
+Local staging preparation is complete. Backend staging commits were created locally and pushed to `origin/staging` after approval. Flutter was initialized as a local Git repository, local validation passed, staging target files and secret-generation tooling were prepared, and a staging APK artifact is available. No production resource was touched. No staging cloud resource was created because Supabase, GCS, and Render tooling or API credentials are unavailable in this local environment.
 
 ## 2. Local Baseline
 
@@ -26,7 +26,7 @@ Local staging preparation is complete. Backend staging commits were created loca
 | Item | Result |
 | --- | --- |
 | Branch created | Yes, `staging` |
-| Push performed | No |
+| Push performed | Yes, `origin/staging` |
 | Force push performed | No |
 | README.md staged | No |
 | Secrets staged | No |
@@ -39,6 +39,7 @@ Local staging preparation is complete. Backend staging commits were created loca
 | `b0031a6` | `feat(database): add staging migration set` |
 | `d6386bd` | `test: add staging validation and smoke tools` |
 | `e2aca7a` | `docs: add staging execution readiness package` |
+| `1a49441` | `docs: finalize staging execution readiness report` |
 
 ## 5. Flutter Git Initialization
 
@@ -87,15 +88,15 @@ Flutter commits:
 
 ## 8. Supabase Creation
 
-Status: Blocked. Not run because `APPROVE STAGING EXECUTION` has not been provided.
+Status: Blocked. Approval is present, but Supabase CLI, `psql`, staging `DATABASE_URL`, and Supabase API token are not available locally.
 
 ## 9. GCS Creation
 
-Status: Blocked. Not run because `APPROVE STAGING EXECUTION` has not been provided.
+Status: Blocked. Approval is present, but Google Cloud SDK, `gsutil`, and Google credentials are not available locally.
 
 ## 10. Render Creation
 
-Status: Blocked. Not run because `APPROVE STAGING EXECUTION` has not been provided.
+Status: Blocked. Approval is present, but Render CLI/API token is not available locally. Planned URL probe for `https://sound-backend-staging.onrender.com/health` returned HTTP 404.
 
 ## 11. Staging Secrets
 
@@ -109,11 +110,11 @@ Status: Blocked. Not run because `APPROVE STAGING EXECUTION` has not been provid
 
 ## 12. Migration Backup
 
-Status: Not run. Requires staging database creation and approval.
+Status: Not run. Requires staging database creation and a staging database connection string.
 
 ## 13. Migration Execution
 
-Status: Not run. Requires staging database creation and approval.
+Status: Not run. Requires staging database creation and SQL execution access.
 
 ## 14. Migration Postcheck
 
@@ -121,7 +122,7 @@ Status: Not run. Requires migration execution.
 
 ## 15. Render Deployment
 
-Status: Not run. Requires staging branch push, staging Render service, and approval.
+Status: Not run. The staging branch is pushed, but the staging Render service is not created/reachable.
 
 ## 16. Post-deploy Smoke
 
@@ -180,7 +181,7 @@ Status: Blocked. `LIVE_AUDIO_ENABLED=false` remains the staging default. Live au
 
 ## 26. Manual Tests Required
 
-1. Create staging Supabase/GCS/Render after approval.
+1. Create staging Supabase/GCS/Render using manual UI or install/authenticate the required CLIs.
 2. Run staging migration precheck, migration, and postcheck.
 3. Deploy `staging` backend to `sound-backend-staging`.
 4. Run post-deploy smoke tests against the staging URL.
@@ -193,7 +194,7 @@ Status: Blocked. `LIVE_AUDIO_ENABLED=false` remains the staging default. Live au
 
 | Blocker | Status |
 | --- | --- |
-| Cloud execution approval missing | Blocked |
+| Cloud tooling/API credentials missing | Blocked |
 | Staging Supabase not created | Blocked |
 | Staging GCS not created | Blocked |
 | Staging Render not created/deployed | Blocked |
@@ -222,4 +223,4 @@ Rollback runbooks and local tooling are prepared. Cloud rollback was not exercis
 | Ready for Staging Manual Validation | No |
 | Ready for Production | No |
 
-Next required phrase to continue with cloud work: `APPROVE STAGING EXECUTION`.
+Next required external action: create or connect staging Supabase, GCS, and Render through manual UI or install/authenticate the relevant CLIs/API tokens. Canary install still requires `APPROVE CANARY INSTALL`; live audio still requires `APPROVE STAGING LIVE AUDIO`.
