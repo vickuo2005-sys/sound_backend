@@ -6072,25 +6072,27 @@ def dashboard_v4_clean():
                 background: #0f1115;
                 color: var(--text);
                 min-height: 100vh;
+                overflow: hidden;
             }
             header {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
                 gap: 16px;
-                padding: 18px 22px;
+                padding: 14px 20px;
                 border-bottom: 1px solid var(--line);
                 background: #0c0f14;
+                height: 74px;
             }
-            h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
-            h2 { margin: 0; padding: 14px 16px; font-size: 17px; border-bottom: 1px solid var(--line); }
+            h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+            h2 { margin: 0; padding: 12px 14px; font-size: 16px; border-bottom: 1px solid var(--line); }
             .subtitle { color: var(--muted); font-size: 14px; margin-top: 4px; }
             .link-button, button, select {
                 border: 1px solid #425066;
                 background: #1b2532;
                 color: var(--text);
                 border-radius: 8px;
-                padding: 8px 12px;
+                padding: 8px 10px;
                 font-size: 14px;
                 text-decoration: none;
             }
@@ -6102,34 +6104,45 @@ def dashboard_v4_clean():
             .topbar {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(150px, 1fr));
-                gap: 12px;
-                padding: 14px 18px;
+                gap: 10px;
+                padding: 10px 16px;
+                height: 92px;
             }
             .stat, .panel, .node-card, .event-row {
                 background: var(--panel);
                 border: 1px solid var(--line);
                 border-radius: 12px;
             }
-            .stat { padding: 16px; min-height: 92px; }
+            .stat { padding: 12px 14px; min-height: 72px; }
             .label { color: #bcd3e8; font-size: 14px; }
-            .value { margin-top: 8px; font-size: 30px; font-weight: 800; }
+            .value { margin-top: 5px; font-size: 28px; font-weight: 800; }
             .layout {
                 display: grid;
-                grid-template-columns: 410px minmax(520px, 1fr) 430px;
-                gap: 14px;
-                padding: 0 18px 18px;
+                grid-template-columns: 360px minmax(540px, 1fr) 440px;
+                grid-template-rows: minmax(0, 1fr) 220px;
+                gap: 12px;
+                padding: 0 16px 16px;
+                height: calc(100vh - 166px);
+                min-height: 560px;
+                overflow: hidden;
             }
-            .panel { overflow: hidden; min-height: 0; }
-            .panel-body { padding: 14px; }
-            .scroll { max-height: 620px; overflow-y: auto; }
-            .right-scroll { max-height: 250px; overflow-y: auto; }
-            .map-panel { min-height: 520px; }
+            .panel {
+                overflow: hidden;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            .panel-body { padding: 12px; min-height: 0; overflow: auto; }
+            .scroll { flex: 1; max-height: none; overflow-y: auto; }
+            .right-scroll { flex: 1; max-height: none; overflow-y: auto; }
+            .map-panel { min-height: 0; grid-column: 2; grid-row: 1; }
             #map {
-                height: 520px;
+                height: 100%;
+                min-height: 0;
                 background: #202833;
             }
             .map-empty {
-                height: 520px;
+                height: 100%;
                 display: grid;
                 place-items: center;
                 color: var(--muted);
@@ -6145,15 +6158,22 @@ def dashboard_v4_clean():
                 font-size: 13px;
                 pointer-events: none;
             }
-            .map-wrap { position: relative; }
+            .map-wrap {
+                position: relative;
+                flex: 1;
+                min-height: 0;
+            }
             .side-stack {
+                grid-column: 3;
+                grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: auto auto auto auto;
-                gap: 14px;
+                grid-template-rows: 138px minmax(150px, 1.15fr) minmax(150px, 1fr) minmax(130px, .9fr);
+                gap: 12px;
+                min-height: 0;
             }
             .node-card {
-                padding: 14px;
-                margin-bottom: 12px;
+                padding: 12px;
+                margin-bottom: 10px;
             }
             .node-card.online { border-color: #196646; }
             .node-title, .event-title {
@@ -6162,7 +6182,7 @@ def dashboard_v4_clean():
                 gap: 12px;
                 align-items: flex-start;
                 font-weight: 800;
-                font-size: 18px;
+                font-size: 17px;
             }
             .pill, .mini-chip {
                 display: inline-flex;
@@ -6181,33 +6201,38 @@ def dashboard_v4_clean():
                 display: flex;
                 gap: 6px;
                 flex-wrap: wrap;
-                margin: 12px 0;
+                margin: 10px 0;
             }
             .kv {
                 display: grid;
-                grid-template-columns: 96px 1fr;
-                gap: 6px 10px;
+                grid-template-columns: 78px 1fr;
+                gap: 5px 8px;
                 color: var(--muted);
-                font-size: 13px;
+                font-size: 12px;
             }
-            .kv strong { color: var(--text); word-break: break-word; }
+            .kv strong {
+                color: var(--text);
+                word-break: break-word;
+                line-height: 1.25;
+            }
             .actions {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
                 gap: 8px;
-                margin-top: 12px;
+                margin-top: 10px;
             }
+            .actions button.warn { grid-column: 1 / -1; }
             .audio-player {
-                margin: 14px;
-                padding: 14px;
+                margin: 12px;
+                padding: 12px;
                 border: 1px solid var(--line);
                 border-radius: 10px;
                 background: #12161d;
             }
             .audio-player audio { width: 100%; margin-top: 10px; }
             .event-row {
-                padding: 12px;
-                margin-bottom: 10px;
+                padding: 11px;
+                margin-bottom: 9px;
                 cursor: pointer;
             }
             .event-row.target { border-color: #a77716; }
@@ -6230,10 +6255,19 @@ def dashboard_v4_clean():
                 margin-bottom: 12px;
             }
             .timeline {
-                grid-column: 1 / -1;
+                grid-column: 2;
+                grid-row: 2;
+                min-height: 0;
+            }
+            .timeline .panel-body {
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
             .timeline-list {
-                max-height: 300px;
+                flex: 1;
+                max-height: none;
+                min-height: 0;
                 overflow-y: auto;
             }
             .map-info-card {
@@ -6265,13 +6299,29 @@ def dashboard_v4_clean():
                 margin-top: 8px;
             }
             @media (max-width: 1250px) {
-                .layout { grid-template-columns: 360px 1fr; }
-                .side-stack { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                body { overflow: auto; }
+                .layout {
+                    height: auto;
+                    overflow: visible;
+                    grid-template-columns: 340px 1fr;
+                    grid-template-rows: 480px 240px auto;
+                }
+                .map-panel { grid-column: 2; grid-row: 1; }
+                .timeline { grid-column: 2; grid-row: 2; }
+                .side-stack {
+                    grid-column: 1 / -1;
+                    grid-row: 3;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    grid-template-rows: 150px 260px;
+                }
             }
             @media (max-width: 820px) {
+                body { overflow: auto; }
                 header { align-items: flex-start; flex-direction: column; }
+                header, .topbar { height: auto; }
                 .topbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-                .layout { grid-template-columns: 1fr; }
+                .layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; overflow: visible; }
+                .map-panel, .timeline { grid-column: 1; grid-row: auto; }
                 .side-stack { grid-template-columns: 1fr; }
                 #map, .map-empty { height: 420px; }
             }
@@ -6457,6 +6507,20 @@ def dashboard_v4_clean():
                 return Number.isFinite(number) ? `${number.toFixed(1)} ms` : '-';
             }
 
+            function shortTime(value) {
+                if (!value) return '-';
+                const parsed = Date.parse(value);
+                if (!Number.isFinite(parsed)) return safe(value);
+                return new Date(parsed).toLocaleString('zh-TW', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
+                });
+            }
+
             function formatResidual(value) {
                 const number = Number(value);
                 return Number.isFinite(number) ? `${number.toFixed(1)} m` : '-';
@@ -6604,13 +6668,12 @@ def dashboard_v4_clean():
                             <span class="mini-chip">同步 ${displayQuality(device.time_sync_quality)}</span>
                         </div>
                         <div class="kv">
-                            <span>電量</span><strong>${safe(device.battery)}</strong>
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
                             <span>同步 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
                             <span>同步 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
-                            <span>最後同步</span><strong>${safe(device.time_sync_at || device.last_time_sync_at)}</strong>
-                            <span>最後連線</span><strong>${safe(device.last_seen)}</strong>
-                            <span>最後事件</span><strong>${safe(device.last_event_at)}</strong>
+                            <span>最後同步</span><strong>${shortTime(device.time_sync_at || device.last_time_sync_at)}</strong>
+                            <span>最後連線</span><strong>${shortTime(device.last_seen)}</strong>
+                            <span>最後事件</span><strong>${shortTime(device.last_event_at)}</strong>
                         </div>
                         <div class="actions">
                             <button class="primary" onclick="sendCommand('${escapeHtml(device.device_id)}', 'start_listening')">開始</button>
