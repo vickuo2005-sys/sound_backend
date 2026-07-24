@@ -6034,7 +6034,1037 @@ async def dashboard_websocket(websocket: WebSocket):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard():
+def dashboard_v4_clean():
+    maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
+    maps_script_url = ""
+    if maps_api_key:
+        maps_script_url = (
+            "https://maps.googleapis.com/maps/api/js?"
+            f"key={quote(maps_api_key)}&callback=initMapV4Clean"
+        )
+
+    html = """
+    <!doctype html>
+    <html lang="zh-Hant">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>聲音偵測戰情室 V4.0</title>
+        <style>
+            :root {
+                --bg: #0f1115;
+                --panel: #171a20;
+                --panel-2: #20242b;
+                --line: #303743;
+                --text: #f4f7fb;
+                --muted: #aab3bd;
+                --good: #2ec27e;
+                --warn: #f6c85f;
+                --bad: #ff6b6b;
+                --accent: #4aa3ff;
+                --target: #f59e0b;
+            }
+            * { box-sizing: border-box; }
+            body {
+                margin: 0;
+                font-family: Arial, "Noto Sans TC", sans-serif;
+                background: #0f1115;
+                color: var(--text);
+                min-height: 100vh;
+            }
+            header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                padding: 18px 22px;
+                border-bottom: 1px solid var(--line);
+                background: #0c0f14;
+            }
+            h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+            h2 { margin: 0; padding: 14px 16px; font-size: 17px; border-bottom: 1px solid var(--line); }
+            .subtitle { color: var(--muted); font-size: 14px; margin-top: 4px; }
+            .link-button, button, select {
+                border: 1px solid #425066;
+                background: #1b2532;
+                color: var(--text);
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 14px;
+                text-decoration: none;
+            }
+            button { cursor: pointer; }
+            button.primary { background: #12466b; border-color: #2378ad; }
+            button.danger { background: #4b1f29; border-color: #9d3448; }
+            button.warn { background: #4c340b; border-color: #b7791f; }
+            button.active { border-color: var(--good); color: #74e0ad; }
+            .topbar {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(150px, 1fr));
+                gap: 12px;
+                padding: 14px 18px;
+            }
+            .stat, .panel, .node-card, .event-row {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                border-radius: 12px;
+            }
+            .stat { padding: 16px; min-height: 92px; }
+            .label { color: #bcd3e8; font-size: 14px; }
+            .value { margin-top: 8px; font-size: 30px; font-weight: 800; }
+            .layout {
+                display: grid;
+                grid-template-columns: 410px minmax(520px, 1fr) 430px;
+                gap: 14px;
+                padding: 0 18px 18px;
+            }
+            .panel { overflow: hidden; min-height: 0; }
+            .panel-body { padding: 14px; }
+            .scroll { max-height: 620px; overflow-y: auto; }
+            .right-scroll { max-height: 250px; overflow-y: auto; }
+            .map-panel { min-height: 520px; }
+            #map {
+                height: 520px;
+                background: #202833;
+            }
+            .map-empty {
+                height: 520px;
+                display: grid;
+                place-items: center;
+                color: var(--muted);
+            }
+            .map-note {
+                position: absolute;
+                left: 14px;
+                bottom: 14px;
+                padding: 9px 12px;
+                border-radius: 8px;
+                background: rgba(15, 17, 21, .78);
+                color: #d7dee8;
+                font-size: 13px;
+                pointer-events: none;
+            }
+            .map-wrap { position: relative; }
+            .side-stack {
+                display: grid;
+                grid-template-rows: auto auto auto auto;
+                gap: 14px;
+            }
+            .node-card {
+                padding: 14px;
+                margin-bottom: 12px;
+            }
+            .node-card.online { border-color: #196646; }
+            .node-title, .event-title {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                align-items: flex-start;
+                font-weight: 800;
+                font-size: 18px;
+            }
+            .pill, .mini-chip {
+                display: inline-flex;
+                align-items: center;
+                border: 1px solid #4b586b;
+                border-radius: 999px;
+                padding: 4px 8px;
+                font-size: 12px;
+                color: #d9e4ef;
+                white-space: nowrap;
+            }
+            .pill.online, .mini-chip.good { border-color: #1f8b58; color: #58d890; }
+            .pill.offline, .mini-chip.bad { border-color: #9d3448; color: #ff8da0; }
+            .mini-chip.warn { border-color: #b7791f; color: #f6c85f; }
+            .node-meta {
+                display: flex;
+                gap: 6px;
+                flex-wrap: wrap;
+                margin: 12px 0;
+            }
+            .kv {
+                display: grid;
+                grid-template-columns: 96px 1fr;
+                gap: 6px 10px;
+                color: var(--muted);
+                font-size: 13px;
+            }
+            .kv strong { color: var(--text); word-break: break-word; }
+            .actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+                margin-top: 12px;
+            }
+            .audio-player {
+                margin: 14px;
+                padding: 14px;
+                border: 1px solid var(--line);
+                border-radius: 10px;
+                background: #12161d;
+            }
+            .audio-player audio { width: 100%; margin-top: 10px; }
+            .event-row {
+                padding: 12px;
+                margin-bottom: 10px;
+                cursor: pointer;
+            }
+            .event-row.target { border-color: #a77716; }
+            .event-row.selected { border-color: var(--accent); background: #132335; }
+            .event-grid {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 10px;
+            }
+            .event-detail {
+                margin-top: 4px;
+                color: #d4dde7;
+                font-size: 13px;
+                line-height: 1.35;
+            }
+            .filters {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 12px;
+            }
+            .timeline {
+                grid-column: 1 / -1;
+            }
+            .timeline-list {
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            .map-info-card {
+                color: #20242b;
+                min-width: 280px;
+                font-size: 13px;
+            }
+            .map-info-card strong {
+                display: block;
+                margin-bottom: 8px;
+                font-size: 16px;
+            }
+            .map-info-row {
+                display: grid;
+                grid-template-columns: 92px 1fr;
+                gap: 10px;
+                padding: 5px 0;
+                border-top: 1px solid #d8dee6;
+            }
+            .estimate-toolbar {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                margin-top: 8px;
+            }
+            .status-line {
+                color: var(--muted);
+                font-size: 13px;
+                margin-top: 8px;
+            }
+            @media (max-width: 1250px) {
+                .layout { grid-template-columns: 360px 1fr; }
+                .side-stack { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media (max-width: 820px) {
+                header { align-items: flex-start; flex-direction: column; }
+                .topbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                .layout { grid-template-columns: 1fr; }
+                .side-stack { grid-template-columns: 1fr; }
+                #map, .map-empty { height: 420px; }
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <div>
+                <h1>聲音偵測戰情室 V4.0</h1>
+                <div class="subtitle">多節點聲音偵測、即時定位、遠端控制與事件追蹤</div>
+            </div>
+            <a class="link-button" href="/events/export.csv">匯出事件 CSV</a>
+        </header>
+
+        <section class="topbar">
+            <div class="stat"><div class="label">在線節點</div><div class="value" id="onlineCount">0</div></div>
+            <div class="stat"><div class="label">目前警示</div><div class="value" id="activeAlertCount">0</div></div>
+            <div class="stat"><div class="label">今日目標聲</div><div class="value" id="todayDroneCount">0</div></div>
+            <div class="stat"><div class="label">系統狀態</div><div class="value" id="systemStatus">載入中</div></div>
+        </section>
+
+        <main class="layout">
+            <section class="panel">
+                <h2>節點控制</h2>
+                <div class="panel-body scroll" id="nodeList"></div>
+            </section>
+
+            <section class="panel map-panel">
+                <h2>即時地圖</h2>
+                <div class="map-wrap">
+                    <div id="map"><div class="map-empty">地圖載入中</div></div>
+                    <div class="map-note">只有 aircraft / drone 事件會觸發警示動畫；GPS 更新只用來維持節點位置。</div>
+                </div>
+            </section>
+
+            <aside class="side-stack">
+                <section class="panel">
+                    <h2>音檔播放</h2>
+                    <div class="audio-player">
+                        <div class="title" id="audioPlayerTitle">請選擇事件查看音檔</div>
+                        <audio id="eventAudioPlayer" controls></audio>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>即時警示</h2>
+                    <div class="panel-body right-scroll" id="alertList"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>聲源估測</h2>
+                    <div class="panel-body right-scroll" id="targetEstimateList"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>事件群組</h2>
+                    <div class="panel-body right-scroll" id="eventGroupList"></div>
+                </section>
+            </aside>
+
+            <section class="panel timeline">
+                <h2>事件時間軸</h2>
+                <div class="panel-body">
+                    <div class="filters">
+                        <button data-filter="all" class="active" onclick="setFilter('all')">全部</button>
+                        <button data-filter="drone" onclick="setFilter('drone')">只看目標聲</button>
+                        <button data-filter="other" onclick="setFilter('other')">只看其他聲音</button>
+                    </div>
+                    <div class="timeline-list" id="timelineList"></div>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            const devices = new Map();
+            const events = [];
+            const eventGroups = new Map();
+            const estimates = new Map();
+            const markers = new Map();
+            const alertUntil = new Map();
+            const alertDurationMs = 15000;
+            const estimateVisibleMs = 5000;
+            let map = null;
+            let infoWindow = null;
+            let selectedEstimateId = null;
+            let estimateMarker = null;
+            let estimateCircle = null;
+            let estimateBox = null;
+            let currentFilter = 'all';
+            let dashboardStarted = false;
+
+            function safe(value, fallback = '-') {
+                return value === null || value === undefined || value === '' ? fallback : String(value);
+            }
+
+            function escapeHtml(value) {
+                return String(value ?? '').replace(/[&<>"']/g, ch => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                }[ch]));
+            }
+
+            function isTarget(label) {
+                const value = String(label || '').toLowerCase();
+                return value === 'aircraft' || value === 'drone';
+            }
+
+            function displayLabel(label) {
+                const value = String(label || '').toLowerCase();
+                if (value === 'aircraft' || value === 'drone') return '目標聲';
+                if (value === 'non_aircraft' || value === 'other') return '其他聲音';
+                return safe(label);
+            }
+
+            function displayStatus(status) {
+                const value = String(status || '').toLowerCase();
+                if (value === 'online') return '在線';
+                if (value === 'event') return '警示中';
+                if (value === 'offline') return '離線';
+                return safe(status);
+            }
+
+            function displayMode(mode) {
+                const value = String(mode || '').toLowerCase();
+                if (value === 'detection') return '偵測模式';
+                if (value === 'collection') return '蒐集模式';
+                return safe(mode);
+            }
+
+            function displayQuality(value) {
+                return safe(value);
+            }
+
+            function shortDeviceLabel(deviceId) {
+                const match = String(deviceId || '').match(/A\\d+/i);
+                return match ? match[0].toUpperCase() : String(deviceId || '?').slice(-4);
+            }
+
+            function isDiagnosticDevice(deviceId) {
+                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG_CHECK/i.test(String(deviceId || ''));
+            }
+
+            function visibleDevices() {
+                return Array.from(devices.values())
+                    .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                    .sort((a, b) => String(a.device_id).localeCompare(String(b.device_id)));
+            }
+
+            function isOnline(device) {
+                return device.status === 'online' || device.status === 'event';
+            }
+
+            function isAlertActive(deviceId) {
+                const until = alertUntil.get(deviceId);
+                return Boolean(until && Date.now() < until);
+            }
+
+            function parseTime(value) {
+                const parsed = Date.parse(value || '');
+                return Number.isFinite(parsed) ? parsed : NaN;
+            }
+
+            function isToday(timestamp) {
+                const parsed = parseTime(timestamp);
+                if (!Number.isFinite(parsed)) return false;
+                const date = new Date(parsed);
+                const now = new Date();
+                return date.getFullYear() === now.getFullYear()
+                    && date.getMonth() === now.getMonth()
+                    && date.getDate() === now.getDate();
+            }
+
+            function noteValue(note, key) {
+                const match = String(note || '').match(new RegExp(`(?:^|,\\\\s*)${key}=([^,]+)`));
+                return match ? match[1] : '-';
+            }
+
+            function formatMs(value) {
+                const number = Number(value);
+                return Number.isFinite(number) ? `${number.toFixed(1)} ms` : '-';
+            }
+
+            function formatResidual(value) {
+                const number = Number(value);
+                return Number.isFinite(number) ? `${number.toFixed(1)} m` : '-';
+            }
+
+            function getMarkerSymbol(device) {
+                const deviceId = device.device_id;
+                const active = isAlertActive(deviceId);
+                const scale = active ? 17 + Math.sin(Date.now() / 180) * 3 : 14;
+                const common = {
+                    fillColor: active ? '#f97316' : '#f8fafc',
+                    fillOpacity: 1,
+                    strokeColor: active ? '#ffb86b' : '#111827',
+                    strokeWeight: active ? 4 : 3,
+                    scale,
+                    labelOrigin: new google.maps.Point(0, 0),
+                };
+                if (deviceId === 'node_A02') return { ...common, path: 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z' };
+                if (deviceId === 'node_A03') return { ...common, path: 'M 0 -1.2 L 1.15 1 L -1.15 1 Z' };
+                if (deviceId === 'node_A04') return { ...common, path: 'M 0 -1.2 L 1.2 0 L 0 1.2 L -1.2 0 Z' };
+                if (deviceId === 'node_A01') return { ...common, path: google.maps.SymbolPath.CIRCLE };
+                return { ...common, path: 'M 0 -1.2 L 1.05 -0.6 L 1.05 0.6 L 0 1.2 L -1.05 0.6 L -1.05 -0.6 Z' };
+            }
+
+            window.initMapV4Clean = function initMapV4Clean() {
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: { lat: 25.033, lng: 121.565 },
+                    zoom: 12,
+                    mapTypeControl: false,
+                    streetViewControl: false,
+                    fullscreenControl: true,
+                });
+                infoWindow = new google.maps.InfoWindow();
+                startDashboard();
+            };
+
+            function startDashboard() {
+                if (dashboardStarted) return;
+                dashboardStarted = true;
+                refreshAll();
+                connectDashboardSocket();
+                setInterval(refreshAll, 5000);
+                setInterval(renderAll, 1000);
+            }
+
+            async function fetchJson(url, fallback) {
+                try {
+                    const response = await fetch(url, { cache: 'no-store' });
+                    if (!response.ok) return fallback;
+                    return await response.json();
+                } catch (_) {
+                    return fallback;
+                }
+            }
+
+            async function refreshAll() {
+                const [statusData, eventsData, groupsData, estimateData, localizationData, trackData] = await Promise.all([
+                    fetchJson('/device-status', { devices: [] }),
+                    fetchJson('/events', { events: [] }),
+                    fetchJson('/event-groups?limit=8', { event_groups: [] }),
+                    fetchJson('/target-estimates?limit=10', { estimates: [] }),
+                    fetchJson('/localization-results?limit=10', { localization_results: [] }),
+                    fetchJson('/tracks?limit=10', { tracks: [] }),
+                ]);
+
+                devices.clear();
+                (statusData.devices || [])
+                    .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                    .forEach(device => devices.set(device.device_id, device));
+
+                events.splice(0, events.length, ...(eventsData.events || []));
+
+                eventGroups.clear();
+                (groupsData.event_groups || []).forEach(group => {
+                    if (group.id) eventGroups.set(group.id, group);
+                });
+
+                estimates.clear();
+                const rawEstimates = Array.isArray(estimateData) ? estimateData : (estimateData.estimates || []);
+                rawEstimates.forEach(item => {
+                    const id = item.group_id || item.id;
+                    if (id) estimates.set(String(id), item);
+                });
+                (localizationData.localization_results || []).forEach(item => {
+                    const id = `loc_${item.id || item.group_id || item.input_signature}`;
+                    estimates.set(id, {
+                        ...item,
+                        group_id: id,
+                        estimated_lat: item.estimated_lat,
+                        estimated_lng: item.estimated_lng,
+                        uncertainty_radius_m: item.uncertainty_radius_m,
+                        tdoa_residual_rmse_m: item.residual_m,
+                        time_sync_quality: item.geometry_quality,
+                        devices: item.diagnostics_json?.selected_device_ids || [],
+                        updated_at: item.created_at,
+                    });
+                });
+                (trackData.tracks || []).forEach(item => {
+                    const id = `track_${item.id}`;
+                    estimates.set(id, {
+                        ...item,
+                        group_id: id,
+                        label: item.label || 'aircraft',
+                        estimated_lat: item.last_lat,
+                        estimated_lng: item.last_lng,
+                        uncertainty_radius_m: 30,
+                        method: 'tracking',
+                        node_count: item.point_count,
+                        devices: [`track ${String(item.id || '').slice(0, 8)}`],
+                        updated_at: item.updated_at,
+                    });
+                });
+
+                renderAll();
+            }
+
+            function renderSummary() {
+                const values = visibleDevices();
+                const online = values.filter(isOnline).length;
+                const active = values.filter(device => isAlertActive(device.device_id)).length;
+                const todayTarget = events.filter(event => isToday(event.created_at || event.timestamp) && isTarget(event.label));
+                document.getElementById('onlineCount').textContent = online;
+                document.getElementById('activeAlertCount').textContent = active;
+                document.getElementById('todayDroneCount').textContent = todayTarget.length;
+                document.getElementById('systemStatus').textContent = values.length ? '即時運作' : '等待資料';
+            }
+
+            function renderNodes() {
+                const list = document.getElementById('nodeList');
+                const values = visibleDevices();
+                if (!values.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有節點資料</div>';
+                    return;
+                }
+                list.innerHTML = values.map(device => `
+                    <div class="node-card ${isOnline(device) ? 'online' : 'offline'}">
+                        <div class="node-title">
+                            <span>${escapeHtml(device.device_id)}</span>
+                            <span class="pill ${isOnline(device) ? 'online' : 'offline'}">${displayStatus(device.status)}</span>
+                        </div>
+                        <div class="node-meta">
+                            <span class="mini-chip ${device.is_listening ? 'good' : 'warn'}">監聽 ${device.is_listening ? '是' : '否'}</span>
+                            <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
+                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '缺少'}</span>
+                            <span class="mini-chip">同步 ${displayQuality(device.time_sync_quality)}</span>
+                        </div>
+                        <div class="kv">
+                            <span>電量</span><strong>${safe(device.battery)}</strong>
+                            <span>AI</span><strong>${safe(device.ai_status)}</strong>
+                            <span>同步 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
+                            <span>同步 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
+                            <span>最後同步</span><strong>${safe(device.time_sync_at || device.last_time_sync_at)}</strong>
+                            <span>最後連線</span><strong>${safe(device.last_seen)}</strong>
+                            <span>最後事件</span><strong>${safe(device.last_event_at)}</strong>
+                        </div>
+                        <div class="actions">
+                            <button class="primary" onclick="sendCommand('${escapeHtml(device.device_id)}', 'start_listening')">開始</button>
+                            <button class="danger" onclick="sendCommand('${escapeHtml(device.device_id)}', 'stop_listening')">停止</button>
+                            <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_detection_mode')">偵測模式</button>
+                            <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_collection_mode')">蒐集模式</button>
+                            <button class="warn" onclick="simulateAlert('${escapeHtml(device.device_id)}')">模擬警示</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function renderMap() {
+                if (!map || !window.google) return;
+                const visibleIds = new Set();
+                visibleDevices().forEach(device => {
+                    const lat = Number(device.latitude);
+                    const lng = Number(device.longitude);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                    visibleIds.add(device.device_id);
+                    const active = isAlertActive(device.device_id);
+                    const options = {
+                        position: { lat, lng },
+                        map,
+                        title: `${device.device_id}`,
+                        label: {
+                            text: shortDeviceLabel(device.device_id),
+                            color: '#111827',
+                            fontWeight: '800',
+                            fontSize: '13px',
+                        },
+                        icon: getMarkerSymbol(device),
+                    };
+                    let marker = markers.get(device.device_id);
+                    if (!marker) {
+                        marker = new google.maps.Marker(options);
+                        marker.addListener('click', () => showDeviceInfo(device));
+                        markers.set(device.device_id, marker);
+                    } else {
+                        marker.setOptions(options);
+                    }
+                    if (active) {
+                        const until = alertUntil.get(device.device_id);
+                        if (!until || Date.now() >= until) marker.setOptions({ icon: getMarkerSymbol(device) });
+                    }
+                });
+                markers.forEach((marker, deviceId) => {
+                    if (!visibleIds.has(deviceId)) {
+                        marker.setMap(null);
+                        markers.delete(deviceId);
+                    }
+                });
+                renderEstimateOnMap();
+            }
+
+            function showDeviceInfo(device) {
+                if (!infoWindow || !map) return;
+                const lat = Number(device.latitude);
+                const lng = Number(device.longitude);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                infoWindow.setContent(`
+                    <div class="map-info-card">
+                        <strong>${escapeHtml(device.device_id)}</strong>
+                        <div class="map-info-row"><span>緯度</span><span>${safe(device.latitude)}</span></div>
+                        <div class="map-info-row"><span>經度</span><span>${safe(device.longitude)}</span></div>
+                        <div class="map-info-row"><span>狀態</span><span>${displayStatus(device.status)}</span></div>
+                        <div class="map-info-row"><span>模式</span><span>${displayMode(device.upload_mode)}</span></div>
+                        <div class="map-info-row"><span>監聽中</span><span>${device.is_listening ? '是' : '否'}</span></div>
+                        <div class="map-info-row"><span>最後連線</span><span>${safe(device.last_seen)}</span></div>
+                        <div class="map-info-row"><span>最後事件</span><span>${safe(device.last_event_at)}</span></div>
+                        <div class="map-info-row"><span>同步品質</span><span>${displayQuality(device.time_sync_quality)}</span></div>
+                        <div class="map-info-row"><span>同步 RTT</span><span>${formatMs(device.time_sync_rtt_ms)}</span></div>
+                        <div class="map-info-row"><span>同步 offset</span><span>${formatMs(device.time_sync_offset_ms)}</span></div>
+                    </div>
+                `);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
+            }
+
+            function latestEstimate() {
+                return Array.from(estimates.values())
+                    .filter(item => Number.isFinite(Number(item.estimated_lat)) && Number.isFinite(Number(item.estimated_lng)))
+                    .sort((a, b) => (parseTime(b.updated_at || b.created_at) || 0) - (parseTime(a.updated_at || a.created_at) || 0))[0];
+            }
+
+            function estimateId(item) {
+                return String(item?.group_id || item?.id || '');
+            }
+
+            function estimateIsFresh(item) {
+                const time = parseTime(item?.updated_at || item?.created_at);
+                return Number.isFinite(time) && Date.now() - time <= estimateVisibleMs;
+            }
+
+            function boundsAround(lat, lng, radiusM) {
+                const latDelta = radiusM / 111320;
+                const lngDelta = radiusM / (111320 * Math.cos(lat * Math.PI / 180));
+                return {
+                    north: lat + latDelta,
+                    south: lat - latDelta,
+                    east: lng + lngDelta,
+                    west: lng - lngDelta,
+                };
+            }
+
+            function renderEstimateOnMap() {
+                if (!map || !window.google) return;
+                const selected = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
+                const latest = latestEstimate();
+                const item = selected || (latest && estimateIsFresh(latest) ? latest : null);
+                if (!item) {
+                    clearEstimateObjects(false);
+                    return;
+                }
+                const lat = Number(item.estimated_lat);
+                const lng = Number(item.estimated_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const radius = Number(item.uncertainty_radius_m || 80);
+                if (!estimateMarker) {
+                    estimateMarker = new google.maps.Marker({
+                        map,
+                        position: { lat, lng },
+                        title: '聲源估測',
+                        label: { text: 'TARGET', color: '#ffffff', fontWeight: '800', fontSize: '12px' },
+                        icon: {
+                            path: 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z',
+                            fillColor: '#f97316',
+                            fillOpacity: 0.25,
+                            strokeColor: '#f97316',
+                            strokeWeight: 4,
+                            scale: 28,
+                        },
+                    });
+                    estimateMarker.addListener('click', () => showEstimateInfo(item));
+                } else {
+                    estimateMarker.setPosition({ lat, lng });
+                }
+                if (!estimateCircle) {
+                    estimateCircle = new google.maps.Circle({
+                        map,
+                        center: { lat, lng },
+                        radius,
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 2,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.12,
+                    });
+                } else {
+                    estimateCircle.setCenter({ lat, lng });
+                    estimateCircle.setRadius(radius);
+                }
+                if (!estimateBox) {
+                    estimateBox = new google.maps.Rectangle({
+                        map,
+                        bounds: boundsAround(lat, lng, radius),
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.85,
+                        strokeWeight: 2,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.08,
+                    });
+                } else {
+                    estimateBox.setBounds(boundsAround(lat, lng, radius));
+                }
+            }
+
+            function clearEstimateObjects(closeInfo = true) {
+                [estimateMarker, estimateCircle, estimateBox].forEach(item => {
+                    if (item) item.setMap(null);
+                });
+                estimateMarker = null;
+                estimateCircle = null;
+                estimateBox = null;
+                if (closeInfo && infoWindow) infoWindow.close();
+            }
+
+            function previewEstimate(id) {
+                selectedEstimateId = selectedEstimateId === id ? null : id;
+                if (!selectedEstimateId) clearEstimateObjects();
+                renderTargetEstimates();
+                renderMap();
+                const item = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
+                if (item && map) {
+                    const lat = Number(item.estimated_lat);
+                    const lng = Number(item.estimated_lng);
+                    map.panTo({ lat, lng });
+                    if ((map.getZoom() || 12) < 16) map.setZoom(16);
+                    showEstimateInfo(item);
+                }
+            }
+
+            function showEstimateInfo(item) {
+                if (!infoWindow || !map) return;
+                const lat = Number(item.estimated_lat);
+                const lng = Number(item.estimated_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                infoWindow.setContent(`
+                    <div class="map-info-card">
+                        <strong>聲源估測</strong>
+                        <div class="map-info-row"><span>類別</span><span>${displayLabel(item.label)}</span></div>
+                        <div class="map-info-row"><span>信心值</span><span>${Number(item.confidence || 0).toFixed(2)}</span></div>
+                        <div class="map-info-row"><span>位置</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>估測範圍</span><span>${safe(item.uncertainty_radius_m)} m</span></div>
+                        <div class="map-info-row"><span>節點數</span><span>${safe(item.node_count)}</span></div>
+                        <div class="map-info-row"><span>參與節點</span><span>${safe((item.devices || []).join(', '))}</span></div>
+                        <div class="map-info-row"><span>定位方法</span><span>${safe(item.method)}</span></div>
+                        <div class="map-info-row"><span>同步品質</span><span>${displayQuality(item.time_sync_quality)}</span></div>
+                        <div class="map-info-row"><span>TDOA residual</span><span>${formatResidual(item.tdoa_residual_rmse_m)}</span></div>
+                        <div class="map-info-row"><span>更新時間</span><span>${safe(item.updated_at || item.created_at)}</span></div>
+                    </div>
+                `);
+                infoWindow.setPosition({ lat, lng });
+                infoWindow.open(map);
+            }
+
+            function renderTargetEstimates() {
+                const list = document.getElementById('targetEstimateList');
+                const values = Array.from(estimates.values())
+                    .filter(item => Number.isFinite(Number(item.estimated_lat)) && Number.isFinite(Number(item.estimated_lng)))
+                    .sort((a, b) => (parseTime(b.updated_at || b.created_at) || 0) - (parseTime(a.updated_at || a.created_at) || 0))
+                    .slice(0, 8);
+                if (!values.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有可顯示的估測位置</div>';
+                    return;
+                }
+                list.innerHTML = values.map(item => {
+                    const id = estimateId(item);
+                    const selected = id === selectedEstimateId;
+                    return `
+                        <div class="event-row target ${selected ? 'selected' : ''}">
+                            <div class="event-title"><span>聲源估測</span><span>${displayLabel(item.label)}</span></div>
+                            <div class="event-detail">節點 ${safe(item.node_count)} / 信心值 ${Number(item.confidence || 0).toFixed(2)}</div>
+                            <div class="event-detail">位置 ${Number(item.estimated_lat).toFixed(6)}, ${Number(item.estimated_lng).toFixed(6)}</div>
+                            <div class="event-detail">範圍 ${safe(item.uncertainty_radius_m)} m / ${safe((item.devices || []).join(', '))}</div>
+                            <div class="estimate-toolbar">
+                                <button type="button" onclick="event.stopPropagation(); previewEstimate('${escapeHtml(id)}')">${selected ? '關閉預覽' : '預覽位置'}</button>
+                                <span class="status-line">${selected ? '已在地圖預覽' : '點選可在地圖預覽位置'}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            function renderEventGroups() {
+                const list = document.getElementById('eventGroupList');
+                const groups = Array.from(eventGroups.values())
+                    .sort((a, b) => (parseTime(b.last_event_time || b.updated_at) || 0) - (parseTime(a.last_event_time || a.updated_at) || 0))
+                    .slice(0, 8);
+                if (!groups.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有事件群組</div>';
+                    return;
+                }
+                list.innerHTML = groups.map(group => `
+                    <div class="event-row">
+                        <div class="event-title"><span>Group ${escapeHtml(String(group.id || '').slice(0, 8))}</span><span>${safe(group.status)}</span></div>
+                        <div class="event-detail">類別 ${displayLabel(group.label)} / 節點 ${safe(group.node_count)}</div>
+                        <div class="event-detail">最後事件 ${safe(group.last_event_time)}</div>
+                        <div class="event-detail">${safe((group.devices || []).join(', '))}</div>
+                    </div>
+                `).join('');
+            }
+
+            function renderAlerts() {
+                const list = document.getElementById('alertList');
+                const targetEvents = events.filter(event => isTarget(event.label)).slice(0, 10);
+                if (!targetEvents.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有目標聲警示</div>';
+                    return;
+                }
+                list.innerHTML = targetEvents.map(event => `
+                    <div class="event-row target" onclick="selectEventAudio('${escapeHtml(event.event_id)}')">
+                        <div class="event-grid">
+                            <div>
+                                <div class="event-title"><span>${displayLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-detail">${safe(event.timestamp)}</div>
+                                <div class="event-detail">目標機率 ${noteValue(event.note, 'probability_aircraft')} / 信心值 ${noteValue(event.note, 'confidence')}</div>
+                                <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
+                            </div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">無音檔</span>'}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function renderTimeline() {
+                const list = document.getElementById('timelineList');
+                const filtered = events.filter(event => {
+                    if (currentFilter === 'drone') return isTarget(event.label);
+                    if (currentFilter === 'other') return !isTarget(event.label);
+                    return true;
+                }).slice(0, 60);
+                if (!filtered.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有事件</div>';
+                    return;
+                }
+                list.innerHTML = filtered.map(event => `
+                    <div class="event-row ${isTarget(event.label) ? 'target' : ''}" onclick="selectEventAudio('${escapeHtml(event.event_id)}')">
+                        <div class="event-grid">
+                            <div>
+                                <div class="event-title"><span>${displayLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
+                                <div class="event-detail">${safe(event.timestamp)}</div>
+                                <div class="event-detail">信心值 ${noteValue(event.note, 'confidence')} / 模式 ${noteValue(event.note, 'upload_mode')}</div>
+                            </div>
+                            <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">無音檔</span>'}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function renderAll() {
+                renderSummary();
+                renderNodes();
+                renderMap();
+                renderAlerts();
+                renderTargetEstimates();
+                renderEventGroups();
+                renderTimeline();
+            }
+
+            function setFilter(filter) {
+                currentFilter = filter;
+                document.querySelectorAll('[data-filter]').forEach(button => {
+                    button.classList.toggle('active', button.dataset.filter === currentFilter);
+                });
+                renderTimeline();
+            }
+
+            async function sendCommand(deviceId, command) {
+                try {
+                    const response = await fetch('/device-command', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ device_id: deviceId, command, value: null, issued_by: 'dashboard' }),
+                    });
+                    const body = await response.json();
+                    if (!response.ok) throw new Error(body.detail || response.statusText);
+                    document.getElementById('systemStatus').textContent = `命令 #${body.command_id} 已送出`;
+                    refreshAll();
+                } catch (error) {
+                    document.getElementById('systemStatus').textContent = '命令送出失敗';
+                    alert(`命令送出失敗：${error}`);
+                }
+            }
+
+            function simulateAlert(deviceId) {
+                const device = devices.get(deviceId);
+                if (!device) return;
+                const now = new Date();
+                const eventId = `simulated_${Date.now()}`;
+                alertUntil.set(deviceId, Date.now() + alertDurationMs);
+                devices.set(deviceId, {
+                    ...device,
+                    status: 'event',
+                    last_event_id: eventId,
+                    last_event_at: now.toISOString(),
+                });
+                events.unshift({
+                    event_id: eventId,
+                    device_id: deviceId,
+                    timestamp: now.toLocaleString('zh-TW', { hour12: false }),
+                    created_at: now.toISOString(),
+                    latitude: device.latitude,
+                    longitude: device.longitude,
+                    label: 'drone',
+                    audio_path: null,
+                    note: 'probability_aircraft=1.000000, confidence=1.000000, upload_mode=simulation',
+                });
+                document.getElementById('systemStatus').textContent = `已模擬警示：${deviceId}`;
+                renderAll();
+            }
+
+            async function selectEventAudio(eventId) {
+                const title = document.getElementById('audioPlayerTitle');
+                const player = document.getElementById('eventAudioPlayer');
+                const event = events.find(item => item.event_id === eventId);
+                if (!event) {
+                    title.textContent = '找不到事件';
+                    player.removeAttribute('src');
+                    player.load();
+                    return;
+                }
+                if (!event.audio_path) {
+                    title.textContent = `${event.event_id} 沒有音檔`;
+                    player.removeAttribute('src');
+                    player.load();
+                    return;
+                }
+                try {
+                    title.textContent = `音檔載入中：${event.event_id}`;
+                    const response = await fetch(`/events/${encodeURIComponent(eventId)}/audio-url`);
+                    const body = await response.json();
+                    if (!response.ok) throw new Error(body.detail || response.statusText);
+                    player.onerror = () => {
+                        title.textContent = '音檔載入失敗，請確認 GCS signed URL 或檔案是否存在';
+                    };
+                    player.src = body.url;
+                    title.textContent = `${displayLabel(event.label)} / ${safe(event.device_id)} / ${safe(event.timestamp)}`;
+                    await player.play();
+                } catch (error) {
+                    title.textContent = `音檔播放失敗：${error}`;
+                    player.removeAttribute('src');
+                    player.load();
+                }
+            }
+
+            function connectDashboardSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
+                ws.onmessage = event => {
+                    const data = JSON.parse(event.data);
+                    if (data.device_id && isDiagnosticDevice(data.device_id)) return;
+                    if (data.type === 'location_update') {
+                        devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
+                        renderAll();
+                    } else if (data.type === 'event_trigger') {
+                        alertUntil.set(data.device_id, Date.now() + alertDurationMs);
+                        devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
+                        refreshAll();
+                    } else if (data.type === 'target_estimate' || data.type === 'localization_result') {
+                        const item = data.localization || data;
+                        const id = item.group_id || item.id;
+                        if (id) {
+                            estimates.set(String(id), item);
+                            selectedEstimateId = null;
+                            renderAll();
+                        }
+                    } else if (data.type === 'event_group') {
+                        const group = data.group || data;
+                        if (group.id) eventGroups.set(group.id, group);
+                        renderEventGroups();
+                    } else if (data.type === 'event_audio_update' || data.type === 'device_command_ack') {
+                        refreshAll();
+                    }
+                };
+                ws.onclose = () => setTimeout(connectDashboardSocket, 2500);
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                if (!window.google) startDashboard();
+            });
+        </script>
+        __MAPS_SCRIPT_TAG__
+    </body>
+    </html>
+    """
+    maps_script_tag = ""
+    if maps_script_url:
+        maps_script_tag = f"<script async defer src=\"{maps_script_url}\"></script>"
+    html = html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+    return HTMLResponse(content=html)
+
+
+def dashboard_legacy_unused():
     maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
     maps_script_url = ""
