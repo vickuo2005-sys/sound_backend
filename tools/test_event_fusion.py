@@ -85,9 +85,19 @@ def make_connection() -> sqlite3.Connection:
             node_count INTEGER DEFAULT 0,
             estimated_lat REAL,
             estimated_lng REAL,
+            region_type TEXT,
+            region_center_lat REAL,
+            region_center_lng REAL,
+            region_geojson TEXT,
+            reporting_node_count INTEGER,
+            reporting_device_ids TEXT,
+            region_updated_at TEXT,
             localization_method TEXT,
             method TEXT,
             confidence REAL,
+            tdoa_residual_rmse_m REAL,
+            tdoa_node_count INTEGER,
+            time_sync_quality TEXT,
             created_at TEXT,
             updated_at TEXT
         )
@@ -296,6 +306,8 @@ def run_service_tests() -> None:
         window_seconds=3,
     )
     assert_equal(group1["node_count"], 1, "Test 1 node_count")
+    assert_equal(group1["region_type"], "single_node", "Test 1 region_type")
+    assert_equal(group1["reporting_node_count"], 1, "Test 1 reporting_node_count")
 
     group1b = process_event(
         connection,
@@ -305,6 +317,7 @@ def run_service_tests() -> None:
     )
     assert_equal(group1b["id"], group1["id"], "Test 2 group id")
     assert_equal(group1b["node_count"], 2, "Test 2 node_count")
+    assert_equal(group1b["region_type"], "segment", "Test 2 region_type")
 
     a03_record = add_event(connection, "evt_a03_002", "node_A03", "aircraft", base + timedelta(seconds=2))
     group1c = process_event(
@@ -315,6 +328,11 @@ def run_service_tests() -> None:
     )
     assert_equal(group1c["id"], group1["id"], "Test 3 group id")
     assert_equal(group1c["node_count"], 3, "Test 3 node_count")
+    assert_equal(
+        group1c["localization_method"],
+        "multi_node_region",
+        "Test 3 localization method",
+    )
 
     before_duplicate = observation_count(connection)
     duplicate = process_event(
@@ -367,6 +385,7 @@ def run_service_tests() -> None:
     )
     assert_equal(same_device["id"], group1["id"], "Test 5 same device group id")
     assert_equal(same_device["node_count"], 3, "Test 5 distinct node_count")
+    assert_equal(same_device["reporting_node_count"], 3, "Test 5 reporting_node_count")
 
     group2 = process_event(
         connection,

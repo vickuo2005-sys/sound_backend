@@ -60,9 +60,9 @@ TDOA_TIME_TOLERANCE_SECONDS = 0.3
 TDOA_MIN_NODE_SPREAD_M = 5.0
 TDOA_MAX_OUTSIDE_BOUNDS_M = 300.0
 TIME_SYNC_MAX_AGE_SECONDS = float(os.getenv("TIME_SYNC_MAX_AGE_SECONDS", "120") or 120)
-LOCALIZATION_ENABLED = os.getenv("LOCALIZATION_ENABLED", "true").lower() == "true"
+LOCALIZATION_ENABLED = os.getenv("LOCALIZATION_ENABLED", "false").lower() == "true"
 GCC_PHAT_ENABLED = os.getenv("GCC_PHAT_ENABLED", "false").lower() == "true"
-TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "true").lower() == "true"
+TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "false").lower() == "true"
 TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
 TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
@@ -404,6 +404,13 @@ EVENT_GROUP_COLUMNS = [
     "node_count",
     "estimated_lat",
     "estimated_lng",
+    "region_type",
+    "region_center_lat",
+    "region_center_lng",
+    "region_geojson",
+    "reporting_node_count",
+    "reporting_device_ids",
+    "region_updated_at",
     "localization_method",
     "confidence",
     "uncertainty_radius_m",
@@ -783,6 +790,13 @@ def init_sqlite_db() -> None:
                 node_count INTEGER,
                 estimated_lat REAL,
                 estimated_lng REAL,
+                region_type TEXT,
+                region_center_lat REAL,
+                region_center_lng REAL,
+                region_geojson TEXT,
+                reporting_node_count INTEGER,
+                reporting_device_ids TEXT,
+                region_updated_at TEXT,
                 localization_method TEXT,
                 localization_status TEXT,
                 localization_version TEXT,
@@ -814,6 +828,13 @@ def init_sqlite_db() -> None:
             ("node_count", "INTEGER"),
             ("estimated_lat", "REAL"),
             ("estimated_lng", "REAL"),
+            ("region_type", "TEXT"),
+            ("region_center_lat", "REAL"),
+            ("region_center_lng", "REAL"),
+            ("region_geojson", "TEXT"),
+            ("reporting_node_count", "INTEGER"),
+            ("reporting_device_ids", "TEXT"),
+            ("region_updated_at", "TEXT"),
             ("localization_method", "TEXT"),
             ("localization_status", "TEXT"),
             ("localization_version", "TEXT"),
@@ -959,6 +980,8 @@ def init_sqlite_db() -> None:
             UPDATE event_groups
             SET group_kind = 'target_estimate'
             WHERE COALESCE(group_kind, 'fusion') = 'fusion'
+              AND region_type IS NULL
+              AND COALESCE(localization_method, '') <> 'multi_node_region'
               AND (
                     estimated_lat IS NOT NULL
                  OR estimated_lng IS NOT NULL
@@ -1420,6 +1443,13 @@ def init_postgres_db() -> None:
                         node_count INTEGER,
                         estimated_lat DOUBLE PRECISION,
                         estimated_lng DOUBLE PRECISION,
+                        region_type TEXT,
+                        region_center_lat DOUBLE PRECISION,
+                        region_center_lng DOUBLE PRECISION,
+                        region_geojson JSONB,
+                        reporting_node_count INTEGER,
+                        reporting_device_ids JSONB,
+                        region_updated_at TIMESTAMPTZ,
                         localization_method TEXT,
                         localization_status TEXT,
                         localization_version TEXT,
@@ -1451,6 +1481,13 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS node_count INTEGER",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lat DOUBLE PRECISION",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS estimated_lng DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS region_type TEXT",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS region_center_lat DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS region_center_lng DOUBLE PRECISION",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS region_geojson JSONB",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS reporting_node_count INTEGER",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS reporting_device_ids JSONB",
+                    "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS region_updated_at TIMESTAMPTZ",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_method TEXT",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_status TEXT",
                     "ALTER TABLE event_groups ADD COLUMN IF NOT EXISTS localization_version TEXT",
@@ -1580,6 +1617,8 @@ def init_postgres_db() -> None:
                     UPDATE event_groups
                     SET group_kind = 'target_estimate'
                     WHERE COALESCE(group_kind, 'fusion') = 'fusion'
+                      AND region_type IS NULL
+                      AND COALESCE(localization_method, '') <> 'multi_node_region'
                       AND (
                             estimated_lat IS NOT NULL
                          OR estimated_lng IS NOT NULL
@@ -5215,7 +5254,7 @@ async def create_event(
                 "group": event_group,
             }
         )
-        if is_alert_event_label(event.label) and not is_existing_event:
+        if LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
             try:
                 localization_package = process_event_group_localization(event_group["id"])
             except Exception:
@@ -5247,18 +5286,6 @@ async def create_event(
                 "audio_path": event.audio_path,
                 "audio_format": event.audio_format,
                 "tdoa_clip_path": event.tdoa_clip_path,
-            }
-        )
-
-    target_estimate = None
-    if is_alert_event_label(event.label) and not is_existing_event:
-        target_estimate = create_target_estimate_for_event(event, created_at)
-
-    if target_estimate:
-        await dashboard_manager.broadcast(
-            {
-                "type": "target_estimate",
-                **target_estimate,
             }
         )
 
@@ -6372,7 +6399,7 @@ def dashboard_v4_clean():
                 </section>
 
                 <section class="panel">
-                    <h2>聲源估測</h2>
+                    <h2>可能聲源區域</h2>
                     <div class="panel-body right-scroll" id="targetEstimateList"></div>
                 </section>
 
@@ -6456,6 +6483,14 @@ def dashboard_v4_clean():
 
             function displayQuality(value) {
                 return safe(value);
+            }
+
+            function displayRegionType(value) {
+                const text = String(value || '').toLowerCase();
+                if (text === 'single_node') return '單節點通報區域';
+                if (text === 'segment') return '雙節點推估區域';
+                if (text === 'polygon') return '多節點推估區域';
+                return '未知區域';
             }
 
             function shortDeviceLabel(deviceId) {
@@ -6577,13 +6612,10 @@ def dashboard_v4_clean():
             }
 
             async function refreshAll() {
-                const [statusData, eventsData, groupsData, estimateData, localizationData, trackData] = await Promise.all([
+                const [statusData, eventsData, groupsData] = await Promise.all([
                     fetchJson('/device-status', { devices: [] }),
                     fetchJson('/events', { events: [] }),
                     fetchJson('/event-groups?limit=8', { event_groups: [] }),
-                    fetchJson('/target-estimates?limit=10', { estimates: [] }),
-                    fetchJson('/localization-results?limit=10', { localization_results: [] }),
-                    fetchJson('/tracks?limit=10', { tracks: [] }),
                 ]);
 
                 devices.clear();
@@ -6599,39 +6631,10 @@ def dashboard_v4_clean():
                 });
 
                 estimates.clear();
-                const rawEstimates = Array.isArray(estimateData) ? estimateData : (estimateData.estimates || []);
-                rawEstimates.forEach(item => {
-                    const id = item.group_id || item.id;
-                    if (id) estimates.set(String(id), item);
-                });
-                (localizationData.localization_results || []).forEach(item => {
-                    const id = `loc_${item.id || item.group_id || item.input_signature}`;
-                    estimates.set(id, {
-                        ...item,
-                        group_id: id,
-                        estimated_lat: item.estimated_lat,
-                        estimated_lng: item.estimated_lng,
-                        uncertainty_radius_m: item.uncertainty_radius_m,
-                        tdoa_residual_rmse_m: item.residual_m,
-                        time_sync_quality: item.geometry_quality,
-                        devices: item.diagnostics_json?.selected_device_ids || [],
-                        updated_at: item.created_at,
-                    });
-                });
-                (trackData.tracks || []).forEach(item => {
-                    const id = `track_${item.id}`;
-                    estimates.set(id, {
-                        ...item,
-                        group_id: id,
-                        label: item.label || 'aircraft',
-                        estimated_lat: item.last_lat,
-                        estimated_lng: item.last_lng,
-                        uncertainty_radius_m: 30,
-                        method: 'tracking',
-                        node_count: item.point_count,
-                        devices: [`track ${String(item.id || '').slice(0, 8)}`],
-                        updated_at: item.updated_at,
-                    });
+                (groupsData.event_groups || []).forEach(group => {
+                    if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                        estimates.set(String(group.id), group);
+                    }
                 });
 
                 renderAll();
@@ -6665,13 +6668,9 @@ def dashboard_v4_clean():
                             <span class="mini-chip ${device.is_listening ? 'good' : 'warn'}">監聽 ${device.is_listening ? '是' : '否'}</span>
                             <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
                             <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '缺少'}</span>
-                            <span class="mini-chip">同步 ${displayQuality(device.time_sync_quality)}</span>
                         </div>
                         <div class="kv">
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
-                            <span>同步 RTT</span><strong>${formatMs(device.time_sync_rtt_ms)}</strong>
-                            <span>同步 offset</span><strong>${formatMs(device.time_sync_offset_ms)}</strong>
-                            <span>最後同步</span><strong>${shortTime(device.time_sync_at || device.last_time_sync_at)}</strong>
                             <span>最後連線</span><strong>${shortTime(device.last_seen)}</strong>
                             <span>最後事件</span><strong>${shortTime(device.last_event_at)}</strong>
                         </div>
@@ -6744,9 +6743,6 @@ def dashboard_v4_clean():
                         <div class="map-info-row"><span>監聽中</span><span>${device.is_listening ? '是' : '否'}</span></div>
                         <div class="map-info-row"><span>最後連線</span><span>${safe(device.last_seen)}</span></div>
                         <div class="map-info-row"><span>最後事件</span><span>${safe(device.last_event_at)}</span></div>
-                        <div class="map-info-row"><span>同步品質</span><span>${displayQuality(device.time_sync_quality)}</span></div>
-                        <div class="map-info-row"><span>同步 RTT</span><span>${formatMs(device.time_sync_rtt_ms)}</span></div>
-                        <div class="map-info-row"><span>同步 offset</span><span>${formatMs(device.time_sync_offset_ms)}</span></div>
                     </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
@@ -6755,16 +6751,16 @@ def dashboard_v4_clean():
 
             function latestEstimate() {
                 return Array.from(estimates.values())
-                    .filter(item => Number.isFinite(Number(item.estimated_lat)) && Number.isFinite(Number(item.estimated_lng)))
-                    .sort((a, b) => (parseTime(b.updated_at || b.created_at) || 0) - (parseTime(a.updated_at || a.created_at) || 0))[0];
+                    .filter(item => Number.isFinite(Number(item.region_center_lat)) && Number.isFinite(Number(item.region_center_lng)))
+                    .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))[0];
             }
 
             function estimateId(item) {
-                return String(item?.group_id || item?.id || '');
+                return String(item?.id || item?.group_id || '');
             }
 
             function estimateIsFresh(item) {
-                const time = parseTime(item?.updated_at || item?.created_at);
+                const time = parseTime(item?.region_updated_at || item?.updated_at || item?.created_at);
                 return Number.isFinite(time) && Date.now() - time <= estimateVisibleMs;
             }
 
@@ -6788,16 +6784,15 @@ def dashboard_v4_clean():
                     clearEstimateObjects(false);
                     return;
                 }
-                const lat = Number(item.estimated_lat);
-                const lng = Number(item.estimated_lng);
+                const lat = Number(item.region_center_lat);
+                const lng = Number(item.region_center_lng);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-                const radius = Number(item.uncertainty_radius_m || 80);
                 if (!estimateMarker) {
                     estimateMarker = new google.maps.Marker({
                         map,
                         position: { lat, lng },
-                        title: '聲源估測',
-                        label: { text: 'TARGET', color: '#ffffff', fontWeight: '800', fontSize: '12px' },
+                        title: '可能聲源區域',
+                        label: { text: 'REGION', color: '#ffffff', fontWeight: '800', fontSize: '12px' },
                         icon: {
                             path: 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z',
                             fillColor: '#f97316',
@@ -6811,33 +6806,51 @@ def dashboard_v4_clean():
                 } else {
                     estimateMarker.setPosition({ lat, lng });
                 }
-                if (!estimateCircle) {
+                if (estimateCircle) {
+                    estimateCircle.setMap(null);
+                    estimateCircle = null;
+                }
+                if (estimateBox) {
+                    estimateBox.setMap(null);
+                    estimateBox = null;
+                }
+
+                const geometry = item.region_geojson || {};
+                if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates)) {
+                    estimateBox = new google.maps.Polyline({
+                        map,
+                        path: geometry.coordinates.map(([lngValue, latValue]) => ({
+                            lat: Number(latValue),
+                            lng: Number(lngValue),
+                        })),
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.95,
+                        strokeWeight: 5,
+                    });
+                } else if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates?.[0])) {
+                    estimateBox = new google.maps.Polygon({
+                        map,
+                        paths: geometry.coordinates[0].map(([lngValue, latValue]) => ({
+                            lat: Number(latValue),
+                            lng: Number(lngValue),
+                        })),
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.85,
+                        strokeWeight: 3,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.18,
+                    });
+                } else {
                     estimateCircle = new google.maps.Circle({
                         map,
                         center: { lat, lng },
-                        radius,
+                        radius: 80,
                         strokeColor: '#f97316',
                         strokeOpacity: 0.8,
                         strokeWeight: 2,
                         fillColor: '#f97316',
                         fillOpacity: 0.12,
                     });
-                } else {
-                    estimateCircle.setCenter({ lat, lng });
-                    estimateCircle.setRadius(radius);
-                }
-                if (!estimateBox) {
-                    estimateBox = new google.maps.Rectangle({
-                        map,
-                        bounds: boundsAround(lat, lng, radius),
-                        strokeColor: '#f97316',
-                        strokeOpacity: 0.85,
-                        strokeWeight: 2,
-                        fillColor: '#f97316',
-                        fillOpacity: 0.08,
-                    });
-                } else {
-                    estimateBox.setBounds(boundsAround(lat, lng, radius));
                 }
             }
 
@@ -6858,8 +6871,8 @@ def dashboard_v4_clean():
                 renderMap();
                 const item = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
                 if (item && map) {
-                    const lat = Number(item.estimated_lat);
-                    const lng = Number(item.estimated_lng);
+                    const lat = Number(item.region_center_lat);
+                    const lng = Number(item.region_center_lng);
                     map.panTo({ lat, lng });
                     if ((map.getZoom() || 12) < 16) map.setZoom(16);
                     showEstimateInfo(item);
@@ -6868,22 +6881,20 @@ def dashboard_v4_clean():
 
             function showEstimateInfo(item) {
                 if (!infoWindow || !map) return;
-                const lat = Number(item.estimated_lat);
-                const lng = Number(item.estimated_lng);
+                const lat = Number(item.region_center_lat);
+                const lng = Number(item.region_center_lng);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
                 infoWindow.setContent(`
                     <div class="map-info-card">
-                        <strong>聲源估測</strong>
+                        <strong>可能聲源區域</strong>
                         <div class="map-info-row"><span>類別</span><span>${displayLabel(item.label)}</span></div>
-                        <div class="map-info-row"><span>信心值</span><span>${Number(item.confidence || 0).toFixed(2)}</span></div>
-                        <div class="map-info-row"><span>位置</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
-                        <div class="map-info-row"><span>估測範圍</span><span>${safe(item.uncertainty_radius_m)} m</span></div>
-                        <div class="map-info-row"><span>節點數</span><span>${safe(item.node_count)}</span></div>
-                        <div class="map-info-row"><span>參與節點</span><span>${safe((item.devices || []).join(', '))}</span></div>
-                        <div class="map-info-row"><span>定位方法</span><span>${safe(item.method)}</span></div>
-                        <div class="map-info-row"><span>同步品質</span><span>${displayQuality(item.time_sync_quality)}</span></div>
-                        <div class="map-info-row"><span>TDOA residual</span><span>${formatResidual(item.tdoa_residual_rmse_m)}</span></div>
-                        <div class="map-info-row"><span>更新時間</span><span>${safe(item.updated_at || item.created_at)}</span></div>
+                        <div class="map-info-row"><span>區域類型</span><span>${displayRegionType(item.region_type)}</span></div>
+                        <div class="map-info-row"><span>回報節點數</span><span>${safe(item.reporting_node_count)}</span></div>
+                        <div class="map-info-row"><span>回報節點</span><span>${safe((item.reporting_device_ids || item.devices || []).join(', '))}</span></div>
+                        <div class="map-info-row"><span>事件時間</span><span>${safe(item.last_event_time)}</span></div>
+                        <div class="map-info-row"><span>中心點</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>方法</span><span>多節點區域推定</span></div>
+                        <div class="map-info-row"><span>更新時間</span><span>${safe(item.region_updated_at || item.updated_at || item.created_at)}</span></div>
                     </div>
                 `);
                 infoWindow.setPosition({ lat, lng });
@@ -6893,22 +6904,23 @@ def dashboard_v4_clean():
             function renderTargetEstimates() {
                 const list = document.getElementById('targetEstimateList');
                 const values = Array.from(estimates.values())
-                    .filter(item => Number.isFinite(Number(item.estimated_lat)) && Number.isFinite(Number(item.estimated_lng)))
-                    .sort((a, b) => (parseTime(b.updated_at || b.created_at) || 0) - (parseTime(a.updated_at || a.created_at) || 0))
+                    .filter(item => Number.isFinite(Number(item.region_center_lat)) && Number.isFinite(Number(item.region_center_lng)))
+                    .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))
                     .slice(0, 8);
                 if (!values.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有可顯示的估測位置</div>';
+                    list.innerHTML = '<div class="subtitle">目前沒有可顯示的區域推定</div>';
                     return;
                 }
                 list.innerHTML = values.map(item => {
                     const id = estimateId(item);
                     const selected = id === selectedEstimateId;
+                    const devices = item.reporting_device_ids || item.devices || [];
                     return `
                         <div class="event-row target ${selected ? 'selected' : ''}">
-                            <div class="event-title"><span>聲源估測</span><span>${displayLabel(item.label)}</span></div>
-                            <div class="event-detail">節點 ${safe(item.node_count)} / 信心值 ${Number(item.confidence || 0).toFixed(2)}</div>
-                            <div class="event-detail">位置 ${Number(item.estimated_lat).toFixed(6)}, ${Number(item.estimated_lng).toFixed(6)}</div>
-                            <div class="event-detail">範圍 ${safe(item.uncertainty_radius_m)} m / ${safe((item.devices || []).join(', '))}</div>
+                            <div class="event-title"><span>多節點區域推定</span><span>${displayLabel(item.label)}</span></div>
+                            <div class="event-detail">${displayRegionType(item.region_type)} / 回報節點 ${safe(item.reporting_node_count)}</div>
+                            <div class="event-detail">中心 ${Number(item.region_center_lat).toFixed(6)}, ${Number(item.region_center_lng).toFixed(6)}</div>
+                            <div class="event-detail">${safe(devices.join(', '))}</div>
                             <div class="estimate-toolbar">
                                 <button type="button" onclick="event.stopPropagation(); previewEstimate('${escapeHtml(id)}')">${selected ? '關閉預覽' : '預覽位置'}</button>
                                 <span class="status-line">${selected ? '已在地圖預覽' : '點選可在地圖預覽位置'}</span>
@@ -6930,9 +6942,9 @@ def dashboard_v4_clean():
                 list.innerHTML = groups.map(group => `
                     <div class="event-row">
                         <div class="event-title"><span>Group ${escapeHtml(String(group.id || '').slice(0, 8))}</span><span>${safe(group.status)}</span></div>
-                        <div class="event-detail">類別 ${displayLabel(group.label)} / 節點 ${safe(group.node_count)}</div>
+                        <div class="event-detail">類別 ${displayLabel(group.label)} / ${displayRegionType(group.region_type)}</div>
+                        <div class="event-detail">回報節點 ${safe(group.reporting_node_count)} / ${safe((group.reporting_device_ids || group.devices || []).join(', '))}</div>
                         <div class="event-detail">最後事件 ${safe(group.last_event_time)}</div>
-                        <div class="event-detail">${safe((group.devices || []).join(', '))}</div>
                     </div>
                 `).join('');
             }
@@ -7093,18 +7105,17 @@ def dashboard_v4_clean():
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
                         refreshAll();
-                    } else if (data.type === 'target_estimate' || data.type === 'localization_result') {
-                        const item = data.localization || data;
-                        const id = item.group_id || item.id;
-                        if (id) {
-                            estimates.set(String(id), item);
-                            selectedEstimateId = null;
-                            renderAll();
-                        }
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
-                        if (group.id) eventGroups.set(group.id, group);
+                        if (group.id) {
+                            eventGroups.set(group.id, group);
+                            if (Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                                estimates.set(String(group.id), group);
+                            }
+                        }
+                        renderTargetEstimates();
                         renderEventGroups();
+                        renderMap();
                     } else if (data.type === 'event_audio_update' || data.type === 'device_command_ack') {
                         refreshAll();
                     }

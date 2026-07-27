@@ -1,8 +1,11 @@
+import json
 import re
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+
+from services.region_localization import REGION_METHOD, estimate_region
 
 
 ACTIVE_STATUS = "ACTIVE"
@@ -83,6 +86,19 @@ def serialize_row(row: Optional[dict]) -> Optional[dict]:
         else:
             serialized[key] = value
     return serialized
+
+
+def parse_json_field(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return value
 
 
 def normalize_label(label: Any) -> str:
@@ -509,6 +525,7 @@ def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
             group_id,
         ),
     )
+    update_group_region(cursor, group_id, is_postgres)
     execute(
         cursor,
         is_postgres,
@@ -517,6 +534,118 @@ def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
     )
     row = fetchone_dict(cursor) or {"id": group_id}
     return group_payload(cursor, row, is_postgres)
+
+
+def group_region_observations(cursor: Any, group_id: str, is_postgres: bool) -> list[dict]:
+    execute(
+        cursor,
+        is_postgres,
+        """
+        SELECT
+            device_id,
+            latitude,
+            longitude,
+            label,
+            event_timestamp
+        FROM event_group_observations
+        WHERE group_id = %s
+          AND COALESCE(observation_kind, 'target_estimate') = %s
+          AND device_id IS NOT NULL
+        ORDER BY device_id ASC, event_timestamp ASC, created_at ASC
+        """,
+        (group_id, FUSION_KIND),
+    )
+    return fetchall_dict(cursor)
+
+
+def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
+    region = estimate_region(group_region_observations(cursor, group_id, is_postgres))
+    now = datetime.now(timezone.utc)
+    geojson = (
+        json.dumps(region.get("region_geojson"), separators=(",", ":"))
+        if region.get("region_geojson") is not None
+        else None
+    )
+    device_ids_json = json.dumps(region.get("reporting_device_ids") or [], separators=(",", ":"))
+
+    if is_postgres:
+        cursor.execute(
+            """
+            UPDATE event_groups
+            SET region_type = %s,
+                region_center_lat = %s,
+                region_center_lng = %s,
+                region_geojson = %s::jsonb,
+                reporting_node_count = %s,
+                reporting_device_ids = %s::jsonb,
+                region_updated_at = %s,
+                estimated_lat = %s,
+                estimated_lng = %s,
+                localization_method = %s,
+                method = %s,
+                confidence = NULL,
+                tdoa_residual_rmse_m = NULL,
+                tdoa_node_count = NULL,
+                time_sync_quality = NULL,
+                updated_at = %s
+            WHERE id = %s
+            """,
+            (
+                region.get("region_type"),
+                region.get("region_center_lat"),
+                region.get("region_center_lng"),
+                geojson,
+                region.get("reporting_node_count"),
+                device_ids_json,
+                db_time(now, is_postgres),
+                region.get("region_center_lat"),
+                region.get("region_center_lng"),
+                REGION_METHOD,
+                REGION_METHOD,
+                db_time(now, is_postgres),
+                group_id,
+            ),
+        )
+        return region
+
+    cursor.execute(
+        """
+        UPDATE event_groups
+        SET region_type = ?,
+            region_center_lat = ?,
+            region_center_lng = ?,
+            region_geojson = ?,
+            reporting_node_count = ?,
+            reporting_device_ids = ?,
+            region_updated_at = ?,
+            estimated_lat = ?,
+            estimated_lng = ?,
+            localization_method = ?,
+            method = ?,
+            confidence = NULL,
+            tdoa_residual_rmse_m = NULL,
+            tdoa_node_count = NULL,
+            time_sync_quality = NULL,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            region.get("region_type"),
+            region.get("region_center_lat"),
+            region.get("region_center_lng"),
+            geojson,
+            region.get("reporting_node_count"),
+            device_ids_json,
+            db_time(now, is_postgres),
+            region.get("region_center_lat"),
+            region.get("region_center_lng"),
+            REGION_METHOD,
+            REGION_METHOD,
+            db_time(now, is_postgres),
+            group_id,
+        ),
+    )
+    return region
 
 
 def update_existing_observation_snapshot(
@@ -628,6 +757,21 @@ def group_payload(cursor: Any, row: dict, is_postgres: bool) -> dict:
     serialized = serialize_row(row) or {}
     group_id = serialized.get("id")
     devices = group_devices(cursor, group_id, is_postgres) if group_id else []
+    reporting_device_ids = parse_json_field(serialized.get("reporting_device_ids"))
+    if not isinstance(reporting_device_ids, list):
+        reporting_device_ids = devices
+    region_geojson = parse_json_field(serialized.get("region_geojson"))
+    region_center_lat = serialized.get("region_center_lat")
+    region_center_lng = serialized.get("region_center_lng")
+    reporting_node_count = serialized.get("reporting_node_count")
+    if reporting_node_count is None:
+        reporting_node_count = len(reporting_device_ids)
+    estimated_lat = serialized.get("estimated_lat")
+    if estimated_lat is None:
+        estimated_lat = region_center_lat
+    estimated_lng = serialized.get("estimated_lng")
+    if estimated_lng is None:
+        estimated_lng = region_center_lng
     return {
         "id": group_id,
         "label": serialized.get("label") or serialized.get("group_label"),
@@ -637,10 +781,18 @@ def group_payload(cursor: Any, row: dict, is_postgres: bool) -> dict:
         "first_event_time": serialized.get("first_event_time") or serialized.get("start_time"),
         "last_event_time": serialized.get("last_event_time") or serialized.get("end_time"),
         "node_count": serialized.get("node_count") or len(devices),
-        "estimated_lat": serialized.get("estimated_lat"),
-        "estimated_lng": serialized.get("estimated_lng"),
+        "region_type": serialized.get("region_type"),
+        "region_center_lat": region_center_lat,
+        "region_center_lng": region_center_lng,
+        "region_geojson": region_geojson,
+        "reporting_node_count": reporting_node_count,
+        "reporting_device_ids": reporting_device_ids,
+        "region_updated_at": serialized.get("region_updated_at"),
+        "estimated_lat": estimated_lat,
+        "estimated_lng": estimated_lng,
         "localization_method": serialized.get("localization_method")
-        or serialized.get("method"),
+        or serialized.get("method")
+        or (REGION_METHOD if serialized.get("region_type") else None),
         "confidence": serialized.get("confidence"),
         "devices": devices,
     }
@@ -666,7 +818,7 @@ def process_event(
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
         if existing_group:
             update_existing_observation_snapshot(cursor, event_record, is_postgres)
-            return observation_group_for_event(cursor, event_id, is_postgres)
+            return update_group_rollup(cursor, existing_group["id"], is_postgres)
 
         group = find_candidate_group(cursor, label, event_time, window_seconds, is_postgres)
         if not group:
