@@ -6522,25 +6522,38 @@ def dashboard_v4_clean():
             .topbar {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(150px, 1fr));
-                gap: 10px;
-                padding: 10px 16px;
-                height: 92px;
+                gap: 12px;
+                padding: 10px 16px 8px;
+                height: 88px;
             }
             .stat, .panel, .node-card, .event-row {
                 background: var(--panel);
                 border: 1px solid var(--line);
                 border-radius: 12px;
             }
-            .stat { padding: 12px 14px; min-height: 72px; }
+            .stat {
+                padding: 12px 14px;
+                min-height: 68px;
+                min-width: 0;
+                overflow: hidden;
+            }
             .label { color: #bcd3e8; font-size: 14px; }
-            .value { margin-top: 5px; font-size: 28px; font-weight: 800; }
+            .value {
+                margin-top: 6px;
+                font-size: clamp(22px, 1.8vw, 28px);
+                font-weight: 800;
+                line-height: 1;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
             .layout {
                 display: grid;
-                grid-template-columns: 360px minmax(540px, 1fr) 440px;
-                grid-template-rows: minmax(0, 1fr) 220px;
+                grid-template-columns: minmax(330px, 400px) minmax(520px, 1fr) minmax(360px, 470px);
+                grid-template-rows: minmax(0, 1fr) 210px;
                 gap: 12px;
                 padding: 0 16px 16px;
-                height: calc(100vh - 166px);
+                height: calc(100vh - 162px);
                 min-height: 560px;
                 overflow: hidden;
             }
@@ -6585,13 +6598,13 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 138px minmax(150px, 1.15fr) minmax(150px, 1fr) minmax(130px, .9fr);
+                grid-template-rows: 150px minmax(145px, 1fr) minmax(145px, 1fr) minmax(145px, 1fr);
                 gap: 12px;
                 min-height: 0;
             }
             .node-card {
-                padding: 12px;
-                margin-bottom: 10px;
+                padding: 11px;
+                margin-bottom: 9px;
             }
             .node-card.online { border-color: #196646; }
             .node-title, .event-title {
@@ -6600,14 +6613,14 @@ def dashboard_v4_clean():
                 gap: 12px;
                 align-items: flex-start;
                 font-weight: 800;
-                font-size: 17px;
+                font-size: 16px;
             }
             .pill, .mini-chip {
                 display: inline-flex;
                 align-items: center;
                 border: 1px solid #4b586b;
                 border-radius: 999px;
-                padding: 4px 8px;
+                padding: 3px 7px;
                 font-size: 12px;
                 color: #d9e4ef;
                 white-space: nowrap;
@@ -6619,12 +6632,12 @@ def dashboard_v4_clean():
                 display: flex;
                 gap: 6px;
                 flex-wrap: wrap;
-                margin: 10px 0;
+                margin: 8px 0;
             }
             .kv {
                 display: grid;
                 grid-template-columns: 78px 1fr;
-                gap: 5px 8px;
+                gap: 4px 8px;
                 color: var(--muted);
                 font-size: 12px;
             }
@@ -6636,37 +6649,52 @@ def dashboard_v4_clean():
             .actions {
                 display: grid;
                 grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 8px;
-                margin-top: 10px;
+                gap: 7px;
+                margin-top: 9px;
             }
+            .actions button { padding: 7px 8px; }
             .actions button.warn { grid-column: 1 / -1; }
             .location-box {
                 margin-top: 10px;
-                padding: 10px;
                 border: 1px solid #2d3746;
                 border-radius: 10px;
                 background: #111821;
+                overflow: hidden;
             }
-            .location-title {
+            .location-box summary {
                 display: flex;
                 justify-content: space-between;
+                align-items: center;
                 gap: 8px;
+                padding: 9px 10px;
                 color: #dce8f6;
                 font-size: 13px;
                 font-weight: 800;
+                cursor: pointer;
+                list-style: none;
+            }
+            .location-box summary::-webkit-details-marker { display: none; }
+            .location-box summary::after {
+                content: "設定";
+                padding: 2px 7px;
+                border: 1px solid #425066;
+                border-radius: 999px;
+                color: #a9c7e8;
+                font-size: 11px;
+                font-weight: 700;
             }
             .location-actions {
                 display: grid;
                 grid-template-columns: repeat(3, minmax(0, 1fr));
                 gap: 6px;
-                margin-top: 8px;
+                margin: 8px 10px 10px;
             }
             .location-actions button {
                 padding: 7px 6px;
                 font-size: 12px;
             }
             .location-editor {
-                margin-top: 8px;
+                margin: 0 10px 10px;
                 padding: 8px;
                 border: 1px dashed #4b5c72;
                 border-radius: 8px;
@@ -6679,13 +6707,14 @@ def dashboard_v4_clean():
                 margin-top: 8px;
             }
             .audio-player {
-                margin: 12px;
-                padding: 12px;
+                margin: 10px 12px;
+                padding: 10px;
                 border: 1px solid var(--line);
                 border-radius: 10px;
                 background: #12161d;
             }
-            .audio-player audio { width: 100%; margin-top: 10px; }
+            .audio-player .title { font-size: 13px; color: #d8e2ec; }
+            .audio-player audio { width: 100%; height: 38px; margin-top: 8px; }
             .event-row {
                 padding: 11px;
                 margin-bottom: 9px;
@@ -7187,11 +7216,11 @@ def dashboard_v4_clean():
                             <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_collection_mode')">蒐集模式</button>
                             <button class="warn" onclick="simulateAlert('${escapeHtml(device.device_id)}')">模擬警示</button>
                         </div>
-                        <div class="location-box">
-                            <div class="location-title">
+                        <details class="location-box" ${locationEdit?.deviceId === device.device_id ? 'open' : ''}>
+                            <summary>
                                 <span>固定節點位置</span>
                                 <span>${hasFixed ? '已啟用' : '未設定'}</span>
-                            </div>
+                            </summary>
                             <div class="status-line">Region 估測會優先使用固定位置；事件原始 GPS 仍會保留。</div>
                             <div class="location-actions">
                                 <button onclick="useCurrentGpsAsFixed('${escapeHtml(device.device_id)}')">使用目前 GPS</button>
@@ -7199,7 +7228,7 @@ def dashboard_v4_clean():
                                 <button class="danger" onclick="clearFixedLocation('${escapeHtml(device.device_id)}')">清除固定</button>
                             </div>
                             ${locationEditorPanel(device)}
-                        </div>
+                        </details>
                     </div>
                     `;
                 }).join('');
