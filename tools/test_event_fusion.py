@@ -157,6 +157,19 @@ def make_connection() -> sqlite3.Connection:
     )
     connection.execute(
         """
+        CREATE TABLE device_locations (
+            device_id TEXT PRIMARY KEY,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            location_source TEXT NOT NULL,
+            accuracy_m REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
         CREATE UNIQUE INDEX event_group_observations_fusion_event_id_key
         ON event_group_observations (event_id)
         WHERE observation_kind = 'fusion'

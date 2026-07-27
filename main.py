@@ -31,10 +31,18 @@ from google.oauth2 import service_account
 from pydantic import BaseModel
 
 from app.protocol import ProtocolError, build_envelope, parse_node_message
+from services.device_location_service import (
+    DeviceLocationValidationError,
+    location_map,
+    normalize_location_row,
+    resolve_effective_location,
+    validate_device_location,
+)
 from services.event_fusion import (
     get_event_group_detail as get_fusion_group_detail,
     list_event_groups as list_fusion_groups,
     process_event as process_fusion_event,
+    recompute_active_regions_for_device as recompute_fusion_regions_for_device,
 )
 from services.localization import localize_observations
 from services.tracking.tracking_service import (
@@ -205,6 +213,13 @@ class DeviceCommandAck(BaseModel):
     device_id: str
     status: str
     message: Optional[str] = None
+
+
+class DeviceFixedLocationUpsert(BaseModel):
+    latitude: float
+    longitude: float
+    location_source: str = "manual_map"
+    accuracy_m: Optional[float] = None
 
 
 def current_time_iso() -> str:
@@ -389,6 +404,16 @@ DEVICE_COMMAND_COLUMNS = [
     "created_at",
     "executed_at",
     "ack_message",
+]
+
+DEVICE_LOCATION_COLUMNS = [
+    "device_id",
+    "latitude",
+    "longitude",
+    "location_source",
+    "accuracy_m",
+    "created_at",
+    "updated_at",
 ]
 
 EVENT_GROUP_COLUMNS = [
@@ -744,6 +769,25 @@ def init_sqlite_db() -> None:
                 column_name=column_name,
                 column_definition=column_definition,
             )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS device_locations (
+                device_id TEXT PRIMARY KEY,
+                latitude REAL NOT NULL CHECK(latitude >= -90 AND latitude <= 90),
+                longitude REAL NOT NULL CHECK(longitude >= -180 AND longitude <= 180),
+                location_source TEXT NOT NULL CHECK(location_source IN ('manual_map', 'current_gps')),
+                accuracy_m REAL CHECK(accuracy_m IS NULL OR accuracy_m >= 0),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS device_locations_updated_at_idx
+            ON device_locations (updated_at DESC)
+            """
+        )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS device_commands (
@@ -1396,6 +1440,33 @@ def init_postgres_db() -> None:
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
                 ]:
                     cursor.execute(statement)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS device_locations (
+                        device_id TEXT PRIMARY KEY,
+                        latitude DOUBLE PRECISION NOT NULL,
+                        longitude DOUBLE PRECISION NOT NULL,
+                        location_source TEXT NOT NULL,
+                        accuracy_m DOUBLE PRECISION NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        CONSTRAINT device_locations_latitude_range
+                            CHECK (latitude >= -90 AND latitude <= 90),
+                        CONSTRAINT device_locations_longitude_range
+                            CHECK (longitude >= -180 AND longitude <= 180),
+                        CONSTRAINT device_locations_source_check
+                            CHECK (location_source IN ('manual_map', 'current_gps')),
+                        CONSTRAINT device_locations_accuracy_check
+                            CHECK (accuracy_m IS NULL OR accuracy_m >= 0)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS device_locations_updated_at_idx
+                    ON device_locations (updated_at DESC)
+                    """
+                )
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS device_commands (
@@ -3535,7 +3606,9 @@ def list_device_status_rows() -> list[dict]:
                 ORDER BY device_id ASC
                 """
             ).fetchall()
-            return [serialize_db_row(dict(row)) for row in rows]
+            return enrich_device_status_rows(
+                [serialize_db_row(dict(row)) for row in rows]
+            )
 
     connection = get_postgres_connection()
     try:
@@ -3548,9 +3621,255 @@ def list_device_status_rows() -> list[dict]:
                     ORDER BY device_id ASC
                     """
                 )
-                return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+                return enrich_device_status_rows(
+                    [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+                )
     finally:
         connection.close()
+
+
+def list_device_fixed_locations() -> list[dict]:
+    def normalized_rows(rows) -> list[dict]:
+        output = []
+        for row in rows:
+            normalized = normalize_location_row(serialize_db_row(dict(row)))
+            if normalized:
+                output.append(normalized)
+        return output
+
+    columns = ", ".join(DEVICE_LOCATION_COLUMNS)
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM device_locations
+                ORDER BY device_id ASC
+                """
+            ).fetchall()
+            return normalized_rows(rows)
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_locations
+                    ORDER BY device_id ASC
+                    """
+                )
+                return normalized_rows(cursor.fetchall())
+    finally:
+        connection.close()
+
+
+def get_device_fixed_location(device_id: str) -> Optional[dict]:
+    columns = ", ".join(DEVICE_LOCATION_COLUMNS)
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            row = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM device_locations
+                WHERE device_id = ?
+                LIMIT 1
+                """,
+                (device_id,),
+            ).fetchone()
+            return normalize_location_row(serialize_db_row(dict(row))) if row else None
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_locations
+                    WHERE device_id = %s
+                    LIMIT 1
+                    """,
+                    (device_id,),
+                )
+                row = cursor.fetchone()
+                return normalize_location_row(serialize_db_row(dict(row))) if row else None
+    finally:
+        connection.close()
+
+
+def enrich_device_status_rows(rows: list[dict]) -> list[dict]:
+    fixed_locations = location_map(list_device_fixed_locations())
+    by_device = {str(row.get("device_id") or ""): dict(row) for row in rows}
+
+    for device_id, fixed in fixed_locations.items():
+        by_device.setdefault(
+            device_id,
+            {
+                "device_id": device_id,
+                "latitude": None,
+                "longitude": None,
+                "last_seen": None,
+                "status": "offline",
+                "updated_at": fixed.get("updated_at"),
+            },
+        )
+
+    enriched = []
+    for device_id in sorted(by_device):
+        row = by_device[device_id]
+        fixed = fixed_locations.get(device_id)
+        effective = resolve_effective_location(
+            device_id=device_id,
+            event_latitude=row.get("latitude"),
+            event_longitude=row.get("longitude"),
+            fixed_locations=fixed_locations,
+        )
+        if fixed:
+            row["fixed_latitude"] = fixed.get("latitude")
+            row["fixed_longitude"] = fixed.get("longitude")
+            row["fixed_location_source"] = fixed.get("location_source")
+            row["fixed_location_accuracy_m"] = fixed.get("accuracy_m")
+            row["fixed_location_updated_at"] = fixed.get("updated_at")
+        else:
+            row["fixed_latitude"] = None
+            row["fixed_longitude"] = None
+            row["fixed_location_source"] = None
+            row["fixed_location_accuracy_m"] = None
+            row["fixed_location_updated_at"] = None
+
+        if effective:
+            row["effective_latitude"] = effective["latitude"]
+            row["effective_longitude"] = effective["longitude"]
+            row["effective_location_source"] = effective["effective_location_source"]
+        else:
+            row["effective_latitude"] = None
+            row["effective_longitude"] = None
+            row["effective_location_source"] = "none"
+        enriched.append(row)
+    return enriched
+
+
+def upsert_device_fixed_location(
+    device_id: str,
+    payload: DeviceFixedLocationUpsert,
+) -> dict:
+    values = validate_device_location(
+        device_id=device_id,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        location_source=payload.location_source,
+        accuracy_m=payload.accuracy_m,
+    )
+    if not use_postgres():
+        now = current_time_iso()
+        with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO device_locations (
+                    device_id, latitude, longitude, location_source,
+                    accuracy_m, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET
+                    latitude = excluded.latitude,
+                    longitude = excluded.longitude,
+                    location_source = excluded.location_source,
+                    accuracy_m = excluded.accuracy_m,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    values["device_id"],
+                    values["latitude"],
+                    values["longitude"],
+                    values["location_source"],
+                    values["accuracy_m"],
+                    now,
+                    now,
+                ),
+            )
+            connection.commit()
+        return get_device_fixed_location(values["device_id"]) or values
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO device_locations (
+                        device_id, latitude, longitude, location_source,
+                        accuracy_m, created_at, updated_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, now(), now())
+                    ON CONFLICT (device_id) DO UPDATE SET
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        location_source = EXCLUDED.location_source,
+                        accuracy_m = EXCLUDED.accuracy_m,
+                        updated_at = now()
+                    RETURNING device_id, latitude, longitude, location_source,
+                              accuracy_m, created_at, updated_at
+                    """,
+                    (
+                        values["device_id"],
+                        values["latitude"],
+                        values["longitude"],
+                        values["location_source"],
+                        values["accuracy_m"],
+                    ),
+                )
+                row = cursor.fetchone()
+                return normalize_location_row(serialize_db_row(dict(row))) or values
+    finally:
+        connection.close()
+
+
+def delete_device_fixed_location(device_id: str) -> bool:
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM device_locations WHERE device_id = ?",
+                (device_id,),
+            )
+            connection.commit()
+            return cursor.rowcount > 0
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM device_locations WHERE device_id = %s",
+                    (device_id,),
+                )
+                return cursor.rowcount > 0
+    finally:
+        connection.close()
+
+
+def recompute_active_regions_for_device(device_id: str) -> list[dict]:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                return recompute_fusion_regions_for_device(
+                    connection,
+                    device_id,
+                    is_postgres=True,
+                )
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        groups = recompute_fusion_regions_for_device(
+            connection,
+            device_id,
+            is_postgres=False,
+        )
+        connection.commit()
+        return groups
 
 
 def create_device_command(command: DeviceCommandCreate) -> dict:
@@ -5472,11 +5791,12 @@ async def update_location(location: LocationUpdate):
         time_sync_at=location.time_sync_at,
         last_time_sync_at=location.last_time_sync_at,
     )
+    enriched_device_row = enrich_device_status_rows([device_row])[0]
 
     await dashboard_manager.broadcast(
         {
             "type": "location_update",
-            **device_row,
+            **enriched_device_row,
         }
     )
 
@@ -5499,6 +5819,77 @@ def device_status():
         "status": "success",
         "count": len(devices),
         "devices": devices,
+    }
+
+
+@app.get("/device-locations")
+def device_locations():
+    locations = list_device_fixed_locations()
+    return {
+        "status": "success",
+        "count": len(locations),
+        "device_locations": locations,
+    }
+
+
+@app.get("/device-locations/{device_id}")
+def device_location_detail(device_id: str):
+    location = get_device_fixed_location(device_id)
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "device_location": location,
+        "has_fixed_location": location is not None,
+    }
+
+
+async def broadcast_device_location_change(device_id: str, groups: list[dict]) -> None:
+    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    await dashboard_manager.broadcast(
+        {
+            "type": "device_location_updated",
+            "device_id": device_id,
+            "device": status_rows[0] if status_rows else None,
+        }
+    )
+    for group in groups:
+        await dashboard_manager.broadcast({"type": "event_group", "group": group})
+
+
+@app.put("/device-locations/{device_id}")
+async def put_device_location(
+    device_id: str,
+    payload: DeviceFixedLocationUpsert,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+    try:
+        location = upsert_device_fixed_location(device_id, payload)
+    except DeviceLocationValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    groups = recompute_active_regions_for_device(device_id)
+    await broadcast_device_location_change(device_id, groups)
+    return {
+        "status": "success",
+        "device_location": location,
+        "recomputed_group_count": len(groups),
+    }
+
+
+@app.delete("/device-locations/{device_id}")
+async def clear_device_location(
+    device_id: str,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+    deleted = delete_device_fixed_location(device_id)
+    groups = recompute_active_regions_for_device(device_id)
+    await broadcast_device_location_change(device_id, groups)
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "deleted": deleted,
+        "recomputed_group_count": len(groups),
     }
 
 
@@ -6249,6 +6640,44 @@ def dashboard_v4_clean():
                 margin-top: 10px;
             }
             .actions button.warn { grid-column: 1 / -1; }
+            .location-box {
+                margin-top: 10px;
+                padding: 10px;
+                border: 1px solid #2d3746;
+                border-radius: 10px;
+                background: #111821;
+            }
+            .location-title {
+                display: flex;
+                justify-content: space-between;
+                gap: 8px;
+                color: #dce8f6;
+                font-size: 13px;
+                font-weight: 800;
+            }
+            .location-actions {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 6px;
+                margin-top: 8px;
+            }
+            .location-actions button {
+                padding: 7px 6px;
+                font-size: 12px;
+            }
+            .location-editor {
+                margin-top: 8px;
+                padding: 8px;
+                border: 1px dashed #4b5c72;
+                border-radius: 8px;
+                color: #cbd7e5;
+                font-size: 12px;
+                line-height: 1.45;
+            }
+            .location-editor .actions {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                margin-top: 8px;
+            }
             .audio-player {
                 margin: 12px;
                 padding: 12px;
@@ -6439,6 +6868,9 @@ def dashboard_v4_clean():
             let estimateBox = null;
             let currentFilter = 'all';
             let dashboardStarted = false;
+            let locationEdit = null;
+            let locationEditMarker = null;
+            let locationEditMapClickListener = null;
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : String(value);
@@ -6520,6 +6952,55 @@ def dashboard_v4_clean():
             function parseTime(value) {
                 const parsed = Date.parse(value || '');
                 return Number.isFinite(parsed) ? parsed : NaN;
+            }
+
+            function finiteNumber(value) {
+                const number = Number(value);
+                return Number.isFinite(number) ? number : null;
+            }
+
+            function isValidCoordinatePair(lat, lng) {
+                const latitude = finiteNumber(lat);
+                const longitude = finiteNumber(lng);
+                return latitude !== null
+                    && longitude !== null
+                    && latitude >= -90
+                    && latitude <= 90
+                    && longitude >= -180
+                    && longitude <= 180;
+            }
+
+            function deviceRawGpsPosition(device) {
+                const latitude = finiteNumber(device?.latitude);
+                const longitude = finiteNumber(device?.longitude);
+                if (!isValidCoordinatePair(latitude, longitude)) return null;
+                return { lat: latitude, lng: longitude };
+            }
+
+            function deviceEffectivePosition(device) {
+                const latitude = finiteNumber(device?.effective_latitude ?? device?.latitude);
+                const longitude = finiteNumber(device?.effective_longitude ?? device?.longitude);
+                if (!isValidCoordinatePair(latitude, longitude)) return null;
+                return { lat: latitude, lng: longitude };
+            }
+
+            function displayLocationSource(source) {
+                const value = String(source || '').toLowerCase();
+                if (value === 'fixed') return '固定位置';
+                if (value === 'event_gps') return '手機 GPS';
+                return '無可用位置';
+            }
+
+            function displayFixedLocationSource(source) {
+                const value = String(source || '').toLowerCase();
+                if (value === 'manual_map') return '地圖手動設定';
+                if (value === 'current_gps') return '由目前 GPS 固定';
+                return safe(source);
+            }
+
+            function formatPosition(position) {
+                if (!position) return '-';
+                return `${position.lat.toFixed(6)}, ${position.lng.toFixed(6)}`;
             }
 
             function isToday(timestamp) {
@@ -6651,6 +7132,23 @@ def dashboard_v4_clean():
                 document.getElementById('systemStatus').textContent = values.length ? '即時運作' : '等待資料';
             }
 
+            function locationEditorPanel(device) {
+                if (!locationEdit || locationEdit.deviceId !== device.device_id) return '';
+                const position = locationEdit.lat !== null && locationEdit.lng !== null
+                    ? { lat: locationEdit.lat, lng: locationEdit.lng }
+                    : null;
+                return `
+                    <div class="location-editor">
+                        <div>${position ? '已選擇固定位置' : '請在地圖點一下固定節點位置，也可以拖曳預覽點。'}</div>
+                        <div>座標：<strong>${formatPosition(position)}</strong></div>
+                        <div class="actions">
+                            <button class="primary" onclick="saveEditedLocation()">儲存位置</button>
+                            <button onclick="cancelLocationEdit()">取消</button>
+                        </div>
+                    </div>
+                `;
+            }
+
             function renderNodes() {
                 const list = document.getElementById('nodeList');
                 const values = visibleDevices();
@@ -6658,7 +7156,11 @@ def dashboard_v4_clean():
                     list.innerHTML = '<div class="subtitle">目前沒有節點資料</div>';
                     return;
                 }
-                list.innerHTML = values.map(device => `
+                list.innerHTML = values.map(device => {
+                    const rawGps = deviceRawGpsPosition(device);
+                    const effective = deviceEffectivePosition(device);
+                    const hasFixed = device.effective_location_source === 'fixed';
+                    return `
                     <div class="node-card ${isOnline(device) ? 'online' : 'offline'}">
                         <div class="node-title">
                             <span>${escapeHtml(device.device_id)}</span>
@@ -6667,10 +7169,14 @@ def dashboard_v4_clean():
                         <div class="node-meta">
                             <span class="mini-chip ${device.is_listening ? 'good' : 'warn'}">監聽 ${device.is_listening ? '是' : '否'}</span>
                             <span class="mini-chip ${device.upload_mode ? 'good' : 'warn'}">${displayMode(device.upload_mode)}</span>
-                            <span class="mini-chip ${device.latitude && device.longitude ? 'good' : 'warn'}">GPS ${device.latitude && device.longitude ? '正常' : '缺少'}</span>
+                            <span class="mini-chip ${rawGps ? 'good' : 'warn'}">GPS ${rawGps ? '正常' : '缺少'}</span>
+                            <span class="mini-chip ${effective ? 'good' : 'warn'}">${displayLocationSource(device.effective_location_source)}</span>
                         </div>
                         <div class="kv">
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
+                            <span>有效位置</span><strong>${formatPosition(effective)}</strong>
+                            <span>原始 GPS</span><strong>${formatPosition(rawGps)}</strong>
+                            <span>固定來源</span><strong>${hasFixed ? displayFixedLocationSource(device.fixed_location_source) : '尚未設定'}</strong>
                             <span>最後連線</span><strong>${shortTime(device.last_seen)}</strong>
                             <span>最後事件</span><strong>${shortTime(device.last_event_at)}</strong>
                         </div>
@@ -6681,21 +7187,34 @@ def dashboard_v4_clean():
                             <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_collection_mode')">蒐集模式</button>
                             <button class="warn" onclick="simulateAlert('${escapeHtml(device.device_id)}')">模擬警示</button>
                         </div>
+                        <div class="location-box">
+                            <div class="location-title">
+                                <span>固定節點位置</span>
+                                <span>${hasFixed ? '已啟用' : '未設定'}</span>
+                            </div>
+                            <div class="status-line">Region 估測會優先使用固定位置；事件原始 GPS 仍會保留。</div>
+                            <div class="location-actions">
+                                <button onclick="useCurrentGpsAsFixed('${escapeHtml(device.device_id)}')">使用目前 GPS</button>
+                                <button class="primary" onclick="startLocationEdit('${escapeHtml(device.device_id)}')">地圖設定</button>
+                                <button class="danger" onclick="clearFixedLocation('${escapeHtml(device.device_id)}')">清除固定</button>
+                            </div>
+                            ${locationEditorPanel(device)}
+                        </div>
                     </div>
-                `).join('');
+                    `;
+                }).join('');
             }
 
             function renderMap() {
                 if (!map || !window.google) return;
                 const visibleIds = new Set();
                 visibleDevices().forEach(device => {
-                    const lat = Number(device.latitude);
-                    const lng = Number(device.longitude);
-                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                    const position = deviceEffectivePosition(device);
+                    if (!position) return;
                     visibleIds.add(device.device_id);
                     const active = isAlertActive(device.device_id);
                     const options = {
-                        position: { lat, lng },
+                        position,
                         map,
                         title: `${device.device_id}`,
                         label: {
@@ -6709,7 +7228,7 @@ def dashboard_v4_clean():
                     let marker = markers.get(device.device_id);
                     if (!marker) {
                         marker = new google.maps.Marker(options);
-                        marker.addListener('click', () => showDeviceInfo(device));
+                        marker.addListener('click', () => showDeviceInfo(devices.get(device.device_id) || device));
                         markers.set(device.device_id, marker);
                     } else {
                         marker.setOptions(options);
@@ -6730,14 +7249,20 @@ def dashboard_v4_clean():
 
             function showDeviceInfo(device) {
                 if (!infoWindow || !map) return;
-                const lat = Number(device.latitude);
-                const lng = Number(device.longitude);
-                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const position = deviceEffectivePosition(device);
+                if (!position) return;
+                const rawGps = deviceRawGpsPosition(device);
+                const fixedPosition = isValidCoordinatePair(device.fixed_latitude, device.fixed_longitude)
+                    ? { lat: Number(device.fixed_latitude), lng: Number(device.fixed_longitude) }
+                    : null;
                 infoWindow.setContent(`
                     <div class="map-info-card">
                         <strong>${escapeHtml(device.device_id)}</strong>
-                        <div class="map-info-row"><span>緯度</span><span>${safe(device.latitude)}</span></div>
-                        <div class="map-info-row"><span>經度</span><span>${safe(device.longitude)}</span></div>
+                        <div class="map-info-row"><span>位置來源</span><span>${displayLocationSource(device.effective_location_source)}</span></div>
+                        <div class="map-info-row"><span>有效位置</span><span>${formatPosition(position)}</span></div>
+                        <div class="map-info-row"><span>原始 GPS</span><span>${formatPosition(rawGps)}</span></div>
+                        <div class="map-info-row"><span>固定位置</span><span>${formatPosition(fixedPosition)}</span></div>
+                        <div class="map-info-row"><span>固定來源</span><span>${device.effective_location_source === 'fixed' ? displayFixedLocationSource(device.fixed_location_source) : '-'}</span></div>
                         <div class="map-info-row"><span>狀態</span><span>${displayStatus(device.status)}</span></div>
                         <div class="map-info-row"><span>模式</span><span>${displayMode(device.upload_mode)}</span></div>
                         <div class="map-info-row"><span>監聽中</span><span>${device.is_listening ? '是' : '否'}</span></div>
@@ -6745,7 +7270,7 @@ def dashboard_v4_clean():
                         <div class="map-info-row"><span>最後事件</span><span>${safe(device.last_event_at)}</span></div>
                     </div>
                 `);
-                infoWindow.setPosition({ lat, lng });
+                infoWindow.setPosition(position);
                 infoWindow.open(map);
             }
 
@@ -7031,11 +7556,186 @@ def dashboard_v4_clean():
                 }
             }
 
+            function dashboardWriteToken() {
+                let token = sessionStorage.getItem('dashboardWriteToken') || '';
+                if (!token) {
+                    token = window.prompt('請輸入管理 token，才能修改固定節點位置。') || '';
+                    token = token.trim();
+                    if (token) sessionStorage.setItem('dashboardWriteToken', token);
+                }
+                if (!token) throw new Error('未輸入管理 token');
+                return token;
+            }
+
+            async function authorizedJson(url, options = {}) {
+                const token = dashboardWriteToken();
+                const response = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-upload-token': token,
+                        ...(options.headers || {}),
+                    },
+                });
+                const body = await response.json().catch(() => ({}));
+                if (response.status === 401) {
+                    sessionStorage.removeItem('dashboardWriteToken');
+                }
+                if (!response.ok) {
+                    throw new Error(body.detail || response.statusText);
+                }
+                return body;
+            }
+
+            function clearLocationEditObjects() {
+                if (locationEditMapClickListener && window.google) {
+                    google.maps.event.removeListener(locationEditMapClickListener);
+                    locationEditMapClickListener = null;
+                }
+                if (locationEditMarker) {
+                    locationEditMarker.setMap(null);
+                    locationEditMarker = null;
+                }
+            }
+
+            function setLocationEditPoint(lat, lng) {
+                if (!locationEdit || !isValidCoordinatePair(lat, lng)) return;
+                locationEdit.lat = Number(lat);
+                locationEdit.lng = Number(lng);
+                const position = { lat: locationEdit.lat, lng: locationEdit.lng };
+                if (!locationEditMarker) {
+                    locationEditMarker = new google.maps.Marker({
+                        map,
+                        position,
+                        draggable: true,
+                        title: '固定節點位置預覽',
+                        label: {
+                            text: shortDeviceLabel(locationEdit.deviceId),
+                            color: '#111827',
+                            fontWeight: '800',
+                            fontSize: '13px',
+                        },
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            fillColor: '#38bdf8',
+                            fillOpacity: 0.85,
+                            strokeColor: '#ffffff',
+                            strokeWeight: 3,
+                            scale: 12,
+                        },
+                    });
+                    locationEditMarker.addListener('dragend', event => {
+                        setLocationEditPoint(event.latLng.lat(), event.latLng.lng());
+                    });
+                } else {
+                    locationEditMarker.setPosition(position);
+                }
+                renderNodes();
+            }
+
+            function startLocationEdit(deviceId) {
+                if (!map || !window.google) {
+                    alert('地圖尚未載入完成');
+                    return;
+                }
+                clearLocationEditObjects();
+                locationEdit = { deviceId, lat: null, lng: null };
+                const device = devices.get(deviceId);
+                const position = deviceEffectivePosition(device);
+                if (position) map.panTo(position);
+                locationEditMapClickListener = map.addListener('click', event => {
+                    setLocationEditPoint(event.latLng.lat(), event.latLng.lng());
+                });
+                document.getElementById('systemStatus').textContent = `正在設定 ${deviceId} 的固定位置`;
+                renderNodes();
+            }
+
+            function cancelLocationEdit() {
+                clearLocationEditObjects();
+                locationEdit = null;
+                document.getElementById('systemStatus').textContent = '已取消位置設定';
+                renderNodes();
+            }
+
+            async function saveDeviceLocation(deviceId, lat, lng, locationSource) {
+                if (!isValidCoordinatePair(lat, lng)) {
+                    alert('座標格式不正確');
+                    return false;
+                }
+                try {
+                    await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            latitude: Number(lat),
+                            longitude: Number(lng),
+                            location_source: locationSource,
+                            accuracy_m: null,
+                        }),
+                    });
+                    document.getElementById('systemStatus').textContent = `固定位置已更新：${deviceId}`;
+                    await refreshAll();
+                    return true;
+                } catch (error) {
+                    document.getElementById('systemStatus').textContent = '固定位置更新失敗';
+                    alert(`固定位置更新失敗：${error}`);
+                    return false;
+                }
+            }
+
+            async function saveEditedLocation() {
+                if (!locationEdit) return;
+                if (!isValidCoordinatePair(locationEdit.lat, locationEdit.lng)) {
+                    alert('請先在地圖上點選固定位置');
+                    return;
+                }
+                const saved = await saveDeviceLocation(
+                    locationEdit.deviceId,
+                    locationEdit.lat,
+                    locationEdit.lng,
+                    'manual_map',
+                );
+                if (saved) {
+                    clearLocationEditObjects();
+                    locationEdit = null;
+                    renderNodes();
+                }
+            }
+
+            async function useCurrentGpsAsFixed(deviceId) {
+                const device = devices.get(deviceId);
+                const position = deviceRawGpsPosition(device);
+                if (!position) {
+                    alert('目前沒有可用的手機 GPS 座標');
+                    return;
+                }
+                const confirmed = window.confirm(`要將 ${deviceId} 目前 GPS 設為固定位置嗎？\n${formatPosition(position)}`);
+                if (!confirmed) return;
+                await saveDeviceLocation(deviceId, position.lat, position.lng, 'current_gps');
+            }
+
+            async function clearFixedLocation(deviceId) {
+                const confirmed = window.confirm(`確定清除 ${deviceId} 的固定位置嗎？清除後會回到使用事件 / 即時 GPS。`);
+                if (!confirmed) return;
+                try {
+                    await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+                    if (locationEdit?.deviceId === deviceId) {
+                        clearLocationEditObjects();
+                        locationEdit = null;
+                    }
+                    document.getElementById('systemStatus').textContent = `固定位置已清除：${deviceId}`;
+                    await refreshAll();
+                } catch (error) {
+                    document.getElementById('systemStatus').textContent = '固定位置清除失敗';
+                    alert(`固定位置清除失敗：${error}`);
+                }
+            }
+
             function simulateAlert(deviceId) {
                 const device = devices.get(deviceId);
                 if (!device) return;
                 const now = new Date();
                 const eventId = `simulated_${Date.now()}`;
+                const position = deviceEffectivePosition(device);
                 alertUntil.set(deviceId, Date.now() + alertDurationMs);
                 devices.set(deviceId, {
                     ...device,
@@ -7048,8 +7748,8 @@ def dashboard_v4_clean():
                     device_id: deviceId,
                     timestamp: now.toLocaleString('zh-TW', { hour12: false }),
                     created_at: now.toISOString(),
-                    latitude: device.latitude,
-                    longitude: device.longitude,
+                    latitude: position?.lat ?? device.latitude,
+                    longitude: position?.lng ?? device.longitude,
                     label: 'drone',
                     audio_path: null,
                     note: 'probability_aircraft=1.000000, confidence=1.000000, upload_mode=simulation',
@@ -7101,6 +7801,8 @@ def dashboard_v4_clean():
                     if (data.type === 'location_update') {
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
                         renderAll();
+                    } else if (data.type === 'device_location_updated') {
+                        refreshAll();
                     } else if (data.type === 'event_trigger') {
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });

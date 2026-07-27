@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from services.device_location_service import location_map, resolve_effective_location
 from services.region_localization import REGION_METHOD, estimate_region
 
 
@@ -555,7 +556,66 @@ def group_region_observations(cursor: Any, group_id: str, is_postgres: bool) -> 
         """,
         (group_id, FUSION_KIND),
     )
-    return fetchall_dict(cursor)
+    rows = fetchall_dict(cursor)
+    device_ids = [str(row.get("device_id") or "") for row in rows if row.get("device_id")]
+    fixed_locations = fixed_locations_for_devices(cursor, device_ids, is_postgres)
+    resolved_rows = []
+    for row in rows:
+        effective = resolve_effective_location(
+            device_id=row.get("device_id"),
+            event_latitude=row.get("latitude"),
+            event_longitude=row.get("longitude"),
+            fixed_locations=fixed_locations,
+        )
+        if effective:
+            resolved_rows.append(
+                {
+                    **row,
+                    "raw_latitude": row.get("latitude"),
+                    "raw_longitude": row.get("longitude"),
+                    "latitude": effective["latitude"],
+                    "longitude": effective["longitude"],
+                    "effective_location_source": effective[
+                        "effective_location_source"
+                    ],
+                }
+            )
+        else:
+            resolved_rows.append(
+                {
+                    **row,
+                    "raw_latitude": row.get("latitude"),
+                    "raw_longitude": row.get("longitude"),
+                    "latitude": None,
+                    "longitude": None,
+                    "effective_location_source": "none",
+                }
+            )
+    return resolved_rows
+
+
+def fixed_locations_for_devices(
+    cursor: Any,
+    device_ids: list[str],
+    is_postgres: bool,
+) -> dict[str, dict]:
+    unique_device_ids = sorted({device_id for device_id in device_ids if device_id})
+    if not unique_device_ids:
+        return {}
+
+    placeholders = ", ".join(["%s"] * len(unique_device_ids))
+    execute(
+        cursor,
+        is_postgres,
+        f"""
+        SELECT device_id, latitude, longitude, location_source,
+               accuracy_m, created_at, updated_at
+        FROM device_locations
+        WHERE device_id IN ({placeholders})
+        """,
+        tuple(unique_device_ids),
+    )
+    return location_map(fetchall_dict(cursor))
 
 
 def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
@@ -646,6 +706,41 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
         ),
     )
     return region
+
+
+def active_group_ids_for_device(
+    cursor: Any,
+    device_id: str,
+    is_postgres: bool,
+) -> list[str]:
+    execute(
+        cursor,
+        is_postgres,
+        """
+        SELECT DISTINCT o.group_id
+        FROM event_group_observations o
+        JOIN event_groups g ON g.id = o.group_id
+        WHERE o.device_id = %s
+          AND COALESCE(o.observation_kind, 'target_estimate') = %s
+          AND COALESCE(g.group_kind, 'target_estimate') = %s
+          AND UPPER(COALESCE(g.status, %s)) = %s
+        """,
+        (device_id, FUSION_KIND, FUSION_KIND, ACTIVE_STATUS, ACTIVE_STATUS),
+    )
+    return [str(row["group_id"]) for row in fetchall_dict(cursor) if row.get("group_id")]
+
+
+def recompute_active_regions_for_device(
+    connection: Any,
+    device_id: str,
+    is_postgres: bool,
+) -> list[dict]:
+    with open_cursor(connection) as cursor:
+        group_ids = active_group_ids_for_device(cursor, device_id, is_postgres)
+        return [
+            update_group_rollup(cursor, group_id, is_postgres)
+            for group_id in group_ids
+        ]
 
 
 def update_existing_observation_snapshot(
