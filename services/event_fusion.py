@@ -17,6 +17,9 @@ LOCAL_EVENT_TIME_FORMATS = (
     "%Y/%m/%d %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
 )
+DEFAULT_EPISODE_HOLD_SECONDS = 15.0
+DEFAULT_LATE_ATTACH_SECONDS = 12.0
+MAX_DYNAMIC_WINDOW_SECONDS = 15.0
 TIMING_METADATA_FIELDS = [
     "timing_version",
     "timing_source",
@@ -142,6 +145,16 @@ def parse_int(value: Any) -> Optional[int]:
     return int(round(number))
 
 
+def epoch_ms_to_datetime(value: Any) -> Optional[datetime]:
+    milliseconds = parse_float(value)
+    if milliseconds is None:
+        return None
+    try:
+        return datetime.fromtimestamp(milliseconds / 1000.0, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def ai_probability_from_event(event_record: dict) -> Optional[float]:
     for key in ("ai_probability", "aircraft_probability", "probability_aircraft"):
         probability = parse_float(event_record.get(key))
@@ -158,11 +171,51 @@ def ai_probability_from_event(event_record: dict) -> Optional[float]:
 
 def event_timestamp(event_record: dict) -> datetime:
     parsed = (
-        parse_datetime(event_record.get("timestamp"))
+        epoch_ms_to_datetime(event_record.get("corrected_arrival_time_ms"))
+        or epoch_ms_to_datetime(event_record.get("rms_peak_time_ms"))
+        or epoch_ms_to_datetime(event_record.get("device_event_time_ms"))
+        or parse_datetime(event_record.get("timestamp"))
         or parse_datetime(event_record.get("created_at"))
         or datetime.now(timezone.utc)
     )
     return parsed
+
+
+def dynamic_fusion_window_seconds(
+    event_record: dict,
+    base_window_seconds: float,
+) -> float:
+    base_window = max(1.0, float(base_window_seconds or 1.0))
+    quality = str(event_record.get("time_sync_quality") or "").strip().lower()
+    rtt_ms = parse_float(event_record.get("time_sync_rtt_ms"))
+    sync_age_ms = parse_float(event_record.get("time_sync_age_ms"))
+    duration_seconds = (parse_float(event_record.get("audio_duration_ms")) or 0.0) / 1000.0
+
+    if quality in {"excellent", "good"}:
+        window = max(base_window, 3.0)
+    elif quality in {"fair", "degraded"}:
+        window = max(base_window, 6.0)
+    elif quality in {"poor", "bad"}:
+        window = max(base_window, 10.0)
+    else:
+        window = max(base_window, 10.0)
+
+    if rtt_ms is not None:
+        if rtt_ms > 500:
+            window += 4.0
+        elif rtt_ms > 200:
+            window += 2.0
+
+    if sync_age_ms is not None:
+        if sync_age_ms > 300_000:
+            window += 4.0
+        elif sync_age_ms > 120_000:
+            window += 2.0
+
+    if duration_seconds > 0:
+        window = max(window, min(MAX_DYNAMIC_WINDOW_SECONDS, duration_seconds + 2.0))
+
+    return min(MAX_DYNAMIC_WINDOW_SECONDS, window)
 
 
 def db_time(value: datetime, is_postgres: bool) -> Any:
@@ -219,12 +272,27 @@ def close_stale_groups(
     event_time: datetime,
     window_seconds: float,
     is_postgres: bool,
+    exclude_group_id: Optional[str] = None,
 ) -> None:
     cutoff = event_time - timedelta(seconds=window_seconds)
+    exclude_clause = ""
+    params: list[Any] = [
+        CLOSED_STATUS,
+        db_time(datetime.now(timezone.utc), is_postgres),
+        FUSION_KIND,
+        ACTIVE_STATUS,
+        ACTIVE_STATUS,
+        label,
+        db_time(cutoff, is_postgres),
+    ]
+    if exclude_group_id:
+        exclude_clause = " AND id <> %s"
+        params.append(exclude_group_id)
+
     execute(
         cursor,
         is_postgres,
-        """
+        f"""
         UPDATE event_groups
         SET status = %s,
             updated_at = %s
@@ -232,16 +300,9 @@ def close_stale_groups(
           AND COALESCE(status, %s) = %s
           AND COALESCE(label, group_label) = %s
           AND COALESCE(last_event_time, end_time) < %s
+          {exclude_clause}
         """,
-        (
-            CLOSED_STATUS,
-            db_time(datetime.now(timezone.utc), is_postgres),
-            FUSION_KIND,
-            ACTIVE_STATUS,
-            ACTIVE_STATUS,
-            label,
-            db_time(cutoff, is_postgres),
-        ),
+        tuple(params),
     )
 
 
@@ -269,15 +330,45 @@ def observation_group_for_event(
     return group_payload(cursor, row, is_postgres)
 
 
+def interval_distance_seconds(row: dict, event_time: datetime) -> float:
+    first_time = parse_datetime(
+        row.get("first_event_time")
+        or row.get("start_time")
+        or row.get("last_event_time")
+        or row.get("end_time")
+    )
+    last_time = parse_datetime(
+        row.get("last_event_time")
+        or row.get("end_time")
+        or row.get("first_event_time")
+        or row.get("start_time")
+    )
+    if first_time is None and last_time is None:
+        return float("inf")
+    if first_time is None:
+        first_time = last_time
+    if last_time is None:
+        last_time = first_time
+    if last_time < first_time:
+        first_time, last_time = last_time, first_time
+    if first_time <= event_time <= last_time:
+        return 0.0
+    if event_time < first_time:
+        return (first_time - event_time).total_seconds()
+    return (event_time - last_time).total_seconds()
+
+
 def find_candidate_group(
     cursor: Any,
     label: str,
     event_time: datetime,
     window_seconds: float,
     is_postgres: bool,
+    late_attach_seconds: float = DEFAULT_LATE_ATTACH_SECONDS,
 ) -> Optional[dict]:
-    start = event_time - timedelta(seconds=window_seconds)
-    end = event_time + timedelta(seconds=window_seconds)
+    search_seconds = max(window_seconds, late_attach_seconds)
+    start = event_time - timedelta(seconds=search_seconds)
+    end = event_time + timedelta(seconds=search_seconds)
     lock_clause = "FOR UPDATE" if is_postgres else ""
     execute(
         cursor,
@@ -286,32 +377,35 @@ def find_candidate_group(
         SELECT *
         FROM event_groups
         WHERE COALESCE(group_kind, 'target_estimate') = %s
-          AND COALESCE(status, %s) = %s
           AND COALESCE(label, group_label) = %s
-          AND COALESCE(last_event_time, end_time) >= %s
-          AND COALESCE(last_event_time, end_time) <= %s
+          AND COALESCE(last_event_time, end_time, updated_at) >= %s
+          AND COALESCE(first_event_time, start_time, last_event_time, end_time, updated_at) <= %s
         {lock_clause}
         """,
         (
             FUSION_KIND,
-            ACTIVE_STATUS,
-            ACTIVE_STATUS,
             label,
             db_time(start, is_postgres),
             db_time(end, is_postgres),
         ),
     )
-    candidates = fetchall_dict(cursor)
+    candidates = []
+    for row in fetchall_dict(cursor):
+        status = str(row.get("status") or ACTIVE_STATUS).upper()
+        distance_seconds = interval_distance_seconds(row, event_time)
+        allowed_seconds = late_attach_seconds if status == CLOSED_STATUS else window_seconds
+        if distance_seconds <= allowed_seconds:
+            candidates.append(row)
     if not candidates:
         return None
 
-    def distance(row: dict) -> float:
-        group_time = parse_datetime(row.get("last_event_time") or row.get("end_time"))
-        if group_time is None:
-            return float("inf")
-        return abs((event_time - group_time).total_seconds())
+    def score(row: dict) -> tuple[float, int, int]:
+        status = str(row.get("status") or ACTIVE_STATUS).upper()
+        active_penalty = 0 if status == ACTIVE_STATUS else 1
+        node_count = int(row.get("node_count") or 0)
+        return (interval_distance_seconds(row, event_time), active_penalty, -node_count)
 
-    return min(candidates, key=distance)
+    return min(candidates, key=score)
 
 
 def create_group(
@@ -486,7 +580,12 @@ def insert_observation(
     return cursor.rowcount > 0
 
 
-def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
+def update_group_rollup(
+    cursor: Any,
+    group_id: str,
+    is_postgres: bool,
+    mark_active: bool = False,
+) -> dict:
     execute(
         cursor,
         is_postgres,
@@ -503,10 +602,22 @@ def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
     )
     rollup = fetchone_dict(cursor) or {}
     now = datetime.now(timezone.utc)
+    status_sql = ", status = %s" if mark_active else ""
+    params: list[Any] = [
+        rollup.get("first_event_time"),
+        rollup.get("last_event_time"),
+        rollup.get("first_event_time"),
+        rollup.get("last_event_time"),
+        int(rollup.get("node_count") or 0),
+        db_time(now, is_postgres),
+    ]
+    if mark_active:
+        params.append(ACTIVE_STATUS)
+    params.append(group_id)
     execute(
         cursor,
         is_postgres,
-        """
+        f"""
         UPDATE event_groups
         SET first_event_time = %s,
             last_event_time = %s,
@@ -514,17 +625,10 @@ def update_group_rollup(cursor: Any, group_id: str, is_postgres: bool) -> dict:
             end_time = %s,
             node_count = %s,
             updated_at = %s
+            {status_sql}
         WHERE id = %s
         """,
-        (
-            rollup.get("first_event_time"),
-            rollup.get("last_event_time"),
-            rollup.get("first_event_time"),
-            rollup.get("last_event_time"),
-            int(rollup.get("node_count") or 0),
-            db_time(now, is_postgres),
-            group_id,
-        ),
+        tuple(params),
     )
     update_group_region(cursor, group_id, is_postgres)
     execute(
@@ -905,18 +1009,34 @@ def process_event(
 
     label = normalize_label(event_record.get("label"))
     event_time = event_timestamp(event_record)
+    fusion_window_seconds = dynamic_fusion_window_seconds(event_record, window_seconds)
+    late_attach_seconds = max(DEFAULT_LATE_ATTACH_SECONDS, fusion_window_seconds)
+    episode_hold_seconds = max(DEFAULT_EPISODE_HOLD_SECONDS, late_attach_seconds)
 
     with open_cursor(connection) as cursor:
         lock_fusion_label(cursor, label, is_postgres)
-        close_stale_groups(cursor, label, event_time, window_seconds, is_postgres)
 
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
         if existing_group:
             update_existing_observation_snapshot(cursor, event_record, is_postgres)
             return update_group_rollup(cursor, existing_group["id"], is_postgres)
 
-        group = find_candidate_group(cursor, label, event_time, window_seconds, is_postgres)
+        group = find_candidate_group(
+            cursor,
+            label,
+            event_time,
+            fusion_window_seconds,
+            is_postgres,
+            late_attach_seconds=late_attach_seconds,
+        )
         if not group:
+            close_stale_groups(
+                cursor,
+                label,
+                event_time,
+                episode_hold_seconds,
+                is_postgres,
+            )
             group = create_group(cursor, label, event_time, is_postgres)
 
         inserted = insert_observation(
@@ -930,7 +1050,21 @@ def process_event(
         if not inserted:
             return observation_group_for_event(cursor, event_id, is_postgres)
 
-        return update_group_rollup(cursor, group["id"], is_postgres)
+        updated_group = update_group_rollup(
+            cursor,
+            group["id"],
+            is_postgres,
+            mark_active=True,
+        )
+        close_stale_groups(
+            cursor,
+            label,
+            event_time,
+            episode_hold_seconds,
+            is_postgres,
+            exclude_group_id=group["id"],
+        )
+        return updated_group
 
 
 def list_event_groups(

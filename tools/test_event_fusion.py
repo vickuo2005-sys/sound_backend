@@ -402,12 +402,12 @@ def run_service_tests() -> None:
 
     group2 = process_event(
         connection,
-        add_event(connection, "evt_a04_008", "node_A04", "aircraft", base + timedelta(seconds=8)),
+        add_event(connection, "evt_a04_020", "node_A04", "aircraft", base + timedelta(seconds=20)),
         is_postgres=False,
         window_seconds=3,
     )
     if group2["id"] == group1["id"]:
-        raise AssertionError("Test 6 expected a new group after fusion window")
+        raise AssertionError("Test 6 expected a new group after episode hold window")
 
     other_group = process_event(
         connection,
@@ -473,6 +473,36 @@ def run_service_tests() -> None:
         int(base.timestamp() * 1000) + 12.5,
         "Test 13 corrected arrival copied",
     )
+
+    late_connection = make_connection()
+    late_first = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a01", "node_A01", "aircraft", base),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a02", "node_A02", "aircraft", base + timedelta(seconds=1)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    late_newer = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a04", "node_A04", "aircraft", base + timedelta(seconds=20)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    if late_newer["id"] == late_first["id"]:
+        raise AssertionError("Test 14 expected later episode to split")
+    late_arrival = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a03", "node_A03", "aircraft", base + timedelta(seconds=2)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(late_arrival["id"], late_first["id"], "Test 14 late observation group id")
+    assert_equal(late_arrival["node_count"], 3, "Test 14 late observation node_count")
 
 
 def run_route_failure_test() -> None:
