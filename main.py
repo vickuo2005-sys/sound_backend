@@ -7,6 +7,7 @@ import sqlite3
 import asyncio
 import csv
 import secrets
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import StringIO
@@ -57,6 +58,9 @@ app = FastAPI()
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
+_postgres_pool: Any = None
+_postgres_pool_database_url = ""
+_postgres_pool_lock = threading.Lock()
 EVENT_FUSION_WINDOW_SECONDS = float(os.getenv("EVENT_FUSION_WINDOW_SECONDS", "3") or 3)
 EVENT_GROUP_WINDOW_SECONDS = EVENT_FUSION_WINDOW_SECONDS
 TARGET_ESTIMATE_METHOD = "weighted_centroid"
@@ -580,14 +584,68 @@ def require_postgres() -> None:
         )
 
 
-def get_postgres_connection():
-    import psycopg2
-    import psycopg2.extras
+class PooledPostgresConnection:
+    def __init__(self, pool: Any, connection: Any) -> None:
+        self._pool = pool
+        self._connection = connection
+        self._returned = False
 
-    return psycopg2.connect(
-        get_database_url(),
-        cursor_factory=psycopg2.extras.RealDictCursor,
-    )
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connection, name)
+
+    def __enter__(self) -> "PooledPostgresConnection":
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Any:
+        return self._connection.__exit__(exc_type, exc, tb)
+
+    def cursor(self, *args: Any, **kwargs: Any) -> Any:
+        return self._connection.cursor(*args, **kwargs)
+
+    def close(self) -> None:
+        if self._returned:
+            return
+        self._returned = True
+        should_close = bool(getattr(self._connection, "closed", 0))
+        self._pool.putconn(self._connection, close=should_close)
+
+
+def get_postgres_pool() -> Any:
+    global _postgres_pool, _postgres_pool_database_url
+
+    database_url = get_database_url()
+    minconn = max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1))
+    maxconn = max(minconn, int(os.getenv("POSTGRES_POOL_MAX", "5") or 5))
+    connect_timeout = max(1, int(os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10") or 10))
+
+    with _postgres_pool_lock:
+        if _postgres_pool is None or _postgres_pool_database_url != database_url:
+            if _postgres_pool is not None:
+                _postgres_pool.closeall()
+
+            import psycopg2.extras
+            import psycopg2.pool
+
+            _postgres_pool = psycopg2.pool.ThreadedConnectionPool(
+                minconn=minconn,
+                maxconn=maxconn,
+                dsn=database_url,
+                cursor_factory=psycopg2.extras.RealDictCursor,
+                connect_timeout=connect_timeout,
+            )
+            _postgres_pool_database_url = database_url
+
+        return _postgres_pool
+
+
+def get_postgres_connection() -> PooledPostgresConnection:
+    pool = get_postgres_pool()
+    connection = pool.getconn()
+    if getattr(connection, "closed", 0):
+        pool.putconn(connection, close=True)
+        connection = pool.getconn()
+    return PooledPostgresConnection(pool, connection)
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
@@ -5494,6 +5552,65 @@ def build_audio_path(
 init_db()
 
 
+def process_event_submission(event: SoundEvent) -> dict:
+    existing_event = get_event_by_event_id(event.event_id)
+    created_at = current_time_iso()
+    db_id = save_event(event, created_at)
+    device_row = None
+    event_group = None
+    localization_package = None
+
+    try:
+        event_group = process_event_fusion_for_event(event.event_id)
+    except Exception:
+        logger.exception("Event fusion failed for event_id=%s", event.event_id)
+
+    is_existing_event = existing_event is not None
+
+    if is_alert_event_label(event.label) and not is_existing_event:
+        device_row = upsert_device_event_status(event)
+
+    if event_group and LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
+        try:
+            localization_package = process_event_group_localization(event_group["id"])
+        except Exception:
+            logger.exception(
+                "Localization failed for event_group=%s",
+                event_group.get("id"),
+            )
+
+    return {
+        "db_id": db_id,
+        "device_row": device_row,
+        "event_group": event_group,
+        "localization_package": localization_package,
+        "is_existing_event": is_existing_event,
+    }
+
+
+def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
+    device_row = upsert_device_location(
+        device_id=location.device_id,
+        latitude=location.latitude,
+        longitude=location.longitude,
+        is_listening=location.is_listening,
+        upload_mode=location.upload_mode,
+        battery=location.battery,
+        ai_status=location.ai_status,
+        backend_status=location.backend_status,
+        app_status=location.app_status,
+        last_ai_label=location.last_ai_label,
+        last_upload_status=location.last_upload_status,
+        time_sync_offset_ms=location.time_sync_offset_ms,
+        time_sync_rtt_ms=location.time_sync_rtt_ms,
+        time_sync_quality=location.time_sync_quality,
+        time_sync_at=location.time_sync_at,
+        last_time_sync_at=location.last_time_sync_at,
+    )
+    enriched_device_row = enrich_device_status_rows([device_row])[0]
+    return device_row, enriched_device_row
+
+
 @app.get("/")
 def root():
     return {
@@ -5535,22 +5652,12 @@ async def create_event(
     sanitize_timing_metadata(event)
     sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
-    existing_event = get_event_by_event_id(event.event_id)
-    created_at = current_time_iso()
-    db_id = save_event(event, created_at)
-    device_row = None
-    event_group = None
-    localization_package = None
-
-    try:
-        event_group = process_event_fusion_for_event(event.event_id)
-    except Exception:
-        logger.exception("Event fusion failed for event_id=%s", event.event_id)
-
-    is_existing_event = existing_event is not None
-
-    if is_alert_event_label(event.label) and not is_existing_event:
-        device_row = upsert_device_event_status(event)
+    result = await asyncio.to_thread(process_event_submission, event)
+    db_id = result["db_id"]
+    device_row = result["device_row"]
+    event_group = result["event_group"]
+    localization_package = result["localization_package"]
+    is_existing_event = result["is_existing_event"]
 
     if device_row:
         await dashboard_manager.broadcast(
@@ -5573,15 +5680,6 @@ async def create_event(
                 "group": event_group,
             }
         )
-        if LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
-            try:
-                localization_package = process_event_group_localization(event_group["id"])
-            except Exception:
-                logger.exception(
-                    "Localization failed for event_group=%s",
-                    event_group.get("id"),
-                )
-
     if localization_package and localization_package.get("localization"):
         await dashboard_manager.broadcast(
             {
@@ -5773,25 +5871,10 @@ def list_events():
 
 @app.post("/location-update")
 async def update_location(location: LocationUpdate):
-    device_row = upsert_device_location(
-        device_id=location.device_id,
-        latitude=location.latitude,
-        longitude=location.longitude,
-        is_listening=location.is_listening,
-        upload_mode=location.upload_mode,
-        battery=location.battery,
-        ai_status=location.ai_status,
-        backend_status=location.backend_status,
-        app_status=location.app_status,
-        last_ai_label=location.last_ai_label,
-        last_upload_status=location.last_upload_status,
-        time_sync_offset_ms=location.time_sync_offset_ms,
-        time_sync_rtt_ms=location.time_sync_rtt_ms,
-        time_sync_quality=location.time_sync_quality,
-        time_sync_at=location.time_sync_at,
-        last_time_sync_at=location.last_time_sync_at,
+    device_row, enriched_device_row = await asyncio.to_thread(
+        process_location_update,
+        location,
     )
-    enriched_device_row = enrich_device_status_rows([device_row])[0]
 
     await dashboard_manager.broadcast(
         {
