@@ -6567,14 +6567,28 @@ def dashboard_v4_clean():
                 --target: #f59e0b;
             }
             * { box-sizing: border-box; }
+            html {
+                height: 100%;
+                overflow: hidden;
+            }
             body {
                 margin: 0;
                 font-family: Arial, "Noto Sans TC", sans-serif;
                 background: #0f1115;
                 color: var(--text);
-                min-height: 100vh;
+                height: 100dvh;
                 overflow: hidden;
+                display: grid;
+                grid-template-rows: 74px 88px minmax(0, 1fr);
             }
+            ::-webkit-scrollbar { width: 9px; height: 9px; }
+            ::-webkit-scrollbar-track { background: transparent; }
+            ::-webkit-scrollbar-thumb {
+                background: #465160;
+                border: 2px solid #171a20;
+                border-radius: 999px;
+            }
+            ::-webkit-scrollbar-thumb:hover { background: #657285; }
             header {
                 display: flex;
                 align-items: center;
@@ -6636,8 +6650,8 @@ def dashboard_v4_clean():
                 grid-template-rows: minmax(0, 1fr) 210px;
                 gap: 12px;
                 padding: 0 16px 16px;
-                height: calc(100vh - 162px);
-                min-height: 560px;
+                height: 100%;
+                min-height: 0;
                 overflow: hidden;
             }
             .panel {
@@ -6645,10 +6659,20 @@ def dashboard_v4_clean():
                 min-height: 0;
                 display: flex;
                 flex-direction: column;
+                contain: layout paint;
             }
-            .panel-body { padding: 12px; min-height: 0; overflow: auto; }
-            .scroll { flex: 1; max-height: none; overflow-y: auto; }
-            .right-scroll { flex: 1; max-height: none; overflow-y: auto; }
+            .panel-body {
+                padding: 12px;
+                min-height: 0;
+                overflow: auto;
+                scrollbar-gutter: stable;
+            }
+            .scroll, .right-scroll {
+                flex: 1;
+                max-height: none;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+            }
             .map-panel { min-height: 0; grid-column: 2; grid-row: 1; }
             #map {
                 height: 100%;
@@ -6688,6 +6712,8 @@ def dashboard_v4_clean():
             .node-card {
                 padding: 11px;
                 margin-bottom: 9px;
+                content-visibility: auto;
+                contain-intrinsic-size: 260px;
             }
             .node-card.online { border-color: #196646; }
             .node-title, .event-title {
@@ -6802,6 +6828,8 @@ def dashboard_v4_clean():
                 padding: 11px;
                 margin-bottom: 9px;
                 cursor: pointer;
+                content-visibility: auto;
+                contain-intrinsic-size: 88px;
             }
             .event-row.target { border-color: #a77716; }
             .event-row.selected { border-color: var(--accent); background: #132335; }
@@ -6867,7 +6895,8 @@ def dashboard_v4_clean():
                 margin-top: 8px;
             }
             @media (max-width: 1250px) {
-                body { overflow: auto; }
+                html, body { height: auto; overflow: auto; }
+                body { display: block; }
                 .layout {
                     height: auto;
                     overflow: visible;
@@ -6884,7 +6913,8 @@ def dashboard_v4_clean():
                 }
             }
             @media (max-width: 820px) {
-                body { overflow: auto; }
+                html, body { height: auto; overflow: auto; }
+                body { display: block; }
                 header { align-items: flex-start; flex-direction: column; }
                 header, .topbar { height: auto; }
                 .topbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -7197,12 +7227,16 @@ def dashboard_v4_clean():
             }
 
             async function fetchJson(url, fallback) {
+                const controller = new AbortController();
+                const timeout = window.setTimeout(() => controller.abort(), 7000);
                 try {
-                    const response = await fetch(url, { cache: 'no-store' });
+                    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
                     if (!response.ok) return fallback;
                     return await response.json();
                 } catch (_) {
                     return fallback;
+                } finally {
+                    window.clearTimeout(timeout);
                 }
             }
 
@@ -7211,29 +7245,39 @@ def dashboard_v4_clean():
                 isRefreshing = true;
                 try {
                     const [statusData, eventsData, groupsData] = await Promise.all([
-                        fetchJson('/device-status', { devices: [] }),
-                        fetchJson('/events', { events: [] }),
-                        fetchJson('/event-groups?limit=8', { event_groups: [] }),
+                        fetchJson('/device-status', null),
+                        fetchJson('/events', null),
+                        fetchJson('/event-groups?limit=8', null),
                     ]);
 
-                    devices.clear();
-                    (statusData.devices || [])
-                        .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
-                        .forEach(device => devices.set(device.device_id, device));
-
-                    events.splice(0, events.length, ...(eventsData.events || []));
-
-                    eventGroups.clear();
-                    (groupsData.event_groups || []).forEach(group => {
-                        if (group.id) eventGroups.set(group.id, group);
-                    });
-
-                    estimates.clear();
-                    (groupsData.event_groups || []).forEach(group => {
-                        if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
-                            estimates.set(String(group.id), group);
+                    if (Array.isArray(statusData?.devices)) {
+                        const nextDevices = new Map();
+                        statusData.devices
+                            .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                            .forEach(device => nextDevices.set(device.device_id, device));
+                        if (nextDevices.size > 0 || devices.size === 0) {
+                            devices.clear();
+                            nextDevices.forEach((device, deviceId) => devices.set(deviceId, device));
                         }
-                    });
+                    }
+
+                    if (Array.isArray(eventsData?.events)) {
+                        events.splice(0, events.length, ...eventsData.events);
+                    }
+
+                    if (Array.isArray(groupsData?.event_groups)) {
+                        eventGroups.clear();
+                        groupsData.event_groups.forEach(group => {
+                            if (group.id) eventGroups.set(group.id, group);
+                        });
+
+                        estimates.clear();
+                        groupsData.event_groups.forEach(group => {
+                            if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                                estimates.set(String(group.id), group);
+                            }
+                        });
+                    }
 
                     renderStaticViews();
                 } finally {
