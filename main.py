@@ -3339,6 +3339,7 @@ def upsert_device_location(
     last_time_sync_at: Optional[str] = None,
 ) -> dict:
     alert_hold_seconds = max(0.0, NODE_ALERT_HOLD_SECONDS)
+    postgres_alert_interval = f"{alert_hold_seconds:.3f} seconds"
     normalized_time_sync_quality = normalize_time_sync_quality(
         time_sync_quality,
         time_sync_rtt_ms,
@@ -3474,7 +3475,7 @@ def upsert_device_location(
                         last_seen = now(),
                         status = CASE
                             WHEN device_status.last_event_at IS NOT NULL
-                             AND device_status.last_event_at >= now() - (%s * INTERVAL '1 second')
+                             AND device_status.last_event_at >= now() - INTERVAL '{postgres_alert_interval}'
                             THEN 'event'
                             ELSE 'online'
                         END,
@@ -3512,7 +3513,6 @@ def upsert_device_location(
                         normalized_time_sync_quality,
                         parsed_time_sync_at,
                         parsed_time_sync_at,
-                        alert_hold_seconds,
                     ),
                 )
                 row = cursor.fetchone()
