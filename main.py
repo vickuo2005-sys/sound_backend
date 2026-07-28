@@ -6676,6 +6676,9 @@ def dashboard_v4_clean():
                 flex-direction: column;
                 contain: layout paint;
             }
+            .panel:has(#eventGroupList) {
+                display: none !important;
+            }
             .panel-body {
                 padding: 12px;
                 min-height: 0;
@@ -6720,7 +6723,7 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 150px minmax(145px, 1fr) minmax(145px, 1fr) minmax(145px, 1fr);
+                grid-template-rows: 150px minmax(145px, 1fr) minmax(145px, 1fr);
                 gap: 12px;
                 min-height: 0;
             }
@@ -8221,6 +8224,9 @@ def dashboard_legacy_unused():
                 padding: 0 16px 16px;
             }
             .panel { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+            .panel:has(#eventGroupList) {
+                display: none !important;
+            }
             .side-stack {
                 min-height: 0;
                 display: flex;
@@ -8235,7 +8241,6 @@ def dashboard_legacy_unused():
             }
             .side-stack .audio-panel { min-height: 156px; }
             .side-stack .alert-panel { min-height: 190px; }
-            .side-stack .event-groups-panel { min-height: 330px; }
             .side-stack .target-panel { min-height: 230px; }
             .panel h2 {
                 font-size: 15px;
