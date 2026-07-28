@@ -7192,8 +7192,8 @@ def dashboard_v4_clean():
                 dashboardStarted = true;
                 refreshAll();
                 connectDashboardSocket();
-                setInterval(refreshAll, 10000);
-                setInterval(renderLiveEffects, 1000);
+                setInterval(refreshAll, 5000);
+                setInterval(renderLiveEffects, 500);
             }
 
             async function fetchJson(url, fallback) {
@@ -7327,45 +7327,76 @@ def dashboard_v4_clean():
                 }).join('');
             }
 
-            function renderMap() {
-                if (!map || !window.google) return;
-                const visibleIds = new Set();
-                visibleDevices().forEach(device => {
-                    const position = deviceEffectivePosition(device);
-                    if (!position) return;
-                    visibleIds.add(device.device_id);
-                    const active = isAlertActive(device.device_id);
-                    const options = {
-                        position,
-                        map,
-                        title: `${device.device_id}`,
-                        label: {
-                            text: shortDeviceLabel(device.device_id),
-                            color: '#111827',
-                            fontWeight: '800',
-                            fontSize: '13px',
-                        },
-                        icon: getMarkerSymbol(device),
-                    };
-                    let marker = markers.get(device.device_id);
-                    if (!marker) {
-                        marker = new google.maps.Marker(options);
-                        marker.addListener('click', () => showDeviceInfo(devices.get(device.device_id) || device));
-                        markers.set(device.device_id, marker);
-                    } else {
-                        marker.setOptions(options);
+            function markerOptionsForDevice(device) {
+                const position = deviceEffectivePosition(device);
+                if (!position) return null;
+                return {
+                    position,
+                    map,
+                    title: `${device.device_id}`,
+                    label: {
+                        text: shortDeviceLabel(device.device_id),
+                        color: '#111827',
+                        fontWeight: '800',
+                        fontSize: '13px',
+                    },
+                    icon: getMarkerSymbol(device),
+                };
+            }
+
+            function updateDeviceMarker(device) {
+                if (!map || !window.google || !device?.device_id || isDiagnosticDevice(device.device_id)) return;
+                const options = markerOptionsForDevice(device);
+                let marker = markers.get(device.device_id);
+                if (!options) {
+                    if (marker) {
+                        marker.setMap(null);
+                        markers.delete(device.device_id);
                     }
-                    if (active) {
-                        const until = alertUntil.get(device.device_id);
-                        if (!until || Date.now() >= until) marker.setOptions({ icon: getMarkerSymbol(device) });
-                    }
-                });
+                    return;
+                }
+                if (!marker) {
+                    marker = new google.maps.Marker(options);
+                    marker.addListener('click', () => showDeviceInfo(devices.get(device.device_id) || device));
+                    markers.set(device.device_id, marker);
+                } else {
+                    marker.setOptions(options);
+                }
+            }
+
+            function cleanupHiddenMarkers() {
+                const visibleIds = new Set(visibleDevices().map(device => device.device_id));
                 markers.forEach((marker, deviceId) => {
                     if (!visibleIds.has(deviceId)) {
                         marker.setMap(null);
                         markers.delete(deviceId);
                     }
                 });
+            }
+
+            function refreshMarkerAnimations() {
+                if (!map || !window.google) return;
+                markers.forEach((marker, deviceId) => {
+                    const device = devices.get(deviceId);
+                    if (!device) return;
+                    const options = markerOptionsForDevice(device);
+                    if (options) marker.setIcon(options.icon);
+                });
+                updateEstimateVisibility();
+            }
+
+            function updateEstimateVisibility() {
+                if (selectedEstimateId) return;
+                const latest = latestEstimate();
+                if (!latest || !estimateIsFresh(latest)) {
+                    clearEstimateObjects(false);
+                }
+            }
+
+            function renderMap() {
+                if (!map || !window.google) return;
+                visibleDevices().forEach(updateDeviceMarker);
+                cleanupHiddenMarkers();
                 renderEstimateOnMap();
             }
 
@@ -7668,7 +7699,7 @@ def dashboard_v4_clean():
 
             function renderLiveEffects() {
                 renderSummary();
-                renderMap();
+                refreshMarkerAnimations();
             }
 
             function renderAll() {
@@ -7948,12 +7979,31 @@ def dashboard_v4_clean():
                     if (data.device_id && isDiagnosticDevice(data.device_id)) return;
                     if (data.type === 'location_update') {
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
-                        renderLiveEffects();
+                        renderSummary();
+                        updateDeviceMarker(devices.get(data.device_id));
                     } else if (data.type === 'device_location_updated') {
                         refreshAll();
                     } else if (data.type === 'event_trigger') {
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
+                        if (data.event_id && !events.some(item => item.event_id === data.event_id)) {
+                            events.unshift({
+                                event_id: data.event_id,
+                                device_id: data.device_id,
+                                timestamp: data.last_event_at || new Date().toISOString(),
+                                created_at: data.last_event_at || new Date().toISOString(),
+                                latitude: data.latitude,
+                                longitude: data.longitude,
+                                rms_peak: data.rms_peak,
+                                label: 'aircraft',
+                                audio_path: null,
+                                note: 'event_trigger_pending_refresh',
+                            });
+                        }
+                        renderSummary();
+                        updateDeviceMarker(devices.get(data.device_id));
+                        renderAlerts();
+                        renderTimeline();
                         refreshAll();
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
