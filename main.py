@@ -6901,6 +6901,7 @@ def dashboard_v4_clean():
             let locationEditMarker = null;
             let locationEditMapClickListener = null;
             const openLocationPanels = new Set();
+            let isRefreshing = false;
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : String(value);
@@ -7108,8 +7109,8 @@ def dashboard_v4_clean():
                 dashboardStarted = true;
                 refreshAll();
                 connectDashboardSocket();
-                setInterval(refreshAll, 5000);
-                setInterval(renderAll, 1000);
+                setInterval(refreshAll, 10000);
+                setInterval(renderLiveEffects, 1000);
             }
 
             async function fetchJson(url, fallback) {
@@ -7123,32 +7124,38 @@ def dashboard_v4_clean():
             }
 
             async function refreshAll() {
-                const [statusData, eventsData, groupsData] = await Promise.all([
-                    fetchJson('/device-status', { devices: [] }),
-                    fetchJson('/events', { events: [] }),
-                    fetchJson('/event-groups?limit=8', { event_groups: [] }),
-                ]);
+                if (isRefreshing) return;
+                isRefreshing = true;
+                try {
+                    const [statusData, eventsData, groupsData] = await Promise.all([
+                        fetchJson('/device-status', { devices: [] }),
+                        fetchJson('/events', { events: [] }),
+                        fetchJson('/event-groups?limit=8', { event_groups: [] }),
+                    ]);
 
-                devices.clear();
-                (statusData.devices || [])
-                    .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
-                    .forEach(device => devices.set(device.device_id, device));
+                    devices.clear();
+                    (statusData.devices || [])
+                        .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                        .forEach(device => devices.set(device.device_id, device));
 
-                events.splice(0, events.length, ...(eventsData.events || []));
+                    events.splice(0, events.length, ...(eventsData.events || []));
 
-                eventGroups.clear();
-                (groupsData.event_groups || []).forEach(group => {
-                    if (group.id) eventGroups.set(group.id, group);
-                });
+                    eventGroups.clear();
+                    (groupsData.event_groups || []).forEach(group => {
+                        if (group.id) eventGroups.set(group.id, group);
+                    });
 
-                estimates.clear();
-                (groupsData.event_groups || []).forEach(group => {
-                    if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
-                        estimates.set(String(group.id), group);
-                    }
-                });
+                    estimates.clear();
+                    (groupsData.event_groups || []).forEach(group => {
+                        if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                            estimates.set(String(group.id), group);
+                        }
+                    });
 
-                renderAll();
+                    renderStaticViews();
+                } finally {
+                    isRefreshing = false;
+                }
             }
 
             function renderSummary() {
@@ -7566,7 +7573,7 @@ def dashboard_v4_clean():
                 `).join('');
             }
 
-            function renderAll() {
+            function renderStaticViews() {
                 renderSummary();
                 renderNodes();
                 renderMap();
@@ -7574,6 +7581,15 @@ def dashboard_v4_clean():
                 renderTargetEstimates();
                 renderEventGroups();
                 renderTimeline();
+            }
+
+            function renderLiveEffects() {
+                renderSummary();
+                renderMap();
+            }
+
+            function renderAll() {
+                renderStaticViews();
             }
 
             function setFilter(filter) {
@@ -7849,7 +7865,7 @@ def dashboard_v4_clean():
                     if (data.device_id && isDiagnosticDevice(data.device_id)) return;
                     if (data.type === 'location_update') {
                         devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
-                        renderAll();
+                        renderLiveEffects();
                     } else if (data.type === 'device_location_updated') {
                         refreshAll();
                     } else if (data.type === 'event_trigger') {
