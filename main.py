@@ -6900,6 +6900,7 @@ def dashboard_v4_clean():
             let locationEdit = null;
             let locationEditMarker = null;
             let locationEditMapClickListener = null;
+            const openLocationPanels = new Set();
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : String(value);
@@ -7189,6 +7190,8 @@ def dashboard_v4_clean():
                     const rawGps = deviceRawGpsPosition(device);
                     const effective = deviceEffectivePosition(device);
                     const hasFixed = device.effective_location_source === 'fixed';
+                    const locationOpen = openLocationPanels.has(device.device_id)
+                        || locationEdit?.deviceId === device.device_id;
                     return `
                     <div class="node-card ${isOnline(device) ? 'online' : 'offline'}">
                         <div class="node-title">
@@ -7216,7 +7219,7 @@ def dashboard_v4_clean():
                             <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_collection_mode')">蒐集模式</button>
                             <button class="warn" onclick="simulateAlert('${escapeHtml(device.device_id)}')">模擬警示</button>
                         </div>
-                        <details class="location-box" ${locationEdit?.deviceId === device.device_id ? 'open' : ''}>
+                        <details class="location-box" ${locationOpen ? 'open' : ''} ontoggle="handleLocationPanelToggle(event, '${escapeHtml(device.device_id)}')">
                             <summary>
                                 <span>固定節點位置</span>
                                 <span>${hasFixed ? '已啟用' : '未設定'}</span>
@@ -7274,6 +7277,19 @@ def dashboard_v4_clean():
                     }
                 });
                 renderEstimateOnMap();
+            }
+
+            function handleLocationPanelToggle(event, deviceId) {
+                if (event.currentTarget.open) {
+                    openLocationPanels.add(deviceId);
+                    return;
+                }
+                if (locationEdit?.deviceId === deviceId) {
+                    event.currentTarget.open = true;
+                    openLocationPanels.add(deviceId);
+                    return;
+                }
+                openLocationPanels.delete(deviceId);
             }
 
             function showDeviceInfo(device) {
@@ -7669,6 +7685,7 @@ def dashboard_v4_clean():
                 }
                 clearLocationEditObjects();
                 locationEdit = { deviceId, lat: null, lng: null };
+                openLocationPanels.add(deviceId);
                 const device = devices.get(deviceId);
                 const position = deviceEffectivePosition(device);
                 if (position) map.panTo(position);
@@ -7681,6 +7698,9 @@ def dashboard_v4_clean():
 
             function cancelLocationEdit() {
                 clearLocationEditObjects();
+                if (locationEdit?.deviceId) {
+                    openLocationPanels.delete(locationEdit.deviceId);
+                }
                 locationEdit = null;
                 document.getElementById('systemStatus').textContent = '已取消位置設定';
                 renderNodes();
