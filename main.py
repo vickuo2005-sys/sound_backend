@@ -94,6 +94,7 @@ NODE_DEGRADED_TIMEOUT_SECONDS = float(
 NODE_OFFLINE_TIMEOUT_SECONDS = float(
     os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
 )
+NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15)
 COMMAND_WEBSOCKET_ENABLED = (
     os.getenv("COMMAND_WEBSOCKET_ENABLED", "true").lower() == "true"
 )
@@ -3337,6 +3338,7 @@ def upsert_device_location(
     time_sync_at: Optional[str] = None,
     last_time_sync_at: Optional[str] = None,
 ) -> dict:
+    alert_hold_seconds = max(0.0, NODE_ALERT_HOLD_SECONDS)
     normalized_time_sync_quality = normalize_time_sync_quality(
         time_sync_quality,
         time_sync_rtt_ms,
@@ -3379,7 +3381,12 @@ def upsert_device_location(
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
                     last_seen = excluded.last_seen,
-                    status = 'online',
+                    status = CASE
+                        WHEN device_status.last_event_at IS NOT NULL
+                         AND datetime(device_status.last_event_at) >= datetime(excluded.last_seen, '-' || ? || ' seconds')
+                        THEN 'event'
+                        ELSE 'online'
+                    END,
                     is_listening = excluded.is_listening,
                     upload_mode = excluded.upload_mode,
                     battery = excluded.battery,
@@ -3414,6 +3421,7 @@ def upsert_device_location(
                     sqlite_time_sync_at,
                     sqlite_time_sync_at,
                     now,
+                    alert_hold_seconds,
                 ),
             )
             connection.commit()
@@ -3464,7 +3472,12 @@ def upsert_device_location(
                         latitude = EXCLUDED.latitude,
                         longitude = EXCLUDED.longitude,
                         last_seen = now(),
-                        status = 'online',
+                        status = CASE
+                            WHEN device_status.last_event_at IS NOT NULL
+                             AND device_status.last_event_at >= now() - (%s * INTERVAL '1 second')
+                            THEN 'event'
+                            ELSE 'online'
+                        END,
                         is_listening = EXCLUDED.is_listening,
                         upload_mode = EXCLUDED.upload_mode,
                         battery = EXCLUDED.battery,
@@ -3499,6 +3512,7 @@ def upsert_device_location(
                         normalized_time_sync_quality,
                         parsed_time_sync_at,
                         parsed_time_sync_at,
+                        alert_hold_seconds,
                     ),
                 )
                 row = cursor.fetchone()
@@ -5667,6 +5681,8 @@ async def create_event(
                 "event_id": event.event_id,
                 "latitude": event.latitude,
                 "longitude": event.longitude,
+                "label": event.label,
+                "timestamp": event.timestamp,
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
                 "rms_peak": event.rms_peak,
@@ -7098,6 +7114,37 @@ def dashboard_v4_clean():
                 return Number.isFinite(parsed) ? parsed : NaN;
             }
 
+            function syncAlertFromDevice(device) {
+                const deviceId = device?.device_id;
+                if (!deviceId) return;
+                const eventTime = parseTime(device.last_event_at);
+                const eventUntil = Number.isFinite(eventTime) ? eventTime + alertDurationMs : NaN;
+                if (Number.isFinite(eventUntil) && eventUntil > Date.now()) {
+                    const currentUntil = alertUntil.get(deviceId) || 0;
+                    if (eventUntil > currentUntil) alertUntil.set(deviceId, eventUntil);
+                } else if ((alertUntil.get(deviceId) || 0) <= Date.now()) {
+                    alertUntil.delete(deviceId);
+                }
+            }
+
+            function mergeDeviceState(existing, incoming) {
+                const merged = { ...(existing || {}), ...(incoming || {}) };
+                syncAlertFromDevice(merged);
+                if (isAlertActive(merged.device_id)) {
+                    merged.status = 'event';
+                } else if (String(merged.status || '').toLowerCase() === 'event') {
+                    merged.status = 'online';
+                }
+                return merged;
+            }
+
+            function setDeviceState(incoming) {
+                if (!incoming?.device_id || isDiagnosticDevice(incoming.device_id)) return null;
+                const merged = mergeDeviceState(devices.get(incoming.device_id), incoming);
+                devices.set(incoming.device_id, merged);
+                return merged;
+            }
+
             function finiteNumber(value) {
                 const number = Number(value);
                 return Number.isFinite(number) ? number : null;
@@ -7254,7 +7301,10 @@ def dashboard_v4_clean():
                         const nextDevices = new Map();
                         statusData.devices
                             .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
-                            .forEach(device => nextDevices.set(device.device_id, device));
+                            .forEach(device => nextDevices.set(
+                                device.device_id,
+                                mergeDeviceState(devices.get(device.device_id), device),
+                            ));
                         if (nextDevices.size > 0 || devices.size === 0) {
                             devices.clear();
                             nextDevices.forEach((device, deviceId) => devices.set(deviceId, device));
@@ -7960,7 +8010,7 @@ def dashboard_v4_clean():
                 const eventId = `simulated_${Date.now()}`;
                 const position = deviceEffectivePosition(device);
                 alertUntil.set(deviceId, Date.now() + alertDurationMs);
-                devices.set(deviceId, {
+                setDeviceState({
                     ...device,
                     status: 'event',
                     last_event_id: eventId,
@@ -8022,30 +8072,36 @@ def dashboard_v4_clean():
                     const data = JSON.parse(event.data);
                     if (data.device_id && isDiagnosticDevice(data.device_id)) return;
                     if (data.type === 'location_update') {
-                        devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data });
+                        const device = setDeviceState(data);
                         renderSummary();
-                        updateDeviceMarker(devices.get(data.device_id));
+                        updateDeviceMarker(device);
                     } else if (data.type === 'device_location_updated') {
                         refreshAll();
                     } else if (data.type === 'event_trigger') {
+                        const triggerTime = data.last_event_at || new Date().toISOString();
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
-                        devices.set(data.device_id, { ...(devices.get(data.device_id) || {}), ...data, status: 'event' });
+                        const device = setDeviceState({
+                            ...data,
+                            status: 'event',
+                            last_event_id: data.event_id,
+                            last_event_at: triggerTime,
+                        });
                         if (data.event_id && !events.some(item => item.event_id === data.event_id)) {
                             events.unshift({
                                 event_id: data.event_id,
                                 device_id: data.device_id,
-                                timestamp: data.last_event_at || new Date().toISOString(),
-                                created_at: data.last_event_at || new Date().toISOString(),
+                                timestamp: triggerTime,
+                                created_at: triggerTime,
                                 latitude: data.latitude,
                                 longitude: data.longitude,
                                 rms_peak: data.rms_peak,
-                                label: 'aircraft',
+                                label: data.label || 'aircraft',
                                 audio_path: null,
                                 note: 'event_trigger_pending_refresh',
                             });
                         }
                         renderSummary();
-                        updateDeviceMarker(devices.get(data.device_id));
+                        updateDeviceMarker(device);
                         renderAlerts();
                         renderTimeline();
                         refreshAll();
