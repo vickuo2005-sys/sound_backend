@@ -3678,9 +3678,9 @@ def list_device_status_rows() -> list[dict]:
                 ORDER BY device_id ASC
                 """
             ).fetchall()
-            return enrich_device_status_rows(
-                [serialize_db_row(dict(row)) for row in rows]
-            )
+        return enrich_device_status_rows(
+            [serialize_db_row(dict(row)) for row in rows]
+        )
 
     connection = get_postgres_connection()
     try:
@@ -3693,11 +3693,10 @@ def list_device_status_rows() -> list[dict]:
                     ORDER BY device_id ASC
                     """
                 )
-                return enrich_device_status_rows(
-                    [serialize_db_row(dict(row)) for row in cursor.fetchall()]
-                )
+                rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
     finally:
         connection.close()
+    return enrich_device_status_rows(rows)
 
 
 def list_device_fixed_locations() -> list[dict]:
