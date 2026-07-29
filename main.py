@@ -5703,7 +5703,42 @@ def process_event_submission(event: SoundEvent) -> dict:
     saved_event = get_event_by_event_id(event.event_id)
 
     if is_alert_event_label(event.label) and not is_existing_event:
-        device_row = upsert_device_event_status(event)
+        try:
+            device_row = upsert_device_event_status(event)
+        except Exception:
+            logger.exception(
+                "Device event status update failed for event_id=%s device_id=%s",
+                event.event_id,
+                event.device_id,
+            )
+            device_row = {
+                "device_id": event.device_id,
+                "latitude": saved_event.get("raw_latitude", event.latitude)
+                if saved_event
+                else event.latitude,
+                "longitude": saved_event.get("raw_longitude", event.longitude)
+                if saved_event
+                else event.longitude,
+                "last_seen": created_at,
+                "status": "event",
+                "is_listening": None,
+                "upload_mode": None,
+                "battery": None,
+                "ai_status": None,
+                "backend_status": "device_status_update_failed",
+                "app_status": None,
+                "last_ai_label": event.label,
+                "last_upload_status": "metadata_uploaded",
+                "time_sync_offset_ms": event.time_sync_offset_ms,
+                "time_sync_rtt_ms": event.time_sync_rtt_ms,
+                "time_sync_quality": effective_time_sync_quality_for_event(event),
+                "time_sync_at": None,
+                "last_time_sync_at": None,
+                "last_event_id": event.event_id,
+                "last_event_at": created_at,
+                "last_command_id": None,
+                "updated_at": created_at,
+            }
 
     if event_group and LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
         try:
@@ -7317,6 +7352,41 @@ def dashboard_v4_clean():
                 return Boolean(until && Date.now() < until);
             }
 
+            function groupDeviceIds(group) {
+                const raw = group?.reporting_device_ids || group?.devices || [];
+                if (!Array.isArray(raw)) return [];
+                return Array.from(new Set(
+                    raw
+                        .map(value => String(value || '').trim())
+                        .filter(value => value && !isDiagnosticDevice(value))
+                ));
+            }
+
+            function activateAlertForDevice(deviceId, until) {
+                if (!deviceId || isDiagnosticDevice(deviceId)) return;
+                const currentUntil = alertUntil.get(deviceId) || 0;
+                if (until > currentUntil) alertUntil.set(deviceId, until);
+                const existing = devices.get(deviceId);
+                if (existing) devices.set(deviceId, { ...existing, status: 'event' });
+            }
+
+            function activateAlertsForGroup(group, force = false) {
+                if (!group || !isTarget(group.label) || !isDisplayableEstimate(group)) return;
+                const ids = groupDeviceIds(group);
+                if (!ids.length) return;
+                const baseTime = parseTime(
+                    group.region_updated_at || group.last_event_time || group.updated_at || group.created_at
+                );
+                let until = Number.isFinite(baseTime)
+                    ? baseTime + alertDurationMs
+                    : Date.now() + alertDurationMs;
+                if (force && until <= Date.now()) {
+                    until = Date.now() + alertDurationMs;
+                }
+                if (!force && until <= Date.now()) return;
+                ids.forEach(deviceId => activateAlertForDevice(deviceId, until));
+            }
+
             function parseTime(value) {
                 const parsed = Date.parse(value || '');
                 return Number.isFinite(parsed) ? parsed : NaN;
@@ -7559,6 +7629,7 @@ def dashboard_v4_clean():
                         groupsData.event_groups.forEach(group => {
                             if (group.id && isDisplayableEstimate(group)) {
                                 estimates.set(String(group.id), group);
+                                activateAlertsForGroup(group);
                             }
                         });
                     }
@@ -8596,10 +8667,12 @@ def dashboard_v4_clean():
                             eventGroups.set(group.id, group);
                             if (isDisplayableEstimate(group)) {
                                 estimates.set(String(group.id), group);
+                                activateAlertsForGroup(group, true);
                             } else {
                                 estimates.delete(String(group.id));
                             }
                         }
+                        renderSummary();
                         renderTargetEstimates();
                         renderEventGroups();
                         renderMap();
