@@ -78,7 +78,7 @@ def test_events_outside_episode_hold_are_not_grouped() -> None:
     )
     later = process_event(
         connection,
-        event_record("evt_late", "node_A02", "aircraft", base + timedelta(seconds=20)),
+        event_record("evt_late", "node_A02", "aircraft", base + timedelta(seconds=70)),
         is_postgres=False,
         window_seconds=3,
     )
@@ -104,7 +104,7 @@ def test_late_arriving_observation_can_attach_to_recent_episode() -> None:
     )
     later_episode = process_event(
         connection,
-        event_record("evt_a04", "node_A04", "aircraft", base + timedelta(seconds=20)),
+        event_record("evt_a04", "node_A04", "aircraft", base + timedelta(seconds=45)),
         is_postgres=False,
         window_seconds=3,
     )
@@ -118,6 +118,37 @@ def test_late_arriving_observation_can_attach_to_recent_episode() -> None:
     assert later_episode["id"] != first["id"]
     assert late_arrival["id"] == first["id"]
     assert late_arrival["node_count"] == 3
+
+
+def test_nearby_fragment_groups_are_merged_into_one_episode() -> None:
+    connection = make_connection()
+    base = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+
+    first = process_event(
+        connection,
+        event_record("evt_merge_a01", "node_A01", "aircraft", base, 25.0, 121.0),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    later = process_event(
+        connection,
+        event_record("evt_merge_a04", "node_A04", "aircraft", base + timedelta(seconds=40), 25.1, 121.1),
+        is_postgres=False,
+        window_seconds=3,
+    )
+
+    assert later["id"] != first["id"]
+
+    merged = process_event(
+        connection,
+        event_record("evt_merge_a03", "node_A03", "aircraft", base + timedelta(seconds=20), 25.2, 121.0),
+        is_postgres=False,
+        window_seconds=3,
+    )
+
+    assert merged["node_count"] == 3
+    assert set(merged["reporting_device_ids"]) == {"node_A01", "node_A03", "node_A04"}
+    assert merged["region_type"] == "polygon"
 
 
 def test_events_from_different_labels_are_not_grouped() -> None:

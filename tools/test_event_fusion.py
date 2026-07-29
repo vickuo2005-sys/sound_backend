@@ -402,7 +402,7 @@ def run_service_tests() -> None:
 
     group2 = process_event(
         connection,
-        add_event(connection, "evt_a04_020", "node_A04", "aircraft", base + timedelta(seconds=20)),
+        add_event(connection, "evt_a04_070", "node_A04", "aircraft", base + timedelta(seconds=70)),
         is_postgres=False,
         window_seconds=3,
     )
@@ -489,7 +489,7 @@ def run_service_tests() -> None:
     )
     late_newer = process_event(
         late_connection,
-        add_event(late_connection, "evt_late_a04", "node_A04", "aircraft", base + timedelta(seconds=20)),
+        add_event(late_connection, "evt_late_a04", "node_A04", "aircraft", base + timedelta(seconds=45)),
         is_postgres=False,
         window_seconds=3,
     )

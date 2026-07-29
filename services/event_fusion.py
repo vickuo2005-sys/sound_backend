@@ -17,9 +17,12 @@ LOCAL_EVENT_TIME_FORMATS = (
     "%Y/%m/%d %H:%M:%S",
     "%Y-%m-%d %H:%M:%S",
 )
-DEFAULT_EPISODE_HOLD_SECONDS = 15.0
-DEFAULT_LATE_ATTACH_SECONDS = 12.0
-MAX_DYNAMIC_WINDOW_SECONDS = 15.0
+DEFAULT_EPISODE_HOLD_SECONDS = 30.0
+DEFAULT_LATE_ATTACH_SECONDS = 30.0
+DEFAULT_GROUP_MERGE_SECONDS = 30.0
+MAX_DYNAMIC_WINDOW_SECONDS = 30.0
+MAX_EPISODE_SPAN_SECONDS = 60.0
+MERGED_FRAGMENT_KIND = "merged_fragment"
 TIMING_METADATA_FIELDS = [
     "timing_version",
     "timing_source",
@@ -358,6 +361,47 @@ def interval_distance_seconds(row: dict, event_time: datetime) -> float:
     return (event_time - last_time).total_seconds()
 
 
+def group_time_bounds(row: dict) -> tuple[Optional[datetime], Optional[datetime]]:
+    first_time = parse_datetime(
+        row.get("first_event_time")
+        or row.get("start_time")
+        or row.get("last_event_time")
+        or row.get("end_time")
+    )
+    last_time = parse_datetime(
+        row.get("last_event_time")
+        or row.get("end_time")
+        or row.get("first_event_time")
+        or row.get("start_time")
+    )
+    if first_time and last_time and last_time < first_time:
+        return last_time, first_time
+    return first_time, last_time
+
+
+def interval_gap_seconds(first: dict, second: dict) -> float:
+    first_start, first_end = group_time_bounds(first)
+    second_start, second_end = group_time_bounds(second)
+    if first_start is None or first_end is None or second_start is None or second_end is None:
+        return float("inf")
+    if first_start <= second_end and second_start <= first_end:
+        return 0.0
+    if first_end < second_start:
+        return (second_start - first_end).total_seconds()
+    return (first_start - second_end).total_seconds()
+
+
+def merged_span_seconds(first: dict, second: dict) -> float:
+    values = [
+        value
+        for value in (*group_time_bounds(first), *group_time_bounds(second))
+        if value is not None
+    ]
+    if len(values) < 2:
+        return float("inf")
+    return (max(values) - min(values)).total_seconds()
+
+
 def find_candidate_group(
     cursor: Any,
     label: str,
@@ -639,6 +683,145 @@ def update_group_rollup(
     )
     row = fetchone_dict(cursor) or {"id": group_id}
     return group_payload(cursor, row, is_postgres)
+
+
+def load_group_row(cursor: Any, group_id: str, is_postgres: bool) -> Optional[dict]:
+    execute(
+        cursor,
+        is_postgres,
+        """
+        SELECT *
+        FROM event_groups
+        WHERE id = %s
+        LIMIT 1
+        """,
+        (group_id,),
+    )
+    return fetchone_dict(cursor)
+
+
+def find_mergeable_group(
+    cursor: Any,
+    target_group: dict,
+    label: str,
+    is_postgres: bool,
+    merge_gap_seconds: float = DEFAULT_GROUP_MERGE_SECONDS,
+    max_episode_span_seconds: float = MAX_EPISODE_SPAN_SECONDS,
+) -> Optional[dict]:
+    target_start, target_end = group_time_bounds(target_group)
+    if target_start is None or target_end is None:
+        return None
+
+    search_start = target_start - timedelta(seconds=merge_gap_seconds)
+    search_end = target_end + timedelta(seconds=merge_gap_seconds)
+    lock_clause = "FOR UPDATE" if is_postgres else ""
+    execute(
+        cursor,
+        is_postgres,
+        f"""
+        SELECT *
+        FROM event_groups
+        WHERE id <> %s
+          AND COALESCE(group_kind, 'target_estimate') = %s
+          AND COALESCE(label, group_label) = %s
+          AND COALESCE(last_event_time, end_time, updated_at) >= %s
+          AND COALESCE(first_event_time, start_time, last_event_time, end_time, updated_at) <= %s
+        {lock_clause}
+        """,
+        (
+            target_group.get("id"),
+            FUSION_KIND,
+            label,
+            db_time(search_start, is_postgres),
+            db_time(search_end, is_postgres),
+        ),
+    )
+
+    candidates = []
+    for row in fetchall_dict(cursor):
+        gap_seconds = interval_gap_seconds(target_group, row)
+        span_seconds = merged_span_seconds(target_group, row)
+        if gap_seconds <= merge_gap_seconds and span_seconds <= max_episode_span_seconds:
+            node_count = int(row.get("node_count") or 0)
+            candidates.append((gap_seconds, -node_count, row))
+
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def merge_group_into(
+    cursor: Any,
+    source_group_id: str,
+    target_group_id: str,
+    is_postgres: bool,
+) -> None:
+    execute(
+        cursor,
+        is_postgres,
+        """
+        UPDATE event_group_observations
+        SET group_id = %s
+        WHERE group_id = %s
+          AND COALESCE(observation_kind, 'target_estimate') = %s
+        """,
+        (target_group_id, source_group_id, FUSION_KIND),
+    )
+    execute(
+        cursor,
+        is_postgres,
+        """
+        UPDATE event_groups
+        SET group_kind = %s,
+            status = %s,
+            updated_at = %s
+        WHERE id = %s
+        """,
+        (
+            MERGED_FRAGMENT_KIND,
+            CLOSED_STATUS,
+            db_time(datetime.now(timezone.utc), is_postgres),
+            source_group_id,
+        ),
+    )
+
+
+def merge_nearby_groups(
+    cursor: Any,
+    group_id: str,
+    label: str,
+    is_postgres: bool,
+    merge_gap_seconds: float = DEFAULT_GROUP_MERGE_SECONDS,
+    max_episode_span_seconds: float = MAX_EPISODE_SPAN_SECONDS,
+) -> list[str]:
+    merged_ids: list[str] = []
+    while True:
+        target_group = load_group_row(cursor, group_id, is_postgres)
+        if not target_group:
+            return merged_ids
+
+        source_group = find_mergeable_group(
+            cursor=cursor,
+            target_group=target_group,
+            label=label,
+            is_postgres=is_postgres,
+            merge_gap_seconds=merge_gap_seconds,
+            max_episode_span_seconds=max_episode_span_seconds,
+        )
+        if not source_group:
+            return merged_ids
+
+        source_group_id = str(source_group.get("id") or "")
+        if not source_group_id:
+            return merged_ids
+        merge_group_into(
+            cursor=cursor,
+            source_group_id=source_group_id,
+            target_group_id=group_id,
+            is_postgres=is_postgres,
+        )
+        merged_ids.append(source_group_id)
+        update_group_rollup(cursor, group_id, is_postgres, mark_active=True)
 
 
 def group_region_observations(cursor: Any, group_id: str, is_postgres: bool) -> list[dict]:
@@ -1056,6 +1239,20 @@ def process_event(
             is_postgres,
             mark_active=True,
         )
+        merged_group_ids = merge_nearby_groups(
+            cursor=cursor,
+            group_id=group["id"],
+            label=label,
+            is_postgres=is_postgres,
+        )
+        if merged_group_ids:
+            updated_group = update_group_rollup(
+                cursor,
+                group["id"],
+                is_postgres,
+                mark_active=True,
+            )
+            updated_group["merged_group_ids"] = merged_group_ids
         close_stale_groups(
             cursor,
             label,

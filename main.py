@@ -98,7 +98,7 @@ NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15
 COMMAND_WEBSOCKET_ENABLED = (
     os.getenv("COMMAND_WEBSOCKET_ENABLED", "true").lower() == "true"
 )
-LIVE_AUDIO_ENABLED = os.getenv("LIVE_AUDIO_ENABLED", "false").lower() == "true"
+LIVE_AUDIO_ENABLED = os.getenv("LIVE_AUDIO_ENABLED", "true").lower() == "true"
 LIVE_AUDIO_RING_BUFFER_SECONDS = float(
     os.getenv("LIVE_AUDIO_RING_BUFFER_SECONDS", "10") or 10
 )
@@ -6723,7 +6723,7 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 150px minmax(145px, 1fr) minmax(145px, 1fr);
+                grid-template-rows: 126px 136px minmax(130px, 1fr) minmax(130px, 1fr);
                 gap: 12px;
                 min-height: 0;
             }
@@ -6780,6 +6780,7 @@ def dashboard_v4_clean():
                 margin-top: 9px;
             }
             .actions button { padding: 7px 8px; }
+            .actions button.live { border-color: #2f7dc1; color: #9ed0ff; }
             .actions button.warn { grid-column: 1 / -1; }
             .location-box {
                 margin-top: 10px;
@@ -6842,6 +6843,48 @@ def dashboard_v4_clean():
             }
             .audio-player .title { font-size: 13px; color: #d8e2ec; }
             .audio-player audio { width: 100%; height: 38px; margin-top: 8px; }
+            .live-audio-controls {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto auto;
+                gap: 8px;
+                padding: 10px 12px 6px;
+                align-items: center;
+            }
+            .live-audio-status {
+                padding: 0 12px;
+                color: #cbd7e5;
+                font-size: 13px;
+                min-height: 18px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .live-audio-meters {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 6px;
+                padding: 8px 12px 10px;
+            }
+            .live-audio-meter {
+                border: 1px solid #2d3746;
+                border-radius: 8px;
+                padding: 6px;
+                background: #12161d;
+                min-width: 0;
+            }
+            .live-audio-meter span {
+                display: block;
+                color: var(--muted);
+                font-size: 11px;
+            }
+            .live-audio-meter strong {
+                display: block;
+                margin-top: 3px;
+                font-size: 13px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
             .event-row {
                 padding: 11px;
                 margin-bottom: 9px;
@@ -6982,6 +7025,21 @@ def dashboard_v4_clean():
                     </div>
                 </section>
 
+                <section class="panel live-audio-panel">
+                    <h2>即時監聽</h2>
+                    <div class="live-audio-controls">
+                        <select id="liveAudioDeviceSelect" aria-label="選擇節點"></select>
+                        <button class="primary" type="button" onclick="startLiveAudioMonitor()">開始</button>
+                        <button type="button" onclick="stopLiveAudioMonitor()">停止</button>
+                    </div>
+                    <div class="live-audio-status" id="liveAudioStatus">請選擇節點開始監聽</div>
+                    <div class="live-audio-meters">
+                        <div class="live-audio-meter"><span>Frames</span><strong id="liveAudioFrameCount">0</strong></div>
+                        <div class="live-audio-meter"><span>Stream</span><strong id="liveAudioStreamId">-</strong></div>
+                        <div class="live-audio-meter"><span>Buffer</span><strong id="liveAudioBufferMs">0 ms</strong></div>
+                    </div>
+                </section>
+
                 <section class="panel">
                     <h2>即時警示</h2>
                     <div class="panel-body right-scroll" id="alertList"></div>
@@ -7033,6 +7091,12 @@ def dashboard_v4_clean():
             let locationEditMapClickListener = null;
             const openLocationPanels = new Set();
             let isRefreshing = false;
+            let liveAudioSocket = null;
+            let liveAudioContext = null;
+            let liveAudioNextPlayTime = 0;
+            let liveAudioFrameCount = 0;
+            let liveAudioCurrentStreamId = '';
+            let liveAudioCurrentDeviceId = '';
 
             function safe(value, fallback = '-') {
                 return value === null || value === undefined || value === '' ? fallback : String(value);
@@ -7403,6 +7467,7 @@ def dashboard_v4_clean():
                             <button class="danger" onclick="sendCommand('${escapeHtml(device.device_id)}', 'stop_listening')">停止</button>
                             <button class="${device.upload_mode === 'detection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_detection_mode')">偵測模式</button>
                             <button class="${device.upload_mode === 'collection' ? 'active' : ''}" onclick="sendCommand('${escapeHtml(device.device_id)}', 'set_collection_mode')">蒐集模式</button>
+                            <button class="live" onclick="startLiveAudioForDevice('${escapeHtml(device.device_id)}')">聽此節點</button>
                             <button class="warn" onclick="simulateAlert('${escapeHtml(device.device_id)}')">模擬警示</button>
                         </div>
                         <details class="location-box" ${locationOpen ? 'open' : ''} ontoggle="handleLocationPanelToggle(event, '${escapeHtml(device.device_id)}')">
@@ -7791,6 +7856,7 @@ def dashboard_v4_clean():
                 renderTargetEstimates();
                 renderEventGroups();
                 renderTimeline();
+                renderLiveAudioDeviceSelect();
             }
 
             function renderLiveEffects() {
@@ -8067,6 +8133,226 @@ def dashboard_v4_clean():
                 }
             }
 
+            function setLiveAudioStatus(message) {
+                const target = document.getElementById('liveAudioStatus');
+                if (target) target.textContent = message;
+            }
+
+            function renderLiveAudioDeviceSelect() {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                if (!select) return;
+                const previous = select.value || liveAudioCurrentDeviceId;
+                const values = visibleDevices().filter(device => isOnline(device));
+                select.innerHTML = values.length
+                    ? values.map(device => `<option value="${escapeHtml(device.device_id)}">${escapeHtml(device.device_id)}</option>`).join('')
+                    : '<option value="">目前沒有在線節點</option>';
+                if (previous && values.some(device => device.device_id === previous)) {
+                    select.value = previous;
+                }
+            }
+
+            function updateLiveAudioMeters(bufferMs = 0) {
+                const frameTarget = document.getElementById('liveAudioFrameCount');
+                const streamTarget = document.getElementById('liveAudioStreamId');
+                const bufferTarget = document.getElementById('liveAudioBufferMs');
+                if (frameTarget) frameTarget.textContent = String(liveAudioFrameCount);
+                if (streamTarget) streamTarget.textContent = liveAudioCurrentStreamId ? liveAudioCurrentStreamId.slice(0, 8) : '-';
+                if (bufferTarget) bufferTarget.textContent = `${Math.max(0, Math.round(bufferMs))} ms`;
+            }
+
+            async function ensureLiveAudioContext() {
+                if (!window.AudioContext && !window.webkitAudioContext) {
+                    throw new Error('此瀏覽器不支援 Web Audio');
+                }
+                if (!liveAudioContext) {
+                    liveAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (liveAudioContext.state === 'suspended') {
+                    await liveAudioContext.resume();
+                }
+            }
+
+            async function startLiveAudioMonitor() {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                await startLiveAudioForDevice(select?.value || '');
+            }
+
+            async function startLiveAudioForDevice(deviceId) {
+                if (!deviceId) {
+                    setLiveAudioStatus('請先選擇在線節點');
+                    return;
+                }
+                const select = document.getElementById('liveAudioDeviceSelect');
+                if (select) select.value = deviceId;
+
+                if (liveAudioCurrentDeviceId || liveAudioSocket) {
+                    await stopLiveAudioMonitor(true, liveAudioCurrentDeviceId);
+                }
+
+                liveAudioCurrentDeviceId = deviceId;
+                liveAudioFrameCount = 0;
+                liveAudioCurrentStreamId = '';
+                liveAudioNextPlayTime = 0;
+                updateLiveAudioMeters();
+                setLiveAudioStatus(`正在要求 ${deviceId} 開始即時監聽...`);
+
+                try {
+                    await ensureLiveAudioContext();
+                    const response = await fetch('/device-command', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_id: deviceId,
+                            command: 'start_live_audio',
+                            value: null,
+                            issued_by: 'dashboard_live_audio',
+                        }),
+                    });
+                    const body = await response.json().catch(() => ({}));
+                    if (!response.ok || !body.stream) {
+                        throw new Error(body.detail || '後端沒有回傳即時音訊 stream');
+                    }
+                    openLiveAudioMonitorSocket(body.stream, deviceId);
+                } catch (error) {
+                    setLiveAudioStatus(`即時監聽啟動失敗：${error}`);
+                    liveAudioCurrentDeviceId = '';
+                }
+            }
+
+            function openLiveAudioMonitorSocket(stream, deviceId) {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const streamId = stream.stream_id;
+                const subscriberToken = stream.subscriber_token;
+                liveAudioCurrentStreamId = streamId || '';
+                updateLiveAudioMeters();
+
+                if (!streamId || !subscriberToken) {
+                    setLiveAudioStatus('stream_id 或 subscriber token 缺失');
+                    return;
+                }
+
+                liveAudioSocket = new WebSocket(`${protocol}//${window.location.host}/ws/audio-monitor/${encodeURIComponent(streamId)}`);
+                liveAudioSocket.binaryType = 'arraybuffer';
+                liveAudioSocket.onopen = () => {
+                    liveAudioSocket.send(JSON.stringify({ subscriber_token: subscriberToken }));
+                    setLiveAudioStatus(`等待 ${deviceId} 傳送即時音訊...`);
+                };
+                liveAudioSocket.onmessage = async event => {
+                    if (typeof event.data === 'string') {
+                        handleLiveAudioControlMessage(event.data);
+                        return;
+                    }
+                    await playLiveAudioFrame(event.data);
+                };
+                liveAudioSocket.onerror = () => {
+                    setLiveAudioStatus('即時監聽連線錯誤');
+                };
+                liveAudioSocket.onclose = () => {
+                    if (liveAudioCurrentDeviceId === deviceId) {
+                        setLiveAudioStatus('即時監聽已停止');
+                    }
+                    liveAudioSocket = null;
+                    liveAudioCurrentStreamId = '';
+                    updateLiveAudioMeters();
+                };
+            }
+
+            function handleLiveAudioControlMessage(raw) {
+                try {
+                    const message = JSON.parse(raw);
+                    if (message.type === 'audio_monitor_ready') {
+                        setLiveAudioStatus(`正在監聽 ${liveAudioCurrentDeviceId}`);
+                    } else if (message.type === 'audio_monitor_rejected') {
+                        setLiveAudioStatus(`即時監聽被拒絕：${message.reason || '-'}`);
+                    } else if (message.type === 'audio_monitor_heartbeat') {
+                        setLiveAudioStatus(`正在等待 ${liveAudioCurrentDeviceId} 的音訊 frame`);
+                    }
+                } catch (_) {
+                    // Ignore non-JSON control text.
+                }
+            }
+
+            async function stopLiveAudioMonitor(sendStopCommand = true, deviceIdOverride = '') {
+                const select = document.getElementById('liveAudioDeviceSelect');
+                const deviceId = deviceIdOverride || liveAudioCurrentDeviceId || select?.value || '';
+                const socket = liveAudioSocket;
+                liveAudioSocket = null;
+                if (socket) {
+                    try { socket.close(); } catch (_) {}
+                }
+                liveAudioNextPlayTime = 0;
+                liveAudioCurrentStreamId = '';
+                if (sendStopCommand && deviceId) {
+                    try {
+                        await fetch('/device-command', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                device_id: deviceId,
+                                command: 'stop_live_audio',
+                                value: null,
+                                issued_by: 'dashboard_live_audio',
+                            }),
+                        });
+                    } catch (_) {}
+                }
+                liveAudioCurrentDeviceId = '';
+                updateLiveAudioMeters();
+                if (sendStopCommand) setLiveAudioStatus('即時監聽已停止');
+            }
+
+            function parsePcm16Frame(arrayBuffer) {
+                if (!arrayBuffer || arrayBuffer.byteLength < 52) return null;
+                const view = new DataView(arrayBuffer);
+                const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+                if (magic !== 'SDAF') return null;
+                const headerLength = view.getUint16(6, false);
+                const sampleRate = view.getUint32(40, false);
+                const channelCount = view.getUint16(44, false);
+                const codec = view.getUint8(46);
+                const payloadLength = view.getUint32(48, false);
+                if (codec !== 1 || sampleRate <= 0 || channelCount < 1) return null;
+                if (headerLength + payloadLength > arrayBuffer.byteLength) return null;
+                return { view, headerLength, payloadLength, sampleRate, channelCount };
+            }
+
+            async function playLiveAudioFrame(arrayBuffer) {
+                const frame = parsePcm16Frame(arrayBuffer);
+                if (!frame) {
+                    setLiveAudioStatus('收到無效的即時音訊 frame');
+                    return;
+                }
+                await ensureLiveAudioContext();
+                const sampleCount = Math.floor(frame.payloadLength / (frame.channelCount * 2));
+                if (sampleCount <= 0) return;
+                const audioBuffer = liveAudioContext.createBuffer(
+                    frame.channelCount,
+                    sampleCount,
+                    frame.sampleRate,
+                );
+                for (let channel = 0; channel < frame.channelCount; channel += 1) {
+                    const channelData = audioBuffer.getChannelData(channel);
+                    for (let index = 0; index < sampleCount; index += 1) {
+                        const byteOffset = frame.headerLength + ((index * frame.channelCount + channel) * 2);
+                        channelData[index] = frame.view.getInt16(byteOffset, true) / 32768;
+                    }
+                }
+                const source = liveAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(liveAudioContext.destination);
+                const now = liveAudioContext.currentTime;
+                if (!liveAudioNextPlayTime || liveAudioNextPlayTime < now + 0.04) {
+                    liveAudioNextPlayTime = now + 0.08;
+                }
+                source.start(liveAudioNextPlayTime);
+                liveAudioNextPlayTime += audioBuffer.duration;
+                liveAudioFrameCount += 1;
+                updateLiveAudioMeters((liveAudioNextPlayTime - now) * 1000);
+                if (liveAudioFrameCount % 20 === 1) {
+                    setLiveAudioStatus(`正在監聽 ${liveAudioCurrentDeviceId}，已收到 ${liveAudioFrameCount} frames`);
+                }
+            }
+
             function connectDashboardSocket() {
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
@@ -8109,6 +8395,14 @@ def dashboard_v4_clean():
                         refreshAll();
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
+                        (group.merged_group_ids || []).forEach(groupId => {
+                            eventGroups.delete(groupId);
+                            estimates.delete(groupId);
+                            if (selectedEstimateId === groupId) {
+                                selectedEstimateId = null;
+                                clearEstimateObjects(false);
+                            }
+                        });
                         if (group.id) {
                             eventGroups.set(group.id, group);
                             if (Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
