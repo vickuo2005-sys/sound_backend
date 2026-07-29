@@ -11,6 +11,7 @@ def event_record(
     timestamp: datetime,
     latitude: float = 25.0,
     longitude: float = 121.0,
+    created_at: datetime | None = None,
 ) -> dict:
     return {
         "id": None,
@@ -18,7 +19,7 @@ def event_record(
         "device_id": device_id,
         "label": label,
         "timestamp": timestamp.isoformat(),
-        "created_at": timestamp.isoformat(),
+        "created_at": (created_at or timestamp).isoformat(),
         "latitude": latitude,
         "longitude": longitude,
         "rms_peak": 0.8,
@@ -169,3 +170,42 @@ def test_events_from_different_labels_are_not_grouped() -> None:
     )
 
     assert other["id"] != aircraft["id"]
+
+
+def test_fusion_groups_by_backend_created_at_for_live_episode() -> None:
+    connection = make_connection()
+    backend_time = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    device_time = datetime(2026, 7, 27, 7, 59, tzinfo=timezone.utc)
+
+    first = process_event(
+        connection,
+        event_record(
+            "evt_live_a01",
+            "node_A01",
+            "aircraft",
+            device_time,
+            25.0,
+            121.0,
+            created_at=backend_time,
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    second = process_event(
+        connection,
+        event_record(
+            "evt_live_a02",
+            "node_A02",
+            "aircraft",
+            device_time + timedelta(seconds=45),
+            25.0,
+            121.2,
+            created_at=backend_time + timedelta(seconds=1),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+
+    assert second["id"] == first["id"]
+    assert second["node_count"] == 2
+    assert second["region_type"] == "segment"

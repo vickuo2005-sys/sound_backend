@@ -184,6 +184,21 @@ def event_timestamp(event_record: dict) -> datetime:
     return parsed
 
 
+def fusion_episode_timestamp(event_record: dict) -> datetime:
+    """Use server-side event creation time for active episode grouping.
+
+    Device timing metadata is still preserved for future TDOA math, but the
+    live dashboard region should group AI-confirmed reports by when the backend
+    receives them. That keeps multi-node region updates from splitting when
+    phones finish recording or inference at slightly different moments.
+    """
+    return (
+        parse_datetime(event_record.get("created_at"))
+        or parse_datetime(event_record.get("received_at"))
+        or event_timestamp(event_record)
+    )
+
+
 def dynamic_fusion_window_seconds(
     event_record: dict,
     base_window_seconds: float,
@@ -1191,7 +1206,7 @@ def process_event(
         return None
 
     label = normalize_label(event_record.get("label"))
-    event_time = event_timestamp(event_record)
+    event_time = fusion_episode_timestamp(event_record)
     fusion_window_seconds = dynamic_fusion_window_seconds(event_record, window_seconds)
     late_attach_seconds = max(DEFAULT_LATE_ATTACH_SECONDS, fusion_window_seconds)
     episode_hold_seconds = max(DEFAULT_EPISODE_HOLD_SECONDS, late_attach_seconds)
