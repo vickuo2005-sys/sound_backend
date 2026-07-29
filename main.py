@@ -2417,8 +2417,9 @@ def update_event_tdoa_clip(
         connection.commit()
 
 
-def list_recent_events() -> list[dict]:
+def list_recent_events(limit: int = 50) -> list[dict]:
     columns = ", ".join(EVENT_COLUMNS)
+    safe_limit = max(1, min(int(limit or 50), 100))
 
     if use_postgres():
         connection = get_postgres_connection()
@@ -2430,8 +2431,9 @@ def list_recent_events() -> list[dict]:
                         SELECT {columns}
                         FROM events
                         ORDER BY id DESC
-                        LIMIT 50
-                        """
+                        LIMIT %s
+                        """,
+                        (safe_limit,),
                     )
                     rows = [dict(row) for row in cursor.fetchall()]
         finally:
@@ -2444,8 +2446,9 @@ def list_recent_events() -> list[dict]:
             SELECT {columns}
             FROM events
             ORDER BY id DESC
-            LIMIT 50
-            """
+            LIMIT ?
+            """,
+            (safe_limit,),
         ).fetchall()
 
     return enrich_event_location_rows([dict(row) for row in rows])
@@ -5822,7 +5825,7 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
 
 
 @app.get("/")
-def root():
+async def root():
     return {
         "status": "ok",
         "message": "Sound detector backend is running",
@@ -5830,7 +5833,7 @@ def root():
 
 
 @app.get("/health")
-def health():
+async def health():
     return {
         "status": "healthy",
         "time": current_time_iso(),
@@ -5838,7 +5841,7 @@ def health():
 
 
 @app.get("/time-sync")
-def time_sync():
+async def time_sync():
     now = datetime.now(timezone.utc)
     return {
         "status": "success",
@@ -6083,8 +6086,8 @@ async def localization_result_track(result_id: str):
 
 
 @app.get("/events")
-def list_events():
-    events = list_recent_events()
+def list_events(limit: int = Query(default=20, ge=1, le=100)):
+    events = list_recent_events(limit=limit)
 
     return {
         "status": "success",
@@ -7612,7 +7615,7 @@ def dashboard_v4_clean():
                 dashboardStarted = true;
                 refreshAll();
                 connectDashboardSocket();
-                setInterval(refreshAll, 5000);
+                setInterval(refreshAll, 10000);
                 setInterval(renderLiveEffects, 500);
             }
 
@@ -7636,7 +7639,7 @@ def dashboard_v4_clean():
                 try {
                     const [statusData, eventsData, groupsData] = await Promise.all([
                         fetchJson('/device-status', null),
-                        fetchJson('/events', null),
+                        fetchJson('/events?limit=20', null),
                         fetchJson('/event-groups?limit=8', null),
                     ]);
 
@@ -8706,6 +8709,7 @@ def dashboard_v4_clean():
                             eventGroups.set(group.id, group);
                             if (isDisplayableEstimate(group)) {
                                 estimates.set(String(group.id), group);
+                                selectedEstimateId = null;
                                 activateAlertsForGroup(group, true);
                             } else {
                                 estimates.delete(String(group.id));
