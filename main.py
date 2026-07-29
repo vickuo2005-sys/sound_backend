@@ -3717,7 +3717,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
 
 
 def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
-    existing_columns = set(DEVICE_STATUS_COLUMNS)
+    existing_columns = set()
     try:
         if use_postgres() and cursor is not None:
             cursor.execute(
@@ -3727,7 +3727,10 @@ def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = Non
                 WHERE table_name = 'device_status'
                 """
             )
-            existing_columns = {str(row["column_name"]) for row in cursor.fetchall()}
+            existing_columns = {
+                str(row["column_name"] if isinstance(row, dict) else row[0])
+                for row in cursor.fetchall()
+            }
         elif sqlite_connection is not None:
             rows = sqlite_connection.execute("PRAGMA table_info(device_status)").fetchall()
             existing_columns = {str(row["name"]) for row in rows}
@@ -3774,6 +3777,47 @@ def list_device_status_rows() -> list[dict]:
     finally:
         connection.close()
     return enrich_device_status_rows(rows)
+
+
+def fallback_device_status_rows_from_events() -> list[dict]:
+    by_device: dict[str, dict] = {}
+    try:
+        events = list_recent_events()
+    except Exception:
+        logger.exception("Failed to build fallback device status from recent events")
+        return []
+
+    for event in events:
+        device_id = str(event.get("device_id") or "").strip()
+        if not device_id or device_id in by_device:
+            continue
+        latitude = event.get("raw_latitude", event.get("latitude"))
+        longitude = event.get("raw_longitude", event.get("longitude"))
+        by_device[device_id] = {
+            "device_id": device_id,
+            "latitude": latitude,
+            "longitude": longitude,
+            "last_seen": event.get("created_at") or event.get("timestamp"),
+            "status": "offline",
+            "is_listening": None,
+            "upload_mode": None,
+            "battery": None,
+            "ai_status": None,
+            "backend_status": "device_status_fallback",
+            "app_status": None,
+            "last_ai_label": event.get("label"),
+            "last_upload_status": event.get("audio_encoding_status"),
+            "time_sync_offset_ms": event.get("time_sync_offset_ms"),
+            "time_sync_rtt_ms": event.get("time_sync_rtt_ms"),
+            "time_sync_quality": event.get("time_sync_quality"),
+            "time_sync_at": None,
+            "last_time_sync_at": None,
+            "last_event_id": event.get("event_id"),
+            "last_event_at": event.get("created_at") or event.get("timestamp"),
+            "last_command_id": None,
+            "updated_at": event.get("created_at") or event.get("timestamp"),
+        }
+    return enrich_device_status_rows(list(by_device.values()))
 
 
 def list_device_fixed_locations() -> list[dict]:
@@ -6002,10 +6046,17 @@ async def update_location(location: LocationUpdate):
 
 @app.get("/device-status")
 def device_status():
-    devices = list_device_status_rows()
+    source = "device_status"
+    try:
+        devices = list_device_status_rows()
+    except Exception:
+        logger.exception("Failed to read device_status; using recent event fallback")
+        source = "device_status_fallback"
+        devices = fallback_device_status_rows_from_events()
 
     return {
         "status": "success",
+        "source": source,
         "count": len(devices),
         "devices": devices,
     }
