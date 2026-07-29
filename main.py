@@ -6012,7 +6012,7 @@ async def device_command(command: DeviceCommandCreate):
             "selected_audio_codec": os.getenv("LIVE_AUDIO_DEFAULT_CODEC", "pcm_s16le"),
             "sample_rate_hz": 16000,
             "channel_count": 1,
-            "frame_duration_ms": 20,
+            "frame_duration_ms": 40,
             "expires_at_ms": int((datetime.now(timezone.utc) + timedelta(seconds=60)).timestamp() * 1000),
         }
         if isinstance(command.value, dict):
@@ -6023,7 +6023,7 @@ async def device_command(command: DeviceCommandCreate):
             "selected_audio_codec": stream_args.get("selected_audio_codec", "pcm_s16le"),
             "sample_rate_hz": stream_args.get("sample_rate_hz", 16000),
             "channel_count": stream_args.get("channel_count", 1),
-            "frame_duration_ms": stream_args.get("frame_duration_ms", 20),
+            "frame_duration_ms": stream_args.get("frame_duration_ms", 40),
             "expires_at_ms": stream_args.get("expires_at_ms"),
         }
         command_to_create = DeviceCommandCreate(
@@ -8341,8 +8341,8 @@ def dashboard_v4_clean():
                 source.buffer = audioBuffer;
                 source.connect(liveAudioContext.destination);
                 const now = liveAudioContext.currentTime;
-                if (!liveAudioNextPlayTime || liveAudioNextPlayTime < now + 0.04) {
-                    liveAudioNextPlayTime = now + 0.08;
+                if (!liveAudioNextPlayTime || liveAudioNextPlayTime < now + 0.10) {
+                    liveAudioNextPlayTime = now + 0.18;
                 }
                 source.start(liveAudioNextPlayTime);
                 liveAudioNextPlayTime += audioBuffer.duration;
@@ -10111,8 +10111,8 @@ def dashboard_legacy_unused():
                 source.buffer = audioBuffer;
                 source.connect(liveAudioContext.destination);
                 const now = liveAudioContext.currentTime;
-                if (liveAudioNextPlayTime < now + 0.04) {
-                    liveAudioNextPlayTime = now + 0.08;
+                if (liveAudioNextPlayTime < now + 0.10) {
+                    liveAudioNextPlayTime = now + 0.18;
                 }
                 source.start(liveAudioNextPlayTime);
                 liveAudioNextPlayTime += audioBuffer.duration;
