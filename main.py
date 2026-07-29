@@ -626,7 +626,7 @@ def get_postgres_pool() -> Any:
 
     database_url = get_database_url()
     minconn = max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1))
-    maxconn = max(minconn, int(os.getenv("POSTGRES_POOL_MAX", "5") or 5))
+    maxconn = max(minconn, int(os.getenv("POSTGRES_POOL_MAX", "20") or 20))
     connect_timeout = max(1, int(os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10") or 10))
 
     with _postgres_pool_lock:
@@ -2433,9 +2433,10 @@ def list_recent_events() -> list[dict]:
                         LIMIT 50
                         """
                     )
-                    return enrich_event_location_rows([dict(row) for row in cursor.fetchall()])
+                    rows = [dict(row) for row in cursor.fetchall()]
         finally:
             connection.close()
+        return enrich_event_location_rows(rows)
 
     with get_sqlite_connection() as connection:
         rows = connection.execute(
@@ -2468,9 +2469,10 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
                         (event_id,),
                     )
                     row = cursor.fetchone()
-                    return enrich_event_location_row(dict(row)) if row else None
+                    event_row = dict(row) if row else None
         finally:
             connection.close()
+        return enrich_event_location_row(event_row) if event_row else None
 
     with get_sqlite_connection() as connection:
         row = connection.execute(
