@@ -2396,7 +2396,7 @@ def list_recent_events() -> list[dict]:
                         LIMIT 50
                         """
                     )
-                    return [dict(row) for row in cursor.fetchall()]
+                    return enrich_event_location_rows([dict(row) for row in cursor.fetchall()])
         finally:
             connection.close()
 
@@ -2410,7 +2410,7 @@ def list_recent_events() -> list[dict]:
             """
         ).fetchall()
 
-    return [dict(row) for row in rows]
+    return enrich_event_location_rows([dict(row) for row in rows])
 
 
 def get_event_by_event_id(event_id: str) -> Optional[dict]:
@@ -2431,7 +2431,7 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
                         (event_id,),
                     )
                     row = cursor.fetchone()
-                    return serialize_db_row(dict(row)) if row else None
+                    return enrich_event_location_row(dict(row)) if row else None
         finally:
             connection.close()
 
@@ -2445,7 +2445,7 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
             """,
             (event_id,),
         ).fetchone()
-        return serialize_db_row(dict(row)) if row else None
+    return enrich_event_location_row(dict(row)) if row else None
 
 
 def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
@@ -2758,6 +2758,55 @@ def serialize_db_row(row: dict) -> dict:
             serialized.get("status"),
         )
     return serialized
+
+
+def enrich_event_location_row(
+    row: dict,
+    fixed_locations: Optional[dict[str, dict]] = None,
+) -> dict:
+    event = serialize_db_row(dict(row))
+    event["raw_latitude"] = event.get("latitude")
+    event["raw_longitude"] = event.get("longitude")
+
+    fixed_map = fixed_locations if fixed_locations is not None else location_map(
+        list_device_fixed_locations()
+    )
+    device_id = str(event.get("device_id") or "").strip()
+    fixed = fixed_map.get(device_id)
+    if fixed:
+        event["fixed_latitude"] = fixed.get("latitude")
+        event["fixed_longitude"] = fixed.get("longitude")
+        event["fixed_location_source"] = fixed.get("location_source")
+        event["fixed_location_accuracy_m"] = fixed.get("accuracy_m")
+    else:
+        event["fixed_latitude"] = None
+        event["fixed_longitude"] = None
+        event["fixed_location_source"] = None
+        event["fixed_location_accuracy_m"] = None
+
+    effective = resolve_effective_location(
+        device_id=device_id,
+        event_latitude=event.get("latitude"),
+        event_longitude=event.get("longitude"),
+        fixed_locations=fixed_map,
+    )
+    if effective:
+        event["effective_latitude"] = effective["latitude"]
+        event["effective_longitude"] = effective["longitude"]
+        event["effective_location_source"] = effective["effective_location_source"]
+    else:
+        event["effective_latitude"] = None
+        event["effective_longitude"] = None
+        event["effective_location_source"] = "none"
+    return event
+
+
+def enrich_event_location_rows(rows: list[dict]) -> list[dict]:
+    fixed_locations = location_map(list_device_fixed_locations())
+    return [
+        enrich_event_location_row(row, fixed_locations=fixed_locations)
+        for row in rows
+    ]
 
 
 def list_localization_results(
@@ -5579,6 +5628,7 @@ def process_event_submission(event: SoundEvent) -> dict:
         logger.exception("Event fusion failed for event_id=%s", event.event_id)
 
     is_existing_event = existing_event is not None
+    saved_event = get_event_by_event_id(event.event_id)
 
     if is_alert_event_label(event.label) and not is_existing_event:
         device_row = upsert_device_event_status(event)
@@ -5598,6 +5648,7 @@ def process_event_submission(event: SoundEvent) -> dict:
         "event_group": event_group,
         "localization_package": localization_package,
         "is_existing_event": is_existing_event,
+        "saved_event": saved_event,
     }
 
 
@@ -5671,20 +5722,32 @@ async def create_event(
     event_group = result["event_group"]
     localization_package = result["localization_package"]
     is_existing_event = result["is_existing_event"]
+    saved_event = result.get("saved_event") or {}
 
     if device_row:
+        enriched_device_row = enrich_device_status_rows([device_row])[0]
+        effective_latitude = saved_event.get("effective_latitude")
+        effective_longitude = saved_event.get("effective_longitude")
         await dashboard_manager.broadcast(
             {
                 "type": "event_trigger",
+                **enriched_device_row,
                 "device_id": event.device_id,
                 "event_id": event.event_id,
-                "latitude": event.latitude,
-                "longitude": event.longitude,
-                "label": event.label,
-                "timestamp": event.timestamp,
+                "latitude": effective_latitude,
+                "longitude": effective_longitude,
+                "raw_latitude": saved_event.get("raw_latitude", event.latitude),
+                "raw_longitude": saved_event.get("raw_longitude", event.longitude),
+                "effective_latitude": effective_latitude,
+                "effective_longitude": effective_longitude,
+                "effective_location_source": saved_event.get("effective_location_source"),
+                "label": saved_event.get("label", event.label),
+                "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
-                "rms_peak": event.rms_peak,
+                "rms_peak": saved_event.get("rms_peak", event.rms_peak),
+                "event": saved_event,
+                "device": enriched_device_row,
             }
         )
 
@@ -7241,6 +7304,32 @@ def dashboard_v4_clean():
                 return { lat: latitude, lng: longitude };
             }
 
+            function eventEffectivePosition(event) {
+                const latitude = finiteNumber(event?.effective_latitude ?? event?.latitude);
+                const longitude = finiteNumber(event?.effective_longitude ?? event?.longitude);
+                if (!isValidCoordinatePair(latitude, longitude)) return null;
+                return { lat: latitude, lng: longitude };
+            }
+
+            function eventRawPosition(event) {
+                const latitude = finiteNumber(event?.raw_latitude ?? event?.latitude);
+                const longitude = finiteNumber(event?.raw_longitude ?? event?.longitude);
+                if (!isValidCoordinatePair(latitude, longitude)) return null;
+                return { lat: latitude, lng: longitude };
+            }
+
+            function upsertEventState(incoming) {
+                if (!incoming?.event_id) return null;
+                const index = events.findIndex(item => item.event_id === incoming.event_id);
+                if (index >= 0) {
+                    events[index] = { ...events[index], ...incoming };
+                    return events[index];
+                }
+                events.unshift(incoming);
+                if (events.length > 80) events.splice(80);
+                return incoming;
+            }
+
             function displayLocationSource(source) {
                 const value = String(source || '').toLowerCase();
                 if (value === 'fixed') return '固定位置';
@@ -7815,7 +7904,8 @@ def dashboard_v4_clean():
                                 <div class="event-title"><span>${displayLabel(event.label)}</span><span>${safe(event.device_id)}</span></div>
                                 <div class="event-detail">${safe(event.timestamp)}</div>
                                 <div class="event-detail">目標機率 ${noteValue(event.note, 'probability_aircraft')} / 信心值 ${noteValue(event.note, 'confidence')}</div>
-                                <div class="event-detail">${safe(event.latitude)}, ${safe(event.longitude)}</div>
+                                <div class="event-detail">有效 ${formatPosition(eventEffectivePosition(event))} / ${displayLocationSource(event.effective_location_source)}</div>
+                                <div class="event-detail">原始 GPS ${formatPosition(eventRawPosition(event))}</div>
                             </div>
                             <div>${event.audio_path ? '<span class="mini-chip good">可播放</span>' : '<span class="mini-chip warn">無音檔</span>'}</div>
                         </div>
@@ -8369,30 +8459,33 @@ def dashboard_v4_clean():
                         const triggerTime = data.last_event_at || new Date().toISOString();
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         const device = setDeviceState({
+                            ...(data.device || {}),
                             ...data,
                             status: 'event',
                             last_event_id: data.event_id,
                             last_event_at: triggerTime,
                         });
-                        if (data.event_id && !events.some(item => item.event_id === data.event_id)) {
-                            events.unshift({
-                                event_id: data.event_id,
-                                device_id: data.device_id,
-                                timestamp: triggerTime,
-                                created_at: triggerTime,
-                                latitude: data.latitude,
-                                longitude: data.longitude,
-                                rms_peak: data.rms_peak,
-                                label: data.label || 'aircraft',
-                                audio_path: null,
-                                note: 'event_trigger_pending_refresh',
-                            });
-                        }
+                        upsertEventState(data.event || {
+                            event_id: data.event_id,
+                            device_id: data.device_id,
+                            timestamp: triggerTime,
+                            created_at: triggerTime,
+                            latitude: data.latitude,
+                            longitude: data.longitude,
+                            raw_latitude: data.raw_latitude,
+                            raw_longitude: data.raw_longitude,
+                            effective_latitude: data.effective_latitude,
+                            effective_longitude: data.effective_longitude,
+                            effective_location_source: data.effective_location_source,
+                            rms_peak: data.rms_peak,
+                            label: data.label || 'aircraft',
+                            audio_path: null,
+                            note: 'event_trigger_pending_refresh',
+                        });
                         renderSummary();
                         updateDeviceMarker(device);
                         renderAlerts();
                         renderTimeline();
-                        refreshAll();
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
                         (group.merged_group_ids || []).forEach(groupId => {
