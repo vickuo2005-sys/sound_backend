@@ -609,6 +609,15 @@ class PooledPostgresConnection:
             return
         self._returned = True
         should_close = bool(getattr(self._connection, "closed", 0))
+        if not should_close:
+            try:
+                # Connections from Supabase/Render can be returned to the pool
+                # with an aborted transaction after a transient error. Reset the
+                # session before reuse so the next dashboard poll does not
+                # randomly fail with HTTP 500.
+                self._connection.rollback()
+            except Exception:
+                should_close = True
         self._pool.putconn(self._connection, close=should_close)
 
 
@@ -642,11 +651,39 @@ def get_postgres_pool() -> Any:
 
 def get_postgres_connection() -> PooledPostgresConnection:
     pool = get_postgres_pool()
-    connection = pool.getconn()
-    if getattr(connection, "closed", 0):
-        pool.putconn(connection, close=True)
+    last_error: Optional[Exception] = None
+
+    for _ in range(2):
         connection = pool.getconn()
-    return PooledPostgresConnection(pool, connection)
+        if getattr(connection, "closed", 0):
+            pool.putconn(connection, close=True)
+            continue
+
+        try:
+            connection.rollback()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+            connection.rollback()
+            return PooledPostgresConnection(pool, connection)
+        except Exception as exc:
+            last_error = exc
+            try:
+                pool.putconn(connection, close=True)
+            except Exception:
+                pass
+
+    if last_error:
+        logger.error(
+            "PostgreSQL connection health check failed",
+            exc_info=(type(last_error), last_error, last_error.__traceback__),
+        )
+    else:
+        logger.error("PostgreSQL connection health check failed")
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Database connection is temporarily unavailable",
+    )
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
