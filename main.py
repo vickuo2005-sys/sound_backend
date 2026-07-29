@@ -3716,10 +3716,37 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
         connection.close()
 
 
+def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
+    existing_columns = set(DEVICE_STATUS_COLUMNS)
+    try:
+        if use_postgres() and cursor is not None:
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'device_status'
+                """
+            )
+            existing_columns = {str(row["column_name"]) for row in cursor.fetchall()}
+        elif sqlite_connection is not None:
+            rows = sqlite_connection.execute("PRAGMA table_info(device_status)").fetchall()
+            existing_columns = {str(row["name"]) for row in rows}
+    except Exception:
+        logger.exception("Failed to inspect device_status columns")
+
+    select_parts = []
+    for column in DEVICE_STATUS_COLUMNS:
+        if column in existing_columns:
+            select_parts.append(column)
+        else:
+            select_parts.append(f"NULL AS {column}")
+    return ", ".join(select_parts)
+
+
 def list_device_status_rows() -> list[dict]:
-    columns = ", ".join(DEVICE_STATUS_COLUMNS)
     if not use_postgres():
         with get_sqlite_connection() as connection:
+            columns = device_status_select_clause(sqlite_connection=connection)
             rows = connection.execute(
                 f"""
                 SELECT {columns}
@@ -3735,6 +3762,7 @@ def list_device_status_rows() -> list[dict]:
     try:
         with connection:
             with connection.cursor() as cursor:
+                columns = device_status_select_clause(cursor=cursor)
                 cursor.execute(
                     f"""
                     SELECT {columns}
@@ -7478,7 +7506,7 @@ def dashboard_v4_clean():
 
                         estimates.clear();
                         groupsData.event_groups.forEach(group => {
-                            if (group.id && Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                            if (group.id && isDisplayableEstimate(group)) {
                                 estimates.set(String(group.id), group);
                             }
                         });
@@ -7692,12 +7720,29 @@ def dashboard_v4_clean():
 
             function latestEstimate() {
                 return Array.from(estimates.values())
-                    .filter(item => Number.isFinite(Number(item.region_center_lat)) && Number.isFinite(Number(item.region_center_lng)))
+                    .filter(isDisplayableEstimate)
                     .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))[0];
             }
 
             function estimateId(item) {
                 return String(item?.id || item?.group_id || '');
+            }
+
+            function estimateNodeCount(item) {
+                const explicit = Number(item?.reporting_node_count ?? item?.node_count ?? item?.tdoa_node_count);
+                if (Number.isFinite(explicit)) return explicit;
+                const devices = item?.reporting_device_ids || item?.devices || [];
+                return Array.isArray(devices) ? devices.length : 0;
+            }
+
+            function isDisplayableEstimate(item) {
+                if (!Number.isFinite(Number(item?.region_center_lat)) || !Number.isFinite(Number(item?.region_center_lng))) {
+                    return false;
+                }
+                if (String(item?.region_type || '').toLowerCase() === 'single_node') {
+                    return false;
+                }
+                return estimateNodeCount(item) >= 2;
             }
 
             function estimateIsFresh(item) {
@@ -7845,7 +7890,7 @@ def dashboard_v4_clean():
             function renderTargetEstimates() {
                 const list = document.getElementById('targetEstimateList');
                 const values = Array.from(estimates.values())
-                    .filter(item => Number.isFinite(Number(item.region_center_lat)) && Number.isFinite(Number(item.region_center_lng)))
+                    .filter(isDisplayableEstimate)
                     .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))
                     .slice(0, 8);
                 if (!values.length) {
@@ -8498,8 +8543,10 @@ def dashboard_v4_clean():
                         });
                         if (group.id) {
                             eventGroups.set(group.id, group);
-                            if (Number.isFinite(Number(group.region_center_lat)) && Number.isFinite(Number(group.region_center_lng))) {
+                            if (isDisplayableEstimate(group)) {
                                 estimates.set(String(group.id), group);
+                            } else {
+                                estimates.delete(String(group.id));
                             }
                         }
                         renderTargetEstimates();
