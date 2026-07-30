@@ -3839,6 +3839,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     last_event_id,
                     last_event_at,
                     status,
+                    is_listening,
                     last_ai_label,
                     last_upload_status,
                     gps_speed_mps,
@@ -3851,7 +3852,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'event', ?, 'metadata_uploaded', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'event', 1, ?, 'metadata_uploaded', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -3859,6 +3860,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     last_event_id = excluded.last_event_id,
                     last_event_at = excluded.last_event_at,
                     status = 'event',
+                    is_listening = 1,
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
                     gps_speed_mps = COALESCE(excluded.gps_speed_mps, device_status.gps_speed_mps),
@@ -3916,6 +3918,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         last_event_id,
                         last_event_at,
                         status,
+                        is_listening,
                         last_ai_label,
                         last_upload_status,
                         gps_speed_mps,
@@ -3929,7 +3932,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         updated_at
                     )
                     VALUES (
-                        %s, %s, %s, now(), %s, now(), 'event', %s, 'metadata_uploaded',
+                        %s, %s, %s, now(), %s, now(), 'event', true, %s, 'metadata_uploaded',
                         %s, %s, %s, %s, %s, %s, %s, %s, now()
                     )
                     ON CONFLICT (device_id) DO UPDATE SET
@@ -3939,6 +3942,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         last_event_id = EXCLUDED.last_event_id,
                         last_event_at = now(),
                         status = 'event',
+                        is_listening = true,
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
                         gps_speed_mps = COALESCE(EXCLUDED.gps_speed_mps, device_status.gps_speed_mps),
@@ -6000,6 +6004,7 @@ def process_event_submission(event: SoundEvent) -> dict:
                 "last_time_sync_at": None,
                 "last_event_id": event.event_id,
                 "last_event_at": created_at,
+                "is_listening": True,
                 "last_command_id": None,
                 "updated_at": created_at,
             }
@@ -6135,9 +6140,14 @@ async def create_event(
                 "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
+                "is_listening": True,
                 "rms_peak": saved_event.get("rms_peak", event.rms_peak),
                 "event": saved_event,
-                "device": enriched_device_row,
+                "device": {
+                    **enriched_device_row,
+                    "is_listening": True,
+                    "status": "event",
+                },
             }
         )
 
