@@ -74,7 +74,7 @@ TDOA_MAX_OUTSIDE_BOUNDS_M = 300.0
 TIME_SYNC_MAX_AGE_SECONDS = float(os.getenv("TIME_SYNC_MAX_AGE_SECONDS", "120") or 120)
 LOCALIZATION_ENABLED = os.getenv("LOCALIZATION_ENABLED", "false").lower() == "true"
 GCC_PHAT_ENABLED = os.getenv("GCC_PHAT_ENABLED", "false").lower() == "true"
-TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "false").lower() == "true"
+TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "true").lower() == "true"
 TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
 TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
@@ -147,6 +147,13 @@ class SoundEvent(BaseModel):
     longitude: Optional[float] = None
     duration_s: Optional[float] = None
     rms_peak: Optional[float] = None
+    avg_db: Optional[float] = None
+    peak_db: Optional[float] = None
+    estimated_avg_db: Optional[float] = None
+    estimated_peak_db: Optional[float] = None
+    gps_speed_mps: Optional[float] = None
+    gps_heading_deg: Optional[float] = None
+    gps_accuracy_m: Optional[float] = None
     label: Optional[str] = None
     audio_file_name: Optional[str] = None
     local_audio_path: Optional[str] = None
@@ -191,6 +198,9 @@ class LocationUpdate(BaseModel):
     device_id: str
     latitude: float
     longitude: float
+    gps_speed_mps: Optional[float] = None
+    gps_heading_deg: Optional[float] = None
+    gps_accuracy_m: Optional[float] = None
     is_listening: Optional[bool] = None
     upload_mode: Optional[str] = None
     battery: Optional[int] = None
@@ -293,6 +303,13 @@ EVENT_COLUMNS = [
     "longitude",
     "duration_s",
     "rms_peak",
+    "avg_db",
+    "peak_db",
+    "estimated_avg_db",
+    "estimated_peak_db",
+    "gps_speed_mps",
+    "gps_heading_deg",
+    "gps_accuracy_m",
     "label",
     "audio_file_name",
     "local_audio_path",
@@ -388,6 +405,9 @@ DEVICE_STATUS_COLUMNS = [
     "app_status",
     "last_ai_label",
     "last_upload_status",
+    "gps_speed_mps",
+    "gps_heading_deg",
+    "gps_accuracy_m",
     "time_sync_offset_ms",
     "time_sync_rtt_ms",
     "time_sync_quality",
@@ -462,6 +482,10 @@ EVENT_GROUP_OBSERVATION_COLUMNS = [
     "latitude",
     "longitude",
     "rms_peak",
+    "avg_db",
+    "peak_db",
+    "estimated_avg_db",
+    "estimated_peak_db",
     "ai_probability",
     "aircraft_probability",
     "audio_path",
@@ -720,6 +744,13 @@ def init_sqlite_db() -> None:
                 longitude REAL,
                 duration_s REAL,
                 rms_peak REAL,
+                avg_db REAL,
+                peak_db REAL,
+                estimated_avg_db REAL,
+                estimated_peak_db REAL,
+                gps_speed_mps REAL,
+                gps_heading_deg REAL,
+                gps_accuracy_m REAL,
                 label TEXT,
                 audio_file_name TEXT,
                 local_audio_path TEXT,
@@ -765,6 +796,13 @@ def init_sqlite_db() -> None:
             """
         )
         for column_name, column_definition in [
+            ("avg_db", "REAL"),
+            ("peak_db", "REAL"),
+            ("estimated_avg_db", "REAL"),
+            ("estimated_peak_db", "REAL"),
+            ("gps_speed_mps", "REAL"),
+            ("gps_heading_deg", "REAL"),
+            ("gps_accuracy_m", "REAL"),
             ("audio_path", "TEXT"),
             ("audio_format", "TEXT"),
             ("audio_size_bytes", "INTEGER"),
@@ -824,6 +862,9 @@ def init_sqlite_db() -> None:
                 app_status TEXT,
                 last_ai_label TEXT,
                 last_upload_status TEXT,
+                gps_speed_mps REAL,
+                gps_heading_deg REAL,
+                gps_accuracy_m REAL,
                 time_sync_offset_ms REAL,
                 time_sync_rtt_ms REAL,
                 time_sync_quality TEXT,
@@ -849,6 +890,9 @@ def init_sqlite_db() -> None:
             ("app_status", "TEXT"),
             ("last_ai_label", "TEXT"),
             ("last_upload_status", "TEXT"),
+            ("gps_speed_mps", "REAL"),
+            ("gps_heading_deg", "REAL"),
+            ("gps_accuracy_m", "REAL"),
             ("time_sync_offset_ms", "REAL"),
             ("time_sync_rtt_ms", "REAL"),
             ("time_sync_quality", "TEXT"),
@@ -1010,6 +1054,10 @@ def init_sqlite_db() -> None:
                 latitude REAL,
                 longitude REAL,
                 rms_peak REAL,
+                avg_db REAL,
+                peak_db REAL,
+                estimated_avg_db REAL,
+                estimated_peak_db REAL,
                 ai_probability REAL,
                 aircraft_probability REAL,
                 audio_path TEXT,
@@ -1062,6 +1110,10 @@ def init_sqlite_db() -> None:
             ("latitude", "REAL"),
             ("longitude", "REAL"),
             ("rms_peak", "REAL"),
+            ("avg_db", "REAL"),
+            ("peak_db", "REAL"),
+            ("estimated_avg_db", "REAL"),
+            ("estimated_peak_db", "REAL"),
             ("ai_probability", "REAL"),
             ("aircraft_probability", "REAL"),
             ("audio_path", "TEXT"),
@@ -1364,6 +1416,13 @@ def init_postgres_db() -> None:
                         longitude DOUBLE PRECISION,
                         duration_s DOUBLE PRECISION,
                         rms_peak DOUBLE PRECISION,
+                        avg_db DOUBLE PRECISION,
+                        peak_db DOUBLE PRECISION,
+                        estimated_avg_db DOUBLE PRECISION,
+                        estimated_peak_db DOUBLE PRECISION,
+                        gps_speed_mps DOUBLE PRECISION,
+                        gps_heading_deg DOUBLE PRECISION,
+                        gps_accuracy_m DOUBLE PRECISION,
                         label TEXT,
                         audio_file_name TEXT,
                         local_audio_path TEXT,
@@ -1423,6 +1482,16 @@ def init_postgres_db() -> None:
                 cursor.execute(
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS rms_peak DOUBLE PRECISION"
                 )
+                for statement in [
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS avg_db DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS peak_db DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS estimated_avg_db DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS estimated_peak_db DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION",
+                ]:
+                    cursor.execute(statement)
                 cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS label TEXT")
                 cursor.execute(
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS audio_file_name TEXT"
@@ -1500,6 +1569,9 @@ def init_postgres_db() -> None:
                         app_status TEXT,
                         last_ai_label TEXT,
                         last_upload_status TEXT,
+                        gps_speed_mps DOUBLE PRECISION,
+                        gps_heading_deg DOUBLE PRECISION,
+                        gps_accuracy_m DOUBLE PRECISION,
                         time_sync_offset_ms DOUBLE PRECISION,
                         time_sync_rtt_ms DOUBLE PRECISION,
                         time_sync_quality TEXT,
@@ -1525,6 +1597,9 @@ def init_postgres_db() -> None:
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS app_status TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_ai_label TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS time_sync_quality TEXT",
@@ -1685,6 +1760,10 @@ def init_postgres_db() -> None:
                         latitude DOUBLE PRECISION,
                         longitude DOUBLE PRECISION,
                         rms_peak DOUBLE PRECISION,
+                        avg_db DOUBLE PRECISION,
+                        peak_db DOUBLE PRECISION,
+                        estimated_avg_db DOUBLE PRECISION,
+                        estimated_peak_db DOUBLE PRECISION,
                         ai_probability DOUBLE PRECISION,
                         aircraft_probability DOUBLE PRECISION,
                         audio_path TEXT,
@@ -1737,6 +1816,10 @@ def init_postgres_db() -> None:
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS rms_peak DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS avg_db DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS peak_db DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS estimated_avg_db DOUBLE PRECISION",
+                    "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS estimated_peak_db DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS ai_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
                     "ALTER TABLE event_group_observations ADD COLUMN IF NOT EXISTS audio_path TEXT",
@@ -2217,6 +2300,13 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         "longitude": event.longitude,
         "duration_s": event.duration_s,
         "rms_peak": event.rms_peak,
+        "avg_db": event.avg_db,
+        "peak_db": event.peak_db,
+        "estimated_avg_db": event.estimated_avg_db,
+        "estimated_peak_db": event.estimated_peak_db,
+        "gps_speed_mps": event.gps_speed_mps,
+        "gps_heading_deg": event.gps_heading_deg,
+        "gps_accuracy_m": event.gps_accuracy_m,
         "label": event.label,
         "audio_file_name": event.audio_file_name,
         "local_audio_path": event.local_audio_path,
@@ -3029,7 +3119,64 @@ def process_tracking_for_localization(localization: dict) -> Optional[dict]:
     }
     track = choose_track_for_measurement(measurement)
     state = update_track_from_measurement(track, measurement)
-    return save_track_point(track, measurement, state)
+    saved_track = save_track_point(track, measurement, state)
+    return enrich_track_with_points(saved_track)
+
+
+def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]:
+    if not TRACKING_ENABLED:
+        return None
+    label = str(event_group.get("label") or event_group.get("group_label") or "").lower()
+    if not is_alert_event_label(label):
+        return None
+
+    lat = parse_float_value(
+        event_group.get("region_center_lat")
+        if event_group.get("region_center_lat") is not None
+        else event_group.get("estimated_lat")
+    )
+    lng = parse_float_value(
+        event_group.get("region_center_lng")
+        if event_group.get("region_center_lng") is not None
+        else event_group.get("estimated_lng")
+    )
+    if lat is None or lng is None:
+        return None
+
+    node_count = parse_int_value(
+        event_group.get("reporting_node_count") or event_group.get("node_count")
+    ) or 1
+    event_time = (
+        parse_datetime(event_group.get("region_updated_at"))
+        or parse_datetime(event_group.get("updated_at"))
+        or parse_datetime(event_group.get("last_event_time"))
+        or datetime.now(timezone.utc)
+    )
+    confidence = parse_float_value(event_group.get("confidence"))
+    if confidence is None:
+        confidence = fusion_confidence(node_count)
+    uncertainty = parse_float_value(event_group.get("uncertainty_radius_m"))
+    if uncertainty is None:
+        uncertainty = fusion_uncertainty_radius(node_count)
+
+    measurement = {
+        "group_id": event_group.get("id"),
+        "localization_result_id": None,
+        "label": label,
+        "estimated_lat": lat,
+        "estimated_lng": lng,
+        "confidence": confidence,
+        "uncertainty_radius_m": uncertainty,
+        "event_time_ms": event_time.timestamp() * 1000.0,
+        "source": "event_group_region",
+        "region_type": event_group.get("region_type"),
+        "reporting_node_count": node_count,
+        "reporting_device_ids": event_group.get("reporting_device_ids"),
+    }
+    track = choose_track_for_measurement(measurement)
+    state = update_track_from_measurement(track, measurement)
+    saved_track = save_track_point(track, measurement, state)
+    return enrich_track_with_points(saved_track)
 
 
 def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> dict:
@@ -3137,7 +3284,15 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
                             state["innovation_m"],
                             json_dumps(state["state_json"]),
                             json_dumps(state["covariance_json"]),
-                            json_dumps({"source": "localization_result"}),
+                            json_dumps(
+                                {
+                                    "source": measurement.get("source")
+                                    or "localization_result",
+                                    "region_type": measurement.get("region_type"),
+                                    "reporting_node_count": measurement.get("reporting_node_count"),
+                                    "reporting_device_ids": measurement.get("reporting_device_ids"),
+                                }
+                            ),
                         ),
                     )
                     cursor.execute("SELECT * FROM target_tracks WHERE id = %s", (track_id,))
@@ -3240,7 +3395,14 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
                 state["innovation_m"],
                 json_dumps(state["state_json"]),
                 json_dumps(state["covariance_json"]),
-                json_dumps({"source": "localization_result"}),
+                json_dumps(
+                    {
+                        "source": measurement.get("source") or "localization_result",
+                        "region_type": measurement.get("region_type"),
+                        "reporting_node_count": measurement.get("reporting_node_count"),
+                        "reporting_device_ids": measurement.get("reporting_device_ids"),
+                    }
+                ),
                 now,
             ),
         )
@@ -3346,6 +3508,14 @@ def list_track_points(track_id: str, limit: int = 100) -> list[dict]:
         return [serialize_db_row(dict(row)) for row in rows]
 
 
+def enrich_track_with_points(track: Optional[dict], limit: int = 20) -> Optional[dict]:
+    if not track or not track.get("id"):
+        return track
+    enriched = dict(track)
+    enriched["recent_points"] = list_track_points(str(track["id"]), limit=limit)
+    return enriched
+
+
 def close_track(track_id: str) -> dict:
     if use_postgres():
         connection = get_postgres_connection()
@@ -3415,6 +3585,9 @@ def upsert_device_location(
     device_id: str,
     latitude: float,
     longitude: float,
+    gps_speed_mps: Optional[float] = None,
+    gps_heading_deg: Optional[float] = None,
+    gps_accuracy_m: Optional[float] = None,
     is_listening: Optional[bool] = None,
     upload_mode: Optional[str] = None,
     battery: Optional[int] = None,
@@ -3461,6 +3634,9 @@ def upsert_device_location(
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    gps_speed_mps,
+                    gps_heading_deg,
+                    gps_accuracy_m,
                     time_sync_offset_ms,
                     time_sync_rtt_ms,
                     time_sync_quality,
@@ -3468,7 +3644,7 @@ def upsert_device_location(
                     last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -3487,6 +3663,9 @@ def upsert_device_location(
                     app_status = excluded.app_status,
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
+                    gps_speed_mps = excluded.gps_speed_mps,
+                    gps_heading_deg = excluded.gps_heading_deg,
+                    gps_accuracy_m = excluded.gps_accuracy_m,
                     time_sync_offset_ms = excluded.time_sync_offset_ms,
                     time_sync_rtt_ms = excluded.time_sync_rtt_ms,
                     time_sync_quality = excluded.time_sync_quality,
@@ -3507,6 +3686,9 @@ def upsert_device_location(
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    gps_speed_mps,
+                    gps_heading_deg,
+                    gps_accuracy_m,
                     time_sync_offset_ms,
                     time_sync_rtt_ms,
                     normalized_time_sync_quality,
@@ -3548,6 +3730,9 @@ def upsert_device_location(
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        gps_speed_mps,
+                        gps_heading_deg,
+                        gps_accuracy_m,
                         time_sync_offset_ms,
                         time_sync_rtt_ms,
                         time_sync_quality,
@@ -3558,6 +3743,7 @@ def upsert_device_location(
                     VALUES (
                         %s, %s, %s, now(), 'online',
                         %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s,
                         %s, %s, %s, %s, %s, now()
                     )
                     ON CONFLICT (device_id) DO UPDATE SET
@@ -3578,6 +3764,9 @@ def upsert_device_location(
                         app_status = EXCLUDED.app_status,
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
+                        gps_speed_mps = EXCLUDED.gps_speed_mps,
+                        gps_heading_deg = EXCLUDED.gps_heading_deg,
+                        gps_accuracy_m = EXCLUDED.gps_accuracy_m,
                         time_sync_offset_ms = EXCLUDED.time_sync_offset_ms,
                         time_sync_rtt_ms = EXCLUDED.time_sync_rtt_ms,
                         time_sync_quality = EXCLUDED.time_sync_quality,
@@ -3599,6 +3788,9 @@ def upsert_device_location(
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        gps_speed_mps,
+                        gps_heading_deg,
+                        gps_accuracy_m,
                         time_sync_offset_ms,
                         time_sync_rtt_ms,
                         normalized_time_sync_quality,
@@ -3642,6 +3834,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     status,
                     last_ai_label,
                     last_upload_status,
+                    gps_speed_mps,
+                    gps_heading_deg,
+                    gps_accuracy_m,
                     time_sync_offset_ms,
                     time_sync_rtt_ms,
                     time_sync_quality,
@@ -3649,7 +3844,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 'event', ?, 'metadata_uploaded', ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'event', ?, 'metadata_uploaded', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -3659,6 +3854,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     status = 'event',
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
+                    gps_speed_mps = COALESCE(excluded.gps_speed_mps, device_status.gps_speed_mps),
+                    gps_heading_deg = COALESCE(excluded.gps_heading_deg, device_status.gps_heading_deg),
+                    gps_accuracy_m = COALESCE(excluded.gps_accuracy_m, device_status.gps_accuracy_m),
                     time_sync_offset_ms = COALESCE(excluded.time_sync_offset_ms, device_status.time_sync_offset_ms),
                     time_sync_rtt_ms = COALESCE(excluded.time_sync_rtt_ms, device_status.time_sync_rtt_ms),
                     time_sync_quality = COALESCE(excluded.time_sync_quality, device_status.time_sync_quality),
@@ -3674,6 +3872,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     event.event_id,
                     now,
                     event.label,
+                    event.gps_speed_mps,
+                    event.gps_heading_deg,
+                    event.gps_accuracy_m,
                     event.time_sync_offset_ms,
                     event.time_sync_rtt_ms,
                     event_time_sync_quality,
@@ -3710,6 +3911,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         status,
                         last_ai_label,
                         last_upload_status,
+                        gps_speed_mps,
+                        gps_heading_deg,
+                        gps_accuracy_m,
                         time_sync_offset_ms,
                         time_sync_rtt_ms,
                         time_sync_quality,
@@ -3719,7 +3923,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     )
                     VALUES (
                         %s, %s, %s, now(), %s, now(), 'event', %s, 'metadata_uploaded',
-                        %s, %s, %s, %s, %s, now()
+                        %s, %s, %s, %s, %s, %s, %s, %s, now()
                     )
                     ON CONFLICT (device_id) DO UPDATE SET
                         latitude = EXCLUDED.latitude,
@@ -3730,6 +3934,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         status = 'event',
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
+                        gps_speed_mps = COALESCE(EXCLUDED.gps_speed_mps, device_status.gps_speed_mps),
+                        gps_heading_deg = COALESCE(EXCLUDED.gps_heading_deg, device_status.gps_heading_deg),
+                        gps_accuracy_m = COALESCE(EXCLUDED.gps_accuracy_m, device_status.gps_accuracy_m),
                         time_sync_offset_ms = COALESCE(EXCLUDED.time_sync_offset_ms, device_status.time_sync_offset_ms),
                         time_sync_rtt_ms = COALESCE(EXCLUDED.time_sync_rtt_ms, device_status.time_sync_rtt_ms),
                         time_sync_quality = COALESCE(EXCLUDED.time_sync_quality, device_status.time_sync_quality),
@@ -3745,6 +3952,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         event.longitude,
                         event.event_id,
                         event.label,
+                        event.gps_speed_mps,
+                        event.gps_heading_deg,
+                        event.gps_accuracy_m,
                         event.time_sync_offset_ms,
                         event.time_sync_rtt_ms,
                         event_time_sync_quality,
@@ -5734,6 +5944,7 @@ def process_event_submission(event: SoundEvent) -> dict:
     db_id = save_event(event, created_at)
     device_row = None
     event_group = None
+    region_track = None
     localization_package = None
 
     try:
@@ -5782,6 +5993,15 @@ def process_event_submission(event: SoundEvent) -> dict:
                 "updated_at": created_at,
             }
 
+    if event_group and is_alert_event_label(event.label) and not is_existing_event:
+        try:
+            region_track = process_tracking_for_event_group_region(event_group)
+        except Exception:
+            logger.exception(
+                "Region tracking failed for event_group=%s",
+                event_group.get("id"),
+            )
+
     if event_group and LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
         try:
             localization_package = process_event_group_localization(event_group["id"])
@@ -5795,6 +6015,7 @@ def process_event_submission(event: SoundEvent) -> dict:
         "db_id": db_id,
         "device_row": device_row,
         "event_group": event_group,
+        "region_track": region_track,
         "localization_package": localization_package,
         "is_existing_event": is_existing_event,
         "saved_event": saved_event,
@@ -5806,6 +6027,9 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         device_id=location.device_id,
         latitude=location.latitude,
         longitude=location.longitude,
+        gps_speed_mps=location.gps_speed_mps,
+        gps_heading_deg=location.gps_heading_deg,
+        gps_accuracy_m=location.gps_accuracy_m,
         is_listening=location.is_listening,
         upload_mode=location.upload_mode,
         battery=location.battery,
@@ -5869,6 +6093,7 @@ async def create_event(
     db_id = result["db_id"]
     device_row = result["device_row"]
     event_group = result["event_group"]
+    region_track = result.get("region_track")
     localization_package = result["localization_package"]
     is_existing_event = result["is_existing_event"]
     saved_event = result.get("saved_event") or {}
@@ -5905,6 +6130,13 @@ async def create_event(
             {
                 "type": "event_group",
                 "group": event_group,
+            }
+        )
+    if region_track:
+        await dashboard_manager.broadcast(
+            {
+                "type": "track_update",
+                "track": region_track,
             }
         )
     if localization_package and localization_package.get("localization"):
@@ -6041,8 +6273,14 @@ def tracks(
     status_filter: Optional[str] = Query(default=None, alias="status"),
     label: Optional[str] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    points_limit: int = Query(default=20, ge=0, le=100),
 ):
     rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
+    if points_limit:
+        rows = [
+            enrich_track_with_points(row, limit=points_limit) or row
+            for row in rows
+        ]
     return {"status": "success", "count": len(rows), "tracks": rows}
 
 
@@ -9496,6 +9734,7 @@ def dashboard_legacy_unused():
             const tracks = new Map();
             const targetEstimateMarkers = new Map();
             const targetEstimateCircles = new Map();
+            const targetTrackLines = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const targetEstimateAutoDisplayMs = 5000;
@@ -9876,6 +10115,71 @@ def dashboard_legacy_unused():
                 });
             }
 
+            function validTrackPoints(track) {
+                return (track.recent_points || [])
+                    .filter(point => Number.isFinite(Number(point.filtered_lat)) && Number.isFinite(Number(point.filtered_lng)))
+                    .sort((a, b) => Number(a.measurement_time_ms || 0) - Number(b.measurement_time_ms || 0));
+            }
+
+            function updateTrackLineOnMap(track) {
+                if (!map || !window.google || !track?.id) return;
+                const points = validTrackPoints(track);
+                if (points.length < 2) {
+                    const existing = targetTrackLines.get(track.id);
+                    if (existing) {
+                        existing.setMap(null);
+                        targetTrackLines.delete(track.id);
+                    }
+                    return;
+                }
+                const path = points.map(point => ({
+                    lat: Number(point.filtered_lat),
+                    lng: Number(point.filtered_lng),
+                }));
+                const icons = [{
+                    icon: {
+                        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                        scale: 4,
+                        strokeColor: '#f97316',
+                        strokeWeight: 2,
+                        fillColor: '#f97316',
+                        fillOpacity: 1,
+                    },
+                    offset: '100%',
+                }];
+                let line = targetTrackLines.get(track.id);
+                if (!line) {
+                    line = new google.maps.Polyline({
+                        map,
+                        path,
+                        icons,
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.9,
+                        strokeWeight: 4,
+                        zIndex: 30,
+                    });
+                    targetTrackLines.set(track.id, line);
+                } else {
+                    line.setPath(path);
+                    line.setOptions({ icons });
+                }
+            }
+
+            function renderTrackLines() {
+                const activeIds = new Set();
+                tracks.forEach(track => {
+                    if (String(track.status || '').toUpperCase() === 'CLOSED') return;
+                    activeIds.add(track.id);
+                    updateTrackLineOnMap(track);
+                });
+                targetTrackLines.forEach((line, trackId) => {
+                    if (!activeIds.has(trackId)) {
+                        line.setMap(null);
+                        targetTrackLines.delete(trackId);
+                    }
+                });
+            }
+
             function targetEstimateValues() {
                 return Array.from(targetEstimates.values())
                     .filter(estimate => Number.isFinite(Number(estimate.estimated_lat)) && Number.isFinite(Number(estimate.estimated_lng)))
@@ -9901,6 +10205,8 @@ def dashboard_legacy_unused():
                         <div class="map-info-row"><span>蝭暺</span><span>${safe(estimate.node_count)}</span></div>
                         <div class="map-info-row"><span>??蝭暺?/span><span>${(estimate.devices || []).join(', ') || '-'}</span></div>
                         <div class="map-info-row"><span>摰??寞?</span><span>${displayEstimateMethod(estimate.method)}</span></div>
+                        <div class="map-info-row"><span>Speed</span><span>${Number.isFinite(Number(estimate.speed_mps)) ? Number(estimate.speed_mps).toFixed(1) + ' m/s' : '--'}</span></div>
+                        <div class="map-info-row"><span>Heading</span><span>${Number.isFinite(Number(estimate.heading_deg)) ? Number(estimate.heading_deg).toFixed(0) + ' deg' : '--'}</span></div>
                         <div class="map-info-row"><span>?郊?釭</span><span>${displayTimeSyncQuality(estimate.time_sync_quality)}</span></div>
                         <div class="map-info-row"><span>TDOA residual</span><span>${displayResidual(estimate.tdoa_residual_rmse_m)}</span></div>
                         <div class="map-info-row"><span>?湔??</span><span>${safe(estimate.updated_at)}</span></div>
@@ -9997,6 +10303,7 @@ def dashboard_legacy_unused():
                         <div class="event-title"><span>?脫?隡唳葫</span><span>${safe(estimate.label)}</span></div>
                         <div class="event-detail">蝭暺?${safe(estimate.node_count)} / 靽∪? ${Number(estimate.confidence || 0).toFixed(2)}</div>
                         <div class="event-detail">?寞? ${displayEstimateMethod(estimate.method)} / ?郊 ${displayTimeSyncQuality(estimate.time_sync_quality)}</div>
+                        <div class="event-detail">speed ${Number.isFinite(Number(estimate.speed_mps)) ? Number(estimate.speed_mps).toFixed(1) + ' m/s' : '--'} / heading ${Number.isFinite(Number(estimate.heading_deg)) ? Number(estimate.heading_deg).toFixed(0) + ' deg' : '--'}</div>
                         <div class="event-detail">TDOA residual ${displayResidual(estimate.tdoa_residual_rmse_m)}</div>
                         <div class="event-detail">雿蔭 ${Number(estimate.estimated_lat).toFixed(6)}, ${Number(estimate.estimated_lng).toFixed(6)}</div>
                         <div class="event-detail">蝭? ${safe(estimate.uncertainty_radius_m)} m / ${(estimate.devices || []).join(', ')}</div>
@@ -10598,6 +10905,7 @@ def dashboard_legacy_unused():
                     }
                 }
                 cleanupTargetEstimateMarkers(activeEstimateIds);
+                renderTrackLines();
                 renderNodes();
                 refreshLiveAudioDeviceSelect();
                 renderAlerts();
@@ -10641,6 +10949,9 @@ def dashboard_legacy_unused():
                     method: 'kalman_track',
                     node_count: track.point_count,
                     devices: [`track ${String(track.id || '').slice(0, 8)}`],
+                    speed_mps: track.last_speed_mps,
+                    heading_deg: track.last_heading_deg,
+                    recent_points: track.recent_points || [],
                     tdoa_residual_rmse_m: null,
                     time_sync_quality: track.status,
                     created_at: track.created_at,
@@ -10656,7 +10967,7 @@ def dashboard_legacy_unused():
                         fetch('/target-estimates?limit=10'),
                         fetch('/event-groups?limit=8'),
                         fetch('/localization-results?limit=10'),
-                        fetch('/tracks?limit=10'),
+                        fetch('/tracks?limit=10&points_limit=20'),
                     ]);
                     const statusData = await statusResponse.json();
                     const eventsData = await eventsResponse.json();
@@ -10745,6 +11056,7 @@ def dashboard_legacy_unused():
                         const track = data.track || data;
                         if (track.id) {
                             tracks.set(track.id, track);
+                            updateTrackLineOnMap(track);
                             const estimate = trackToEstimate(track);
                             if (estimate) {
                                 targetEstimates.set(estimate.group_id, estimate);

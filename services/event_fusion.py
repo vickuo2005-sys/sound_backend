@@ -541,6 +541,10 @@ def insert_observation(
             latitude,
             longitude,
             rms_peak,
+            avg_db,
+            peak_db,
+            estimated_avg_db,
+            estimated_peak_db,
             ai_probability,
             aircraft_probability,
             audio_path,
@@ -578,7 +582,7 @@ def insert_observation(
             created_at,
             observation_kind
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     params = (
         observation_id,
@@ -591,6 +595,10 @@ def insert_observation(
         event_record.get("latitude"),
         event_record.get("longitude"),
         event_record.get("rms_peak"),
+        event_record.get("avg_db"),
+        event_record.get("peak_db"),
+        event_record.get("estimated_avg_db"),
+        event_record.get("estimated_peak_db"),
         ai_probability,
         ai_probability,
         event_record.get("audio_path"),
@@ -1060,6 +1068,10 @@ def update_existing_observation_snapshot(
         """
         UPDATE event_group_observations
         SET audio_path = %s,
+            avg_db = %s,
+            peak_db = %s,
+            estimated_avg_db = %s,
+            estimated_peak_db = %s,
             audio_format = %s,
             audio_size_bytes = %s,
             source_pcm_size_bytes = %s,
@@ -1096,6 +1108,10 @@ def update_existing_observation_snapshot(
         """,
         (
             event_record.get("audio_path"),
+            event_record.get("avg_db"),
+            event_record.get("peak_db"),
+            event_record.get("estimated_avg_db"),
+            event_record.get("estimated_peak_db"),
             event_record.get("audio_format"),
             parse_int(event_record.get("audio_size_bytes")),
             parse_int(event_record.get("source_pcm_size_bytes")),
