@@ -61,6 +61,7 @@ logger = logging.getLogger("sound_backend")
 _postgres_pool: Any = None
 _postgres_pool_database_url = ""
 _postgres_pool_lock = threading.Lock()
+DATABASE_INIT_ERROR: Optional[str] = None
 EVENT_FUSION_WINDOW_SECONDS = float(os.getenv("EVENT_FUSION_WINDOW_SECONDS", "6") or 6)
 EVENT_GROUP_WINDOW_SECONDS = EVENT_FUSION_WINDOW_SECONDS
 TARGET_ESTIMATE_METHOD = "weighted_centroid"
@@ -5935,7 +5936,11 @@ def build_audio_path(
     )
 
 
-init_db()
+try:
+    init_db()
+except Exception as exc:
+    DATABASE_INIT_ERROR = str(exc)
+    logger.exception("Database initialization failed during startup")
 
 
 def process_event_submission(event: SoundEvent) -> dict:
@@ -6061,6 +6066,8 @@ async def health():
     return {
         "status": "healthy",
         "time": current_time_iso(),
+        "database_init": "error" if DATABASE_INIT_ERROR else "ok",
+        "database_init_error": DATABASE_INIT_ERROR,
     }
 
 
