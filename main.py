@@ -11,6 +11,7 @@ import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from io import StringIO
+from time import monotonic
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -108,6 +109,10 @@ LIVE_AUDIO_RING_BUFFER_SECONDS = float(
     os.getenv("LIVE_AUDIO_RING_BUFFER_SECONDS", "10") or 10
 )
 LIVE_AUDIO_MAX_FRAME_BYTES = int(os.getenv("LIVE_AUDIO_MAX_FRAME_BYTES", "65536") or 65536)
+DEVICE_STATUS_CACHE_TTL_SECONDS = float(
+    os.getenv("DEVICE_STATUS_CACHE_TTL_SECONDS", "10") or 10
+)
+TRACKS_CACHE_TTL_SECONDS = float(os.getenv("TRACKS_CACHE_TTL_SECONDS", "10") or 10)
 
 
 class DashboardConnectionManager:
@@ -143,6 +148,10 @@ audio_stream_manager = AudioStreamManager(
     max_buffer_frames=max(1, int(LIVE_AUDIO_RING_BUFFER_SECONDS * 50))
 )
 tracking_update_lock = threading.Lock()
+device_status_cache_lock = threading.Lock()
+device_status_cache: tuple[float, list[dict]] = (0.0, [])
+tracks_cache_lock = threading.Lock()
+tracks_cache: dict[str, tuple[float, dict]] = {}
 
 
 class SoundEvent(BaseModel):
@@ -2901,6 +2910,61 @@ def serialize_db_row(row: dict) -> dict:
     return serialized
 
 
+def clone_rows(rows: list[dict]) -> list[dict]:
+    return [dict(row) for row in rows]
+
+
+def get_device_status_cache() -> Optional[list[dict]]:
+    if not use_postgres() or DEVICE_STATUS_CACHE_TTL_SECONDS <= 0:
+        return None
+    with device_status_cache_lock:
+        cached_at, rows = device_status_cache
+        if rows and monotonic() - cached_at <= DEVICE_STATUS_CACHE_TTL_SECONDS:
+            return clone_rows(rows)
+    return None
+
+
+def set_device_status_cache(rows: list[dict]) -> None:
+    global device_status_cache
+
+    if not use_postgres() or DEVICE_STATUS_CACHE_TTL_SECONDS <= 0:
+        return
+    with device_status_cache_lock:
+        device_status_cache = (monotonic(), clone_rows(rows))
+
+
+def get_tracks_cache(key: str) -> Optional[dict]:
+    if not use_postgres() or TRACKS_CACHE_TTL_SECONDS <= 0:
+        return None
+    with tracks_cache_lock:
+        cached = tracks_cache.get(key)
+        if not cached:
+            return None
+        cached_at, payload = cached
+        if monotonic() - cached_at <= TRACKS_CACHE_TTL_SECONDS:
+            return {
+                "status": payload.get("status"),
+                "count": payload.get("count"),
+                "tracks": clone_rows(payload.get("tracks") or []),
+            }
+        tracks_cache.pop(key, None)
+    return None
+
+
+def set_tracks_cache(key: str, payload: dict) -> None:
+    if not use_postgres() or TRACKS_CACHE_TTL_SECONDS <= 0:
+        return
+    with tracks_cache_lock:
+        tracks_cache[key] = (
+            monotonic(),
+            {
+                "status": payload.get("status"),
+                "count": payload.get("count"),
+                "tracks": clone_rows(payload.get("tracks") or []),
+            },
+        )
+
+
 def enrich_event_location_row(
     row: dict,
     fixed_locations: Optional[dict[str, dict]] = None,
@@ -4112,6 +4176,10 @@ def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = Non
 
 
 def list_device_status_rows() -> list[dict]:
+    cached_rows = get_device_status_cache()
+    if cached_rows is not None:
+        return cached_rows
+
     if not use_postgres():
         with get_sqlite_connection() as connection:
             columns = device_status_select_clause(sqlite_connection=connection)
@@ -4141,7 +4209,9 @@ def list_device_status_rows() -> list[dict]:
                 rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
     finally:
         connection.close()
-    return enrich_device_status_rows(rows)
+    enriched_rows = enrich_device_status_rows(rows)
+    set_device_status_cache(enriched_rows)
+    return enriched_rows
 
 
 def fallback_device_status_rows_from_events() -> list[dict]:
@@ -6403,10 +6473,17 @@ def tracks(
     limit: int = Query(default=20, ge=1, le=100),
     points_limit: int = Query(default=20, ge=0, le=100),
 ):
+    cache_key = f"{status_filter or ''}|{label or ''}|{limit}|{points_limit}"
+    cached = get_tracks_cache(cache_key)
+    if cached is not None:
+        return cached
+
     rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
     if points_limit:
         rows = enrich_tracks_with_points(rows, limit=points_limit)
-    return {"status": "success", "count": len(rows), "tracks": rows}
+    payload = {"status": "success", "count": len(rows), "tracks": rows}
+    set_tracks_cache(cache_key, payload)
+    return payload
 
 
 @app.get("/tracks/{track_id}")
@@ -7991,7 +8068,7 @@ def dashboard_v4_clean():
                 dashboardStarted = true;
                 refreshAll();
                 connectDashboardSocket();
-                setInterval(refreshAll, 10000);
+                setInterval(refreshAll, 30000);
                 setInterval(renderLiveEffects, 500);
             }
 
