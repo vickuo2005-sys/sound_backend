@@ -7541,10 +7541,11 @@ def dashboard_v4_clean():
             const markers = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
-            const estimateVisibleMs = 5000;
+            const estimateVisibleMs = alertDurationMs;
             let map = null;
             let infoWindow = null;
             let selectedEstimateId = null;
+            let autoEstimateId = null;
             let estimateMarker = null;
             let estimateCircle = null;
             let estimateBox = null;
@@ -7640,10 +7641,6 @@ def dashboard_v4_clean():
             }
 
             function isAlertActive(deviceId) {
-                if (!deviceAllowsAlert(deviceId)) {
-                    alertUntil.delete(deviceId);
-                    return false;
-                }
                 const until = alertUntil.get(deviceId);
                 return Boolean(until && Date.now() < until);
             }
@@ -7658,9 +7655,9 @@ def dashboard_v4_clean():
                 ));
             }
 
-            function activateAlertForDevice(deviceId, until) {
+            function activateAlertForDevice(deviceId, until, respectListening = true) {
                 if (!deviceId || isDiagnosticDevice(deviceId)) return;
-                if (!deviceAllowsAlert(deviceId)) return;
+                if (respectListening && !deviceAllowsAlert(deviceId)) return;
                 const currentUntil = alertUntil.get(deviceId) || 0;
                 if (until > currentUntil) alertUntil.set(deviceId, until);
                 const existing = devices.get(deviceId);
@@ -7681,7 +7678,7 @@ def dashboard_v4_clean():
                     until = Date.now() + alertDurationMs;
                 }
                 if (!force && until <= Date.now()) return;
-                ids.forEach(deviceId => activateAlertForDevice(deviceId, until));
+                ids.forEach(deviceId => activateAlertForDevice(deviceId, until, !force));
             }
 
             function parseTime(value) {
@@ -8090,6 +8087,7 @@ def dashboard_v4_clean():
                 if (selectedEstimateId) return;
                 const latest = latestEstimate();
                 if (!latest || !estimateIsFresh(latest)) {
+                    autoEstimateId = null;
                     clearEstimateObjects(false);
                 }
             }
@@ -8187,8 +8185,11 @@ def dashboard_v4_clean():
             function renderEstimateOnMap() {
                 if (!map || !window.google) return;
                 const selected = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
+                const auto = autoEstimateId ? estimates.get(autoEstimateId) : null;
                 const latest = latestEstimate();
-                const item = selected || (latest && estimateIsFresh(latest) ? latest : null);
+                const item = selected
+                    || (auto && estimateIsFresh(auto) ? auto : null)
+                    || (latest && estimateIsFresh(latest) ? latest : null);
                 if (!item) {
                     clearEstimateObjects(false);
                     return;
@@ -8275,6 +8276,7 @@ def dashboard_v4_clean():
 
             function previewEstimate(id) {
                 selectedEstimateId = selectedEstimateId === id ? null : id;
+                autoEstimateId = null;
                 if (!selectedEstimateId) clearEstimateObjects();
                 renderTargetEstimates();
                 renderMap();
@@ -8930,6 +8932,7 @@ def dashboard_v4_clean():
                             ...(data.device || {}),
                             ...data,
                             status: 'event',
+                            is_listening: data.is_listening ?? true,
                             last_event_id: data.event_id,
                             last_event_at: triggerTime,
                         });
@@ -8967,8 +8970,10 @@ def dashboard_v4_clean():
                         if (group.id) {
                             eventGroups.set(group.id, group);
                             if (isDisplayableEstimate(group)) {
-                                estimates.set(String(group.id), group);
+                                const groupId = String(group.id);
+                                estimates.set(groupId, group);
                                 selectedEstimateId = null;
+                                autoEstimateId = groupId;
                                 activateAlertsForGroup(group, true);
                             } else {
                                 estimates.delete(String(group.id));
