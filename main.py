@@ -7746,6 +7746,7 @@ def dashboard_v4_clean():
             let estimateMarker = null;
             let estimateCircle = null;
             let estimateBox = null;
+            let estimateRegion = null;
             let currentFilter = 'all';
             let dashboardStarted = false;
             let locationEdit = null;
@@ -8134,6 +8135,13 @@ def dashboard_v4_clean():
                         tracksData.tracks.forEach(updateTrackState);
                     }
 
+                    if (!selectedEstimateId) {
+                        const latest = latestEstimate();
+                        if (latest && estimateIsFresh(latest)) {
+                            autoEstimateId = estimateId(latest);
+                        }
+                    }
+
                     renderStaticViews();
                 } finally {
                     isRefreshing = false;
@@ -8467,6 +8475,11 @@ def dashboard_v4_clean():
                 };
             }
 
+            function estimateRadiusM(item) {
+                const value = Number(item?.uncertainty_radius_m ?? item?.radius_m ?? 80);
+                return Number.isFinite(value) ? Math.max(30, Math.min(value, 250)) : 80;
+            }
+
             function droneTargetIcon() {
                 const svg = `
                     <svg xmlns="http://www.w3.org/2000/svg" width="76" height="76" viewBox="0 0 76 76">
@@ -8527,10 +8540,14 @@ def dashboard_v4_clean():
                     estimateBox.setMap(null);
                     estimateBox = null;
                 }
+                if (estimateRegion) {
+                    estimateRegion.setMap(null);
+                    estimateRegion = null;
+                }
 
                 const geometry = item.region_geojson || {};
                 if (geometry.type === 'LineString' && Array.isArray(geometry.coordinates)) {
-                    estimateBox = new google.maps.Polyline({
+                    estimateRegion = new google.maps.Polyline({
                         map,
                         path: geometry.coordinates.map(([lngValue, latValue]) => ({
                             lat: Number(latValue),
@@ -8539,6 +8556,15 @@ def dashboard_v4_clean():
                         strokeColor: '#f97316',
                         strokeOpacity: 0.95,
                         strokeWeight: 5,
+                    });
+                    estimateBox = new google.maps.Rectangle({
+                        map,
+                        bounds: boundsAround(lat, lng, estimateRadiusM(item)),
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.95,
+                        strokeWeight: 3,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.08,
                     });
                 } else if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates?.[0])) {
                     estimateBox = new google.maps.Polygon({
@@ -8554,10 +8580,19 @@ def dashboard_v4_clean():
                         fillOpacity: 0.18,
                     });
                 } else {
+                    estimateBox = new google.maps.Rectangle({
+                        map,
+                        bounds: boundsAround(lat, lng, estimateRadiusM(item)),
+                        strokeColor: '#f97316',
+                        strokeOpacity: 0.95,
+                        strokeWeight: 3,
+                        fillColor: '#f97316',
+                        fillOpacity: 0.08,
+                    });
                     estimateCircle = new google.maps.Circle({
                         map,
                         center: { lat, lng },
-                        radius: 80,
+                        radius: estimateRadiusM(item),
                         strokeColor: '#f97316',
                         strokeOpacity: 0.8,
                         strokeWeight: 2,
@@ -8568,13 +8603,34 @@ def dashboard_v4_clean():
             }
 
             function clearEstimateObjects(closeInfo = true) {
-                [estimateMarker, estimateCircle, estimateBox].forEach(item => {
+                [estimateMarker, estimateCircle, estimateBox, estimateRegion].forEach(item => {
                     if (item) item.setMap(null);
                 });
                 estimateMarker = null;
                 estimateCircle = null;
                 estimateBox = null;
+                estimateRegion = null;
                 if (closeInfo && infoWindow) infoWindow.close();
+            }
+
+            function centerEstimateOnMap(item) {
+                if (!map || !item) return;
+                const lat = Number(item.region_center_lat);
+                const lng = Number(item.region_center_lng);
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                map.panTo({ lat, lng });
+                if ((map.getZoom() || 12) < 16) map.setZoom(16);
+            }
+
+            function autoPreviewEstimate(item, shouldPan = true) {
+                if (!item || !isDisplayableEstimate(item)) return;
+                const id = estimateId(item);
+                if (!id) return;
+                selectedEstimateId = null;
+                autoEstimateId = id;
+                renderTargetEstimates();
+                renderMap();
+                if (shouldPan) centerEstimateOnMap(item);
             }
 
             function previewEstimate(id) {
@@ -8585,10 +8641,7 @@ def dashboard_v4_clean():
                 renderMap();
                 const item = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
                 if (item && map) {
-                    const lat = Number(item.region_center_lat);
-                    const lng = Number(item.region_center_lng);
-                    map.panTo({ lat, lng });
-                    if ((map.getZoom() || 12) < 16) map.setZoom(16);
+                    centerEstimateOnMap(item);
                     showEstimateInfo(item);
                 }
             }
@@ -9284,9 +9337,8 @@ def dashboard_v4_clean():
                             if (isDisplayableEstimate(group)) {
                                 const groupId = String(group.id);
                                 estimates.set(groupId, group);
-                                selectedEstimateId = null;
-                                autoEstimateId = groupId;
                                 activateAlertsForGroup(group, true);
+                                autoPreviewEstimate(group, true);
                             } else {
                                 estimates.delete(String(group.id));
                             }
@@ -9300,7 +9352,7 @@ def dashboard_v4_clean():
                         updateTrackState(track);
                         const linkedGroupId = validTrackPoints(track).slice(-1)[0]?.group_id;
                         if (linkedGroupId && estimates.has(String(linkedGroupId))) {
-                            autoEstimateId = String(linkedGroupId);
+                            autoPreviewEstimate(estimates.get(String(linkedGroupId)), true);
                         }
                         renderTargetEstimates();
                         renderMap();
