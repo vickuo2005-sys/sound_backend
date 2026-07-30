@@ -7627,7 +7627,16 @@ def dashboard_v4_clean():
                 return device.status === 'online' || device.status === 'event';
             }
 
+            function deviceAllowsAlert(deviceId) {
+                const device = devices.get(deviceId);
+                return !device || device.is_listening !== false;
+            }
+
             function isAlertActive(deviceId) {
+                if (!deviceAllowsAlert(deviceId)) {
+                    alertUntil.delete(deviceId);
+                    return false;
+                }
                 const until = alertUntil.get(deviceId);
                 return Boolean(until && Date.now() < until);
             }
@@ -7644,6 +7653,7 @@ def dashboard_v4_clean():
 
             function activateAlertForDevice(deviceId, until) {
                 if (!deviceId || isDiagnosticDevice(deviceId)) return;
+                if (!deviceAllowsAlert(deviceId)) return;
                 const currentUntil = alertUntil.get(deviceId) || 0;
                 if (until > currentUntil) alertUntil.set(deviceId, until);
                 const existing = devices.get(deviceId);
@@ -7675,6 +7685,10 @@ def dashboard_v4_clean():
             function syncAlertFromDevice(device) {
                 const deviceId = device?.device_id;
                 if (!deviceId) return;
+                if (device.is_listening === false) {
+                    alertUntil.delete(deviceId);
+                    return;
+                }
                 const eventTime = parseTime(device.last_event_at);
                 const eventUntil = Number.isFinite(eventTime) ? eventTime + alertDurationMs : NaN;
                 if (Number.isFinite(eventUntil) && eventUntil > Date.now()) {
