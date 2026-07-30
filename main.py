@@ -87,6 +87,7 @@ TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "15") or 15)
 TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "50") or 50)
 TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "30") or 30)
 TRACK_MIN_CONFIDENCE = float(os.getenv("TRACK_MIN_CONFIDENCE", "0.25") or 0.25)
+TRACK_MIN_REGION_NODES = int(os.getenv("TRACK_MIN_REGION_NODES", "2") or 2)
 TRACK_ALLOW_FALLBACK = os.getenv("TRACK_ALLOW_FALLBACK", "false").lower() == "true"
 NODE_WEBSOCKET_ENABLED = os.getenv("NODE_WEBSOCKET_ENABLED", "true").lower() == "true"
 NODE_HEARTBEAT_INTERVAL_SECONDS = float(
@@ -141,6 +142,7 @@ node_manager = NodeManager(
 audio_stream_manager = AudioStreamManager(
     max_buffer_frames=max(1, int(LIVE_AUDIO_RING_BUFFER_SECONDS * 50))
 )
+tracking_update_lock = threading.Lock()
 
 
 class SoundEvent(BaseModel):
@@ -3085,7 +3087,53 @@ def active_tracks_for_label(label: str) -> list[dict]:
         return [serialize_db_row(dict(row)) for row in rows]
 
 
+def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
+    if not group_id:
+        return None
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT t.*
+                        FROM target_track_points p
+                        JOIN target_tracks t ON t.id = p.track_id
+                        WHERE p.group_id = %s
+                          AND t.status = 'ACTIVE'
+                        ORDER BY p.created_at DESC
+                        LIMIT 1
+                        """,
+                        (group_id,),
+                    )
+                    row = cursor.fetchone()
+                    return serialize_db_row(dict(row)) if row else None
+        finally:
+            connection.close()
+
+    with get_sqlite_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT t.*
+            FROM target_track_points p
+            JOIN target_tracks t ON t.id = p.track_id
+            WHERE p.group_id = ?
+              AND t.status = 'ACTIVE'
+            ORDER BY p.created_at DESC
+            LIMIT 1
+            """,
+            (group_id,),
+        ).fetchone()
+        return serialize_db_row(dict(row)) if row else None
+
+
 def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
+    group_track = find_active_track_for_group(measurement.get("group_id"))
+    if group_track:
+        return group_track
+
     best: Optional[tuple[float, dict]] = None
     for track in active_tracks_for_label(str(measurement.get("label") or "")):
         ok, details = can_associate_track(
@@ -3101,6 +3149,14 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
         if best is None or score < best[0]:
             best = (score, track)
     return best[1] if best else None
+
+
+def process_tracking_measurement(measurement: dict) -> Optional[dict]:
+    with tracking_update_lock:
+        track = choose_track_for_measurement(measurement)
+        state = update_track_from_measurement(track, measurement)
+        saved_track = save_track_point(track, measurement, state)
+    return enrich_track_with_points(saved_track)
 
 
 def process_tracking_for_localization(localization: dict) -> Optional[dict]:
@@ -3124,10 +3180,7 @@ def process_tracking_for_localization(localization: dict) -> Optional[dict]:
         "uncertainty_radius_m": localization.get("uncertainty_radius_m"),
         "event_time_ms": localization.get("event_time_ms"),
     }
-    track = choose_track_for_measurement(measurement)
-    state = update_track_from_measurement(track, measurement)
-    saved_track = save_track_point(track, measurement, state)
-    return enrich_track_with_points(saved_track)
+    return process_tracking_measurement(measurement)
 
 
 def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]:
@@ -3153,6 +3206,9 @@ def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]
     node_count = parse_int_value(
         event_group.get("reporting_node_count") or event_group.get("node_count")
     ) or 1
+    if node_count < TRACK_MIN_REGION_NODES:
+        return None
+
     event_time = (
         parse_datetime(event_group.get("region_updated_at"))
         or parse_datetime(event_group.get("updated_at"))
@@ -3180,10 +3236,7 @@ def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]
         "reporting_node_count": node_count,
         "reporting_device_ids": event_group.get("reporting_device_ids"),
     }
-    track = choose_track_for_measurement(measurement)
-    state = update_track_from_measurement(track, measurement)
-    saved_track = save_track_point(track, measurement, state)
-    return enrich_track_with_points(saved_track)
+    return process_tracking_measurement(measurement)
 
 
 def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> dict:
@@ -3521,6 +3574,64 @@ def enrich_track_with_points(track: Optional[dict], limit: int = 20) -> Optional
     enriched = dict(track)
     enriched["recent_points"] = list_track_points(str(track["id"]), limit=limit)
     return enriched
+
+
+def enrich_tracks_with_points(tracks: list[dict], limit: int = 20) -> list[dict]:
+    if not tracks:
+        return tracks
+
+    safe_limit = max(0, min(int(limit or 0), 100))
+    if safe_limit <= 0:
+        return tracks
+
+    if not use_postgres():
+        return [
+            enrich_track_with_points(track, limit=safe_limit) or track
+            for track in tracks
+        ]
+
+    track_ids = [str(track.get("id")) for track in tracks if track.get("id")]
+    if not track_ids:
+        return tracks
+
+    placeholders = ", ".join(["%s"] * len(track_ids))
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT *
+                    FROM (
+                        SELECT p.*,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY p.track_id
+                                   ORDER BY p.measurement_time_ms DESC
+                               ) AS row_number
+                        FROM target_track_points p
+                        WHERE p.track_id IN ({placeholders})
+                    ) ranked_points
+                    WHERE row_number <= %s
+                    ORDER BY track_id ASC, measurement_time_ms ASC
+                    """,
+                    tuple(track_ids + [safe_limit]),
+                )
+                rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+    finally:
+        connection.close()
+
+    points_by_track: dict[str, list[dict]] = {}
+    for row in rows:
+        track_id = str(row.get("track_id") or "")
+        row.pop("row_number", None)
+        points_by_track.setdefault(track_id, []).append(row)
+
+    enriched_tracks = []
+    for track in tracks:
+        enriched = dict(track)
+        enriched["recent_points"] = points_by_track.get(str(track.get("id")), [])
+        enriched_tracks.append(enriched)
+    return enriched_tracks
 
 
 def close_track(track_id: str) -> dict:
@@ -3980,21 +4091,12 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
 
 
 def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
+    if use_postgres():
+        return ", ".join(DEVICE_STATUS_COLUMNS)
+
     existing_columns = set()
     try:
-        if use_postgres() and cursor is not None:
-            cursor.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'device_status'
-                """
-            )
-            existing_columns = {
-                str(row["column_name"] if isinstance(row, dict) else row[0])
-                for row in cursor.fetchall()
-            }
-        elif sqlite_connection is not None:
+        if sqlite_connection is not None:
             rows = sqlite_connection.execute("PRAGMA table_info(device_status)").fetchall()
             existing_columns = {str(row["name"]) for row in rows}
     except Exception:
@@ -6303,10 +6405,7 @@ def tracks(
 ):
     rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
     if points_limit:
-        rows = [
-            enrich_track_with_points(row, limit=points_limit) or row
-            for row in rows
-        ]
+        rows = enrich_tracks_with_points(rows, limit=points_limit)
     return {"status": "success", "count": len(rows), "tracks": rows}
 
 
