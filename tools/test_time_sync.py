@@ -46,7 +46,7 @@ def run_quality_tests() -> None:
 
 
 def run_time_sync_route_test() -> None:
-    payload = main.time_sync()
+    payload = asyncio.run(main.time_sync())
     assert_equal(payload["status"], "success", "time-sync status")
     if not isinstance(payload["server_time_ms"], int):
         raise AssertionError("server_time_ms should be an integer")
