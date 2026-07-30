@@ -8291,6 +8291,29 @@ def dashboard_v4_clean():
                 };
             }
 
+            function droneTargetIcon() {
+                const svg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" width="76" height="76" viewBox="0 0 76 76">
+                        <circle cx="38" cy="38" r="31" fill="#f97316" fill-opacity="0.16" stroke="#fb923c" stroke-width="3"/>
+                        <circle cx="18" cy="18" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/>
+                        <circle cx="58" cy="18" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/>
+                        <circle cx="18" cy="58" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/>
+                        <circle cx="58" cy="58" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/>
+                        <path d="M24 24 L32 32 M52 24 L44 32 M24 52 L32 44 M52 52 L44 44" stroke="#111827" stroke-width="5" stroke-linecap="round"/>
+                        <rect x="27" y="30" width="22" height="16" rx="7" fill="#f97316" stroke="#111827" stroke-width="4"/>
+                        <path d="M38 22 L43 32 L33 32 Z" fill="#111827"/>
+                        <path d="M34 46 H42 L45 54 H31 Z" fill="#111827"/>
+                        <circle cx="38" cy="38" r="5" fill="#fff7ed"/>
+                    </svg>
+                `.trim();
+                return {
+                    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+                    scaledSize: new google.maps.Size(76, 76),
+                    anchor: new google.maps.Point(38, 38),
+                    labelOrigin: new google.maps.Point(38, 72),
+                };
+            }
+
             function renderEstimateOnMap() {
                 if (!map || !window.google) return;
                 const selected = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
@@ -8311,19 +8334,14 @@ def dashboard_v4_clean():
                         map,
                         position: { lat, lng },
                         title: '可能聲源區域',
-                        label: { text: 'REGION', color: '#ffffff', fontWeight: '800', fontSize: '12px' },
-                        icon: {
-                            path: 'M -1 -1 L 1 -1 L 1 1 L -1 1 Z',
-                            fillColor: '#f97316',
-                            fillOpacity: 0.25,
-                            strokeColor: '#f97316',
-                            strokeWeight: 4,
-                            scale: 28,
-                        },
+                        label: { text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' },
+                        icon: droneTargetIcon(),
                     });
                     estimateMarker.addListener('click', () => showEstimateInfo(item));
                 } else {
                     estimateMarker.setPosition({ lat, lng });
+                    estimateMarker.setIcon(droneTargetIcon());
+                    estimateMarker.setLabel({ text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' });
                 }
                 if (estimateCircle) {
                     estimateCircle.setMap(null);
