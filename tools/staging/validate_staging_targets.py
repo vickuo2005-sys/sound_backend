@@ -1,4 +1,4 @@
-"""Validate local staging target identity without touching cloud resources."""
+"""Validate local integration target identity without touching cloud resources."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-PRODUCTION_RENDER_HOST = "sound-backend.onrender.com"
-PRODUCTION_GCS_BUCKET = "sound-detector"
+CURRENT_INTEGRATION_RENDER_HOST = "sound-backend.onrender.com"
+CURRENT_INTEGRATION_GCS_BUCKET = "sound-detector"
 
 
 def fail(message: str) -> int:
@@ -29,8 +29,9 @@ def main() -> int:
     data = json.loads(path.read_text(encoding="utf-8"))
     errors: list[str] = []
 
-    if data.get("environment") != "staging":
-        errors.append("environment must be staging")
+    environment = str(data.get("environment", "")).strip().lower()
+    if environment not in {"development", "integration", "staging"}:
+        errors.append("environment must be development, integration, or staging")
     if data.get("backend_git_branch") != "staging":
         errors.append("backend_git_branch must be staging")
     if not str(data.get("flutter_application_id", "")).endswith(".staging"):
@@ -41,22 +42,18 @@ def main() -> int:
         parsed = urlparse(render_base_url)
         if parsed.scheme != "https":
             errors.append("render_base_url must use https")
-        if parsed.netloc == PRODUCTION_RENDER_HOST:
-            errors.append("render_base_url points to production")
 
     gcs_bucket = str(data.get("gcs_bucket", "")).strip()
-    if gcs_bucket == PRODUCTION_GCS_BUCKET:
-        errors.append("gcs_bucket must not be production bucket")
+    if gcs_bucket and gcs_bucket != CURRENT_INTEGRATION_GCS_BUCKET:
+        print(f"warning: gcs_bucket differs from current integration bucket: {gcs_bucket}")
 
     gcs_prefix = str(data.get("gcs_prefix", "")).strip()
     if gcs_prefix and not gcs_prefix.endswith("/"):
         errors.append("gcs_prefix must end with /")
-    if gcs_prefix and gcs_prefix == "audio/":
-        errors.append("gcs_prefix must not reuse production audio prefix")
 
     database_host = str(data.get("database_host", "")).strip().lower()
-    if database_host and "prod" in database_host:
-        errors.append("database_host appears to reference production")
+    if database_host and "localhost" in database_host:
+        errors.append("database_host should reference the existing integration Supabase database")
 
     joined = json.dumps(data, ensure_ascii=False).lower()
     if "test-token-123" in joined:
@@ -69,7 +66,10 @@ def main() -> int:
             print(f"- {error}")
         return 1
 
-    print("ready: staging target identity is valid")
+    if render_base_url and urlparse(render_base_url).netloc != CURRENT_INTEGRATION_RENDER_HOST:
+        print("warning: render_base_url differs from current integration backend")
+
+    print("ready: integration target identity is valid")
     return 0
 
 

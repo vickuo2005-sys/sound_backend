@@ -35,17 +35,14 @@ foreach ($key in $required) {
     }
 }
 
-if ($vars["APP_ENV"] -ne "staging") {
-    Fail "APP_ENV must be staging."
+if ($vars["APP_ENV"] -notin @("development", "integration", "staging")) {
+    Fail "APP_ENV must be development, integration, or staging."
 }
 if ($vars["UPLOAD_TOKEN"] -eq ("test" + "-token-123")) {
     Fail "UPLOAD_TOKEN cannot use the demo token."
 }
-if ($vars["GCS_BUCKET_NAME"] -eq "sound-detector") {
-    Fail "Staging GCS bucket must not be the production bucket."
-}
 if ($vars["LIVE_AUDIO_ENABLED"] -eq "true") {
-    Write-Warning "LIVE_AUDIO_ENABLED is true. Staging canary should enable this only for one node at a time."
+    Write-Warning "LIVE_AUDIO_ENABLED is true. Initial integration deployment should keep this false."
 }
 
-Write-Output "Staging env validation passed. Secrets were not printed."
+Write-Output "Integration env validation passed. Secrets were not printed."

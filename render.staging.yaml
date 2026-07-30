@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sound-backend-staging
+    name: sound_backend
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
-        value: staging
+        value: development
       - key: NODE_WEBSOCKET_ENABLED
         value: "true"
       - key: COMMAND_WEBSOCKET_ENABLED

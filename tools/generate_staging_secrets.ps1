@@ -27,7 +27,7 @@ if ($inventoryDirectory -and -not (Test-Path $inventoryDirectory)) {
 }
 
 $values = @{
-    APP_ENV = "staging"
+    APP_ENV = "development"
     DEVICE_TOKEN = New-Token
     UPLOAD_TOKEN = New-Token
     STREAM_TOKEN_SECRET = New-Token
@@ -41,8 +41,8 @@ $values = @{
 }
 
 $lines = @(
-    "# Local staging secrets generated on $(Get-Date -Format o)",
-    "# Do not commit this file. Copy values into Render staging manually."
+    "# Local integration secrets generated on $(Get-Date -Format o)",
+    "# Do not commit this file. Copy values into the existing Render development service manually."
 )
 foreach ($key in $values.Keys | Sort-Object) {
     $lines += "$key=$($values[$key])"
