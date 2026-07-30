@@ -62,6 +62,9 @@ _postgres_pool: Any = None
 _postgres_pool_database_url = ""
 _postgres_pool_lock = threading.Lock()
 DATABASE_INIT_ERROR: Optional[str] = None
+POSTGRES_SCHEMA_AUTO_INIT = (
+    os.getenv("POSTGRES_SCHEMA_AUTO_INIT", "false").lower() == "true"
+)
 EVENT_FUSION_WINDOW_SECONDS = float(os.getenv("EVENT_FUSION_WINDOW_SECONDS", "6") or 6)
 EVENT_GROUP_WINDOW_SECONDS = EVENT_FUSION_WINDOW_SECONDS
 TARGET_ESTIMATE_METHOD = "weighted_centroid"
@@ -2107,7 +2110,10 @@ def init_postgres_db() -> None:
 
 def init_db() -> None:
     if use_postgres():
-        init_postgres_db()
+        if POSTGRES_SCHEMA_AUTO_INIT:
+            init_postgres_db()
+        else:
+            logger.info("Skipping PostgreSQL schema init at startup")
     else:
         init_sqlite_db()
 
@@ -6063,10 +6069,13 @@ async def root():
 
 @app.get("/health")
 async def health():
+    database_init_status = "error" if DATABASE_INIT_ERROR else "ok"
+    if use_postgres() and not POSTGRES_SCHEMA_AUTO_INIT and not DATABASE_INIT_ERROR:
+        database_init_status = "skipped"
     return {
         "status": "healthy",
         "time": current_time_iso(),
-        "database_init": "error" if DATABASE_INIT_ERROR else "ok",
+        "database_init": database_init_status,
         "database_init_error": DATABASE_INIT_ERROR,
     }
 
