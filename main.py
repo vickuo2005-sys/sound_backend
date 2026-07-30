@@ -7547,7 +7547,9 @@ def dashboard_v4_clean():
             const events = [];
             const eventGroups = new Map();
             const estimates = new Map();
+            const tracks = new Map();
             const markers = new Map();
+            const trackLines = new Map();
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
@@ -7902,10 +7904,11 @@ def dashboard_v4_clean():
                 if (isRefreshing) return;
                 isRefreshing = true;
                 try {
-                    const [statusData, eventsData, groupsData] = await Promise.all([
+                    const [statusData, eventsData, groupsData, tracksData] = await Promise.all([
                         fetchJson('/device-status', null),
                         fetchJson('/events?limit=20', null),
                         fetchJson('/event-groups?limit=8', null),
+                        fetchJson('/tracks?limit=10&points_limit=20', null),
                     ]);
 
                     if (Array.isArray(statusData?.devices)) {
@@ -7939,6 +7942,10 @@ def dashboard_v4_clean():
                                 activateAlertsForGroup(group);
                             }
                         });
+                    }
+
+                    if (Array.isArray(tracksData?.tracks)) {
+                        tracksData.tracks.forEach(updateTrackState);
                     }
 
                     renderStaticViews();
@@ -8106,6 +8113,7 @@ def dashboard_v4_clean():
                 visibleDevices().forEach(updateDeviceMarker);
                 cleanupHiddenMarkers();
                 renderEstimateOnMap();
+                renderTrackLines();
             }
 
             function handleLocationPanelToggle(event, deviceId) {
@@ -8173,6 +8181,88 @@ def dashboard_v4_clean():
                     return false;
                 }
                 return estimateNodeCount(item) >= 2;
+            }
+
+            function validTrackPoints(track) {
+                return (track?.recent_points || [])
+                    .filter(point => Number.isFinite(Number(point.filtered_lat)) && Number.isFinite(Number(point.filtered_lng)))
+                    .sort((a, b) => Number(a.measurement_time_ms || 0) - Number(b.measurement_time_ms || 0));
+            }
+
+            function updateTrackState(track) {
+                const id = String(track?.id || '');
+                if (!id) return;
+                tracks.set(id, track);
+            }
+
+            function trackForEstimate(item) {
+                const id = estimateId(item);
+                if (!id) return null;
+                return Array.from(tracks.values())
+                    .filter(track => validTrackPoints(track).some(point => String(point.group_id || '') === id))
+                    .sort((a, b) => Number(b.last_event_time_ms || 0) - Number(a.last_event_time_ms || 0))[0] || null;
+            }
+
+            function estimateSpeedMps(item) {
+                const track = trackForEstimate(item);
+                const value = Number(track?.last_speed_mps ?? item?.speed_mps);
+                return Number.isFinite(value) ? value : null;
+            }
+
+            function estimateHeadingDeg(item) {
+                const track = trackForEstimate(item);
+                const value = Number(track?.last_heading_deg ?? item?.heading_deg);
+                return Number.isFinite(value) ? value : null;
+            }
+
+            function formatSpeed(value) {
+                return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} m/s` : '-';
+            }
+
+            function formatHeading(value) {
+                return Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)}°` : '-';
+            }
+
+            function renderTrackLines() {
+                if (!map || !window.google) return;
+                const activeIds = new Set();
+                tracks.forEach(track => {
+                    const id = String(track?.id || '');
+                    const points = validTrackPoints(track);
+                    if (!id || points.length < 2 || String(track.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return;
+                    const path = points.map(point => ({
+                        lat: Number(point.filtered_lat),
+                        lng: Number(point.filtered_lng),
+                    }));
+                    activeIds.add(id);
+                    let line = trackLines.get(id);
+                    if (!line) {
+                        line = new google.maps.Polyline({
+                            map,
+                            path,
+                            strokeColor: '#38bdf8',
+                            strokeOpacity: 0.95,
+                            strokeWeight: 4,
+                            icons: [{
+                                icon: {
+                                    path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                    scale: 3,
+                                    strokeColor: '#38bdf8',
+                                },
+                                offset: '100%',
+                            }],
+                        });
+                        trackLines.set(id, line);
+                    } else {
+                        line.setPath(path);
+                    }
+                });
+                trackLines.forEach((line, id) => {
+                    if (!activeIds.has(id)) {
+                        line.setMap(null);
+                        trackLines.delete(id);
+                    }
+                });
             }
 
             function estimateIsFresh(item) {
@@ -8304,6 +8394,8 @@ def dashboard_v4_clean():
                 const lat = Number(item.region_center_lat);
                 const lng = Number(item.region_center_lng);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const speed = estimateSpeedMps(item);
+                const heading = estimateHeadingDeg(item);
                 infoWindow.setContent(`
                     <div class="map-info-card">
                         <strong>可能聲源區域</strong>
@@ -8313,6 +8405,8 @@ def dashboard_v4_clean():
                         <div class="map-info-row"><span>回報節點</span><span>${safe((item.reporting_device_ids || item.devices || []).join(', '))}</span></div>
                         <div class="map-info-row"><span>事件時間</span><span>${safe(item.last_event_time)}</span></div>
                         <div class="map-info-row"><span>中心點</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>速度</span><span>${formatSpeed(speed)}</span></div>
+                        <div class="map-info-row"><span>方向</span><span>${formatHeading(heading)}</span></div>
                         <div class="map-info-row"><span>方法</span><span>多節點區域推定</span></div>
                         <div class="map-info-row"><span>更新時間</span><span>${safe(item.region_updated_at || item.updated_at || item.created_at)}</span></div>
                     </div>
@@ -8335,11 +8429,14 @@ def dashboard_v4_clean():
                     const id = estimateId(item);
                     const selected = id === selectedEstimateId;
                     const devices = item.reporting_device_ids || item.devices || [];
+                    const speed = estimateSpeedMps(item);
+                    const heading = estimateHeadingDeg(item);
                     return `
                         <div class="event-row target ${selected ? 'selected' : ''}">
                             <div class="event-title"><span>多節點區域推定</span><span>${displayLabel(item.label)}</span></div>
                             <div class="event-detail">${displayRegionType(item.region_type)} / 回報節點 ${safe(item.reporting_node_count)}</div>
                             <div class="event-detail">中心 ${Number(item.region_center_lat).toFixed(6)}, ${Number(item.region_center_lng).toFixed(6)}</div>
+                            <div class="event-detail">速度 ${formatSpeed(speed)} / 方向 ${formatHeading(heading)}</div>
                             <div class="event-detail">${safe(devices.join(', '))}</div>
                             <div class="estimate-toolbar">
                                 <button type="button" onclick="event.stopPropagation(); previewEstimate('${escapeHtml(id)}')">${selected ? '關閉預覽' : '預覽位置'}</button>
@@ -8647,9 +8744,10 @@ def dashboard_v4_clean():
                 const eventId = `simulated_${Date.now()}`;
                 const position = deviceEffectivePosition(device);
                 alertUntil.set(deviceId, Date.now() + alertDurationMs);
-                setDeviceState({
+                const updatedDevice = setDeviceState({
                     ...device,
                     status: 'event',
+                    is_listening: true,
                     last_event_id: eventId,
                     last_event_at: now.toISOString(),
                 });
@@ -8665,6 +8763,7 @@ def dashboard_v4_clean():
                     note: 'probability_aircraft=1.000000, confidence=1.000000, upload_mode=simulation',
                 });
                 document.getElementById('systemStatus').textContent = `已模擬警示：${deviceId}`;
+                if (updatedDevice) updateDeviceMarker(updatedDevice);
                 renderAll();
             }
 
@@ -8991,6 +9090,15 @@ def dashboard_v4_clean():
                         renderSummary();
                         renderTargetEstimates();
                         renderEventGroups();
+                        renderMap();
+                    } else if (data.type === 'track_update') {
+                        const track = data.track || data;
+                        updateTrackState(track);
+                        const linkedGroupId = validTrackPoints(track).slice(-1)[0]?.group_id;
+                        if (linkedGroupId && estimates.has(String(linkedGroupId))) {
+                            autoEstimateId = String(linkedGroupId);
+                        }
+                        renderTargetEstimates();
                         renderMap();
                     } else if (data.type === 'event_audio_update' || data.type === 'device_command_ack') {
                         refreshAll();
