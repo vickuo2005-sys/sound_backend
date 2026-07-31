@@ -89,6 +89,10 @@ TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") 
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
 GCC_MIN_CORRELATION_SCORE = float(os.getenv("GCC_MIN_CORRELATION_SCORE", "0.04") or 0.04)
 TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "15") or 15)
+TRACK_CLOSE_AFTER_SECONDS = float(
+    os.getenv("TRACK_CLOSE_AFTER_SECONDS", str(max(TRACK_MAX_GAP_SECONDS, 15.0)))
+    or max(TRACK_MAX_GAP_SECONDS, 15.0)
+)
 TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "50") or 50)
 TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "30") or 30)
 TRACK_MIN_CONFIDENCE = float(os.getenv("TRACK_MIN_CONFIDENCE", "0.25") or 0.25)
@@ -2984,6 +2988,7 @@ def get_tracks_cache(key: str) -> Optional[dict]:
             return {
                 "status": payload.get("status"),
                 "count": payload.get("count"),
+                "closed_count": payload.get("closed_count", 0),
                 "tracks": clone_rows(payload.get("tracks") or []),
             }
         tracks_cache.pop(key, None)
@@ -2999,9 +3004,15 @@ def set_tracks_cache(key: str, payload: dict) -> None:
             {
                 "status": payload.get("status"),
                 "count": payload.get("count"),
+                "closed_count": payload.get("closed_count", 0),
                 "tracks": clone_rows(payload.get("tracks") or []),
             },
         )
+
+
+def invalidate_tracks_cache() -> None:
+    with tracks_cache_lock:
+        tracks_cache.clear()
 
 
 def enrich_event_location_row(
@@ -3256,6 +3267,7 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
 
 def process_tracking_measurement(measurement: dict) -> Optional[dict]:
     with tracking_update_lock:
+        close_stale_tracks()
         track = choose_track_for_measurement(measurement)
         state = update_track_from_measurement(track, measurement)
         saved_track = save_track_point(track, measurement, state)
@@ -3459,7 +3471,9 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
                         ),
                     )
                     cursor.execute("SELECT * FROM target_tracks WHERE id = %s", (track_id,))
-                    return serialize_db_row(dict(cursor.fetchone()))
+                    saved = serialize_db_row(dict(cursor.fetchone()))
+                    invalidate_tracks_cache()
+                    return saved
         finally:
             connection.close()
 
@@ -3571,7 +3585,9 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
         )
         connection.commit()
         row = connection.execute("SELECT * FROM target_tracks WHERE id = ?", (track_id,)).fetchone()
-        return serialize_db_row(dict(row))
+        saved = serialize_db_row(dict(row))
+        invalidate_tracks_cache()
+        return saved
 
 
 def list_tracks(status_filter: Optional[str] = None, label: Optional[str] = None, limit: int = 20) -> list[dict]:
@@ -3737,6 +3753,93 @@ def enrich_tracks_with_points(tracks: list[dict], limit: int = 20) -> list[dict]
     return enriched_tracks
 
 
+def close_stale_tracks(close_after_seconds: Optional[float] = None) -> list[dict]:
+    threshold_seconds = max(
+        1.0,
+        float(
+            TRACK_CLOSE_AFTER_SECONDS
+            if close_after_seconds is None
+            else close_after_seconds
+        ),
+    )
+    cutoff_ms = datetime.now(timezone.utc).timestamp() * 1000.0 - (
+        threshold_seconds * 1000.0
+    )
+    closed: list[dict] = []
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        UPDATE target_tracks
+                        SET status = 'CLOSED',
+                            closed_at = now(),
+                            updated_at = now()
+                        WHERE status = 'ACTIVE'
+                          AND (
+                              (last_event_time_ms IS NOT NULL AND last_event_time_ms < %s)
+                              OR (
+                                  last_event_time_ms IS NULL
+                                  AND updated_at < now() - (%s * interval '1 second')
+                              )
+                          )
+                        RETURNING *
+                        """,
+                        (cutoff_ms, threshold_seconds),
+                    )
+                    closed = [
+                        serialize_db_row(dict(row))
+                        for row in cursor.fetchall()
+                    ]
+        finally:
+            connection.close()
+    else:
+        cutoff_iso = datetime.fromtimestamp(
+            cutoff_ms / 1000.0,
+            tz=timezone.utc,
+        ).isoformat()
+        now = current_time_iso()
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM target_tracks
+                WHERE status = 'ACTIVE'
+                  AND (
+                      (last_event_time_ms IS NOT NULL AND last_event_time_ms < ?)
+                      OR (last_event_time_ms IS NULL AND updated_at < ?)
+                  )
+                """,
+                (cutoff_ms, cutoff_iso),
+            ).fetchall()
+            track_ids = [str(row["id"]) for row in rows]
+            if track_ids:
+                placeholders = ", ".join(["?"] * len(track_ids))
+                connection.execute(
+                    f"""
+                    UPDATE target_tracks
+                    SET status = 'CLOSED',
+                        closed_at = ?,
+                        updated_at = ?
+                    WHERE id IN ({placeholders})
+                    """,
+                    tuple([now, now] + track_ids),
+                )
+                connection.commit()
+                closed = [serialize_db_row(dict(row)) for row in rows]
+                for row in closed:
+                    row["status"] = "CLOSED"
+                    row["closed_at"] = now
+                    row["updated_at"] = now
+
+    if closed:
+        invalidate_tracks_cache()
+    return [enrich_track_with_points(track) or track for track in closed]
+
+
 def close_track(track_id: str) -> dict:
     if use_postgres():
         connection = get_postgres_connection()
@@ -3757,7 +3860,9 @@ def close_track(track_id: str) -> dict:
                     row = cursor.fetchone()
                     if not row:
                         raise HTTPException(status_code=404, detail="Track not found")
-                    return serialize_db_row(dict(row))
+                    saved = serialize_db_row(dict(row))
+                    invalidate_tracks_cache()
+                    return saved
         finally:
             connection.close()
 
@@ -3777,7 +3882,9 @@ def close_track(track_id: str) -> dict:
             raise HTTPException(status_code=404, detail="Track not found")
         connection.commit()
         row = connection.execute("SELECT * FROM target_tracks WHERE id = ?", (track_id,)).fetchone()
-        return serialize_db_row(dict(row))
+        saved = serialize_db_row(dict(row))
+        invalidate_tracks_cache()
+        return saved
 
 
 def time_sync_quality_from_rtt(rtt_ms: Optional[float]) -> str:
@@ -6689,6 +6796,7 @@ def tracks(
     limit: int = Query(default=20, ge=1, le=100),
     points_limit: int = Query(default=20, ge=0, le=100),
 ):
+    closed_tracks = close_stale_tracks()
     cache_key = f"{status_filter or ''}|{label or ''}|{limit}|{points_limit}"
     cached = get_tracks_cache(cache_key)
     if cached is not None:
@@ -6697,7 +6805,12 @@ def tracks(
     rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
     if points_limit:
         rows = enrich_tracks_with_points(rows, limit=points_limit)
-    payload = {"status": "success", "count": len(rows), "tracks": rows}
+    payload = {
+        "status": "success",
+        "count": len(rows),
+        "tracks": rows,
+        "closed_count": len(closed_tracks),
+    }
     set_tracks_cache(cache_key, payload)
     return payload
 
