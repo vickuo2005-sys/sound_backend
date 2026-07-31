@@ -4217,7 +4217,9 @@ def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = Non
 def list_device_status_rows() -> list[dict]:
     cached_rows = get_device_status_cache()
     if cached_rows is not None:
-        return cached_rows
+        return enrich_device_status_rows(
+            merge_device_status_rows_with_event_fallback(cached_rows)
+        )
 
     if not use_postgres():
         with get_sqlite_connection() as connection:
@@ -6729,6 +6731,7 @@ def device_status():
         devices = fallback_device_status_rows_from_events()
     devices = filter_diagnostic_device_rows(devices)
     devices = merge_device_status_rows_with_live_nodes(devices)
+    devices = enrich_device_status_rows(devices)
     if len(devices) < 2:
         fallback_devices = filter_diagnostic_device_rows(
             fallback_device_status_rows_from_events()
@@ -6747,6 +6750,7 @@ def device_status():
             key=lambda item: str(item.get("device_id") or ""),
         )
         devices = merge_device_status_rows_with_live_nodes(devices)
+        devices = enrich_device_status_rows(devices)
         if len(devices) > 1 and source == "device_status":
             source = "device_status_with_event_fallback"
 
