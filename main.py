@@ -7888,7 +7888,7 @@ def dashboard_v4_clean():
             }
 
             function mapDevices() {
-                return visibleDevices().filter(device => deviceAllowsAlert(device.device_id) || isAlertActive(device.device_id));
+                return visibleDevices();
             }
 
             function isAlertActive(deviceId) {
@@ -8315,14 +8315,6 @@ def dashboard_v4_clean():
 
             function updateDeviceMarker(device) {
                 if (!map || !window.google || !device?.device_id || isDiagnosticDevice(device.device_id)) return;
-                if (!deviceAllowsAlert(device.device_id) && !isAlertActive(device.device_id)) {
-                    const staleMarker = markers.get(device.device_id);
-                    if (staleMarker) {
-                        staleMarker.setMap(null);
-                        markers.delete(device.device_id);
-                    }
-                    return;
-                }
                 const options = markerOptionsForDevice(device);
                 let marker = markers.get(device.device_id);
                 if (!options) {
