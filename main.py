@@ -6283,20 +6283,46 @@ except Exception as exc:
     logger.exception("Database initialization failed during startup")
 
 
-def process_event_submission(event: SoundEvent) -> dict:
+def fallback_device_event_status_row(
+    event: SoundEvent,
+    saved_event: Optional[dict],
+    created_at: str,
+) -> dict:
+    return {
+        "device_id": event.device_id,
+        "latitude": saved_event.get("raw_latitude", event.latitude)
+        if saved_event
+        else event.latitude,
+        "longitude": saved_event.get("raw_longitude", event.longitude)
+        if saved_event
+        else event.longitude,
+        "last_seen": created_at,
+        "status": "event",
+        "is_listening": None,
+        "upload_mode": None,
+        "battery": None,
+        "ai_status": None,
+        "backend_status": "device_status_update_failed",
+        "app_status": None,
+        "last_ai_label": event.label,
+        "last_upload_status": "metadata_uploaded",
+        "time_sync_offset_ms": event.time_sync_offset_ms,
+        "time_sync_rtt_ms": event.time_sync_rtt_ms,
+        "time_sync_quality": effective_time_sync_quality_for_event(event),
+        "time_sync_at": None,
+        "last_time_sync_at": None,
+        "last_event_id": event.event_id,
+        "last_event_at": created_at,
+        "last_command_id": None,
+        "updated_at": created_at,
+    }
+
+
+def process_event_initial_submission(event: SoundEvent) -> dict:
     existing_event = get_event_by_event_id(event.event_id)
     created_at = current_time_iso()
     db_id = save_event(event, created_at)
     device_row = None
-    event_group = None
-    region_track = None
-    localization_package = None
-
-    try:
-        event_group = process_event_fusion_for_event(event.event_id)
-    except Exception:
-        logger.exception("Event fusion failed for event_id=%s", event.event_id)
-
     is_existing_event = existing_event is not None
     saved_event = get_event_by_event_id(event.event_id)
 
@@ -6309,37 +6335,28 @@ def process_event_submission(event: SoundEvent) -> dict:
                 event.event_id,
                 event.device_id,
             )
-            device_row = {
-                "device_id": event.device_id,
-                "latitude": saved_event.get("raw_latitude", event.latitude)
-                if saved_event
-                else event.latitude,
-                "longitude": saved_event.get("raw_longitude", event.longitude)
-                if saved_event
-                else event.longitude,
-                "last_seen": created_at,
-                "status": "event",
-                "is_listening": None,
-                "upload_mode": None,
-                "battery": None,
-                "ai_status": None,
-                "backend_status": "device_status_update_failed",
-                "app_status": None,
-                "last_ai_label": event.label,
-                "last_upload_status": "metadata_uploaded",
-                "time_sync_offset_ms": event.time_sync_offset_ms,
-                "time_sync_rtt_ms": event.time_sync_rtt_ms,
-                "time_sync_quality": effective_time_sync_quality_for_event(event),
-                "time_sync_at": None,
-                "last_time_sync_at": None,
-                "last_event_id": event.event_id,
-                "last_event_at": created_at,
-                "is_listening": None,
-                "last_command_id": None,
-                "updated_at": created_at,
-            }
+            device_row = fallback_device_event_status_row(event, saved_event, created_at)
 
-    if event_group and is_alert_event_label(event.label) and not is_existing_event:
+    return {
+        "db_id": db_id,
+        "device_row": device_row,
+        "is_existing_event": is_existing_event,
+        "saved_event": saved_event,
+    }
+
+
+def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_event: bool) -> dict:
+    event_group = None
+    region_track = None
+    localization_package = None
+
+    try:
+        event_group = process_event_fusion_for_event(event_id)
+    except Exception:
+        logger.exception("Event fusion failed for event_id=%s", event_id)
+
+    is_alert = is_alert_event_label(label)
+    if event_group and is_alert and not is_existing_event:
         try:
             region_track = process_tracking_for_event_group_region(event_group)
         except Exception:
@@ -6348,7 +6365,7 @@ def process_event_submission(event: SoundEvent) -> dict:
                 event_group.get("id"),
             )
 
-    if event_group and LOCALIZATION_ENABLED and is_alert_event_label(event.label) and not is_existing_event:
+    if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
         try:
             localization_package = process_event_group_localization(event_group["id"])
         except Exception:
@@ -6358,14 +6375,79 @@ def process_event_submission(event: SoundEvent) -> dict:
             )
 
     return {
-        "db_id": db_id,
-        "device_row": device_row,
         "event_group": event_group,
         "region_track": region_track,
         "localization_package": localization_package,
-        "is_existing_event": is_existing_event,
-        "saved_event": saved_event,
     }
+
+
+async def broadcast_event_post_ingest_result(result: dict) -> None:
+    event_group = result.get("event_group")
+    region_track = result.get("region_track")
+    localization_package = result.get("localization_package")
+
+    if event_group:
+        await dashboard_manager.broadcast(
+            {
+                "type": "event_group",
+                "group": event_group,
+            }
+        )
+    if region_track:
+        await dashboard_manager.broadcast(
+            {
+                "type": "track_update",
+                "track": region_track,
+            }
+        )
+    if localization_package and localization_package.get("localization"):
+        await dashboard_manager.broadcast(
+            {
+                "type": "localization_result",
+                "localization": localization_package.get("localization"),
+            }
+        )
+        if localization_package.get("track"):
+            await dashboard_manager.broadcast(
+                {
+                    "type": "track_update",
+                    "track": localization_package.get("track"),
+                }
+            )
+
+
+def run_event_post_ingest_worker(
+    loop: asyncio.AbstractEventLoop,
+    event_id: str,
+    label: Optional[str],
+    is_existing_event: bool,
+) -> None:
+    try:
+        result = process_event_post_ingest(event_id, label, is_existing_event)
+    except Exception:
+        logger.exception("Event post-ingest failed for event_id=%s", event_id)
+        return
+
+    try:
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(broadcast_event_post_ingest_result(result))
+        )
+    except RuntimeError:
+        logger.exception("Event loop closed before post-ingest broadcast for %s", event_id)
+
+
+def schedule_event_post_ingest(
+    event_id: str,
+    label: Optional[str],
+    is_existing_event: bool,
+) -> None:
+    loop = asyncio.get_running_loop()
+    worker = threading.Thread(
+        target=run_event_post_ingest_worker,
+        args=(loop, event_id, label, is_existing_event),
+        daemon=True,
+    )
+    worker.start()
 
 
 def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
@@ -6441,12 +6523,9 @@ async def create_event(
     sanitize_timing_metadata(event)
     sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
-    result = await asyncio.to_thread(process_event_submission, event)
+    result = await asyncio.to_thread(process_event_initial_submission, event)
     db_id = result["db_id"]
     device_row = result["device_row"]
-    event_group = result["event_group"]
-    region_track = result.get("region_track")
-    localization_package = result["localization_package"]
     is_existing_event = result["is_existing_event"]
     saved_event = result.get("saved_event") or {}
 
@@ -6482,34 +6561,12 @@ async def create_event(
             }
         )
 
-    if event_group:
-        await dashboard_manager.broadcast(
-            {
-                "type": "event_group",
-                "group": event_group,
-            }
+    if not is_existing_event and is_alert_event_label(saved_event.get("label", event.label)):
+        schedule_event_post_ingest(
+            event.event_id,
+            saved_event.get("label", event.label),
+            is_existing_event,
         )
-    if region_track:
-        await dashboard_manager.broadcast(
-            {
-                "type": "track_update",
-                "track": region_track,
-            }
-        )
-    if localization_package and localization_package.get("localization"):
-        await dashboard_manager.broadcast(
-            {
-                "type": "localization_result",
-                "localization": localization_package.get("localization"),
-            }
-        )
-        if localization_package.get("track"):
-            await dashboard_manager.broadcast(
-                {
-                    "type": "track_update",
-                    "track": localization_package.get("track"),
-                }
-            )
 
     if is_existing_event and has_audio_metadata(event):
         await dashboard_manager.broadcast(
