@@ -7896,6 +7896,19 @@ def dashboard_v4_clean():
                 return Boolean(until && Date.now() < until);
             }
 
+            function isDeviceAlertVisible(deviceId) {
+                return deviceAllowsAlert(deviceId) && isAlertActive(deviceId);
+            }
+
+            function pruneStaleAlerts() {
+                const now = Date.now();
+                alertUntil.forEach((until, deviceId) => {
+                    if (!until || until <= now || !deviceAllowsAlert(deviceId)) {
+                        alertUntil.delete(deviceId);
+                    }
+                });
+            }
+
             function groupDeviceIds(group) {
                 const raw = group?.reporting_device_ids || group?.devices || [];
                 if (!Array.isArray(raw)) return [];
@@ -7911,7 +7924,7 @@ def dashboard_v4_clean():
             }
 
             function activeAlertGroupDeviceIds(group) {
-                return activeGroupDeviceIds(group).filter(isAlertActive);
+                return activeGroupDeviceIds(group).filter(isDeviceAlertVisible);
             }
 
             function activateAlertForDevice(deviceId, until, respectListening = true) {
@@ -8096,7 +8109,7 @@ def dashboard_v4_clean():
 
             function getMarkerSymbol(device) {
                 const deviceId = device.device_id;
-                const active = isAlertActive(deviceId);
+                const active = isDeviceAlertVisible(deviceId);
                 const scale = active ? 17 + Math.sin(Date.now() / 180) * 3 : 14;
                 const common = {
                     fillColor: active ? '#f97316' : '#f8fafc',
@@ -8210,9 +8223,10 @@ def dashboard_v4_clean():
             }
 
             function renderSummary() {
+                pruneStaleAlerts();
                 const values = visibleDevices();
                 const online = values.filter(isOnline).length;
-                const active = values.filter(device => isAlertActive(device.device_id)).length;
+                const active = values.filter(device => isDeviceAlertVisible(device.device_id)).length;
                 const todayTarget = events.filter(event => isToday(event.created_at || event.timestamp) && isTarget(event.label));
                 document.getElementById('onlineCount').textContent = online;
                 document.getElementById('activeAlertCount').textContent = active;
@@ -8345,6 +8359,7 @@ def dashboard_v4_clean():
 
             function refreshMarkerAnimations() {
                 if (!map || !window.google) return;
+                pruneStaleAlerts();
                 markers.forEach((marker, deviceId) => {
                     const device = devices.get(deviceId);
                     if (!device) return;
