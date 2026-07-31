@@ -59,6 +59,10 @@ app = FastAPI()
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
+DIAGNOSTIC_DEVICE_ID_PATTERN = re.compile(
+    r"(COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE)",
+    re.IGNORECASE,
+)
 _postgres_pool: Any = None
 _postgres_pool_database_url = ""
 _postgres_pool_lock = threading.Lock()
@@ -2912,6 +2916,18 @@ def serialize_db_row(row: dict) -> dict:
 
 def clone_rows(rows: list[dict]) -> list[dict]:
     return [dict(row) for row in rows]
+
+
+def is_diagnostic_device_id(device_id: Any) -> bool:
+    return bool(DIAGNOSTIC_DEVICE_ID_PATTERN.search(str(device_id or "")))
+
+
+def filter_diagnostic_device_rows(rows: list[dict]) -> list[dict]:
+    return [
+        row
+        for row in rows
+        if row and not is_diagnostic_device_id(row.get("device_id"))
+    ]
 
 
 def get_device_status_cache() -> Optional[list[dict]]:
@@ -6570,6 +6586,7 @@ def device_status():
         logger.exception("Failed to read device_status; using recent event fallback")
         source = "device_status_fallback"
         devices = fallback_device_status_rows_from_events()
+    devices = filter_diagnostic_device_rows(devices)
 
     return {
         "status": "success",
@@ -7820,7 +7837,7 @@ def dashboard_v4_clean():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG_CHECK/i.test(String(deviceId || ''));
+                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE/i.test(String(deviceId || ''));
             }
 
             function visibleDevices() {
@@ -10160,7 +10177,7 @@ def dashboard_legacy_unused():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG_CHECK/i.test(String(deviceId || ''));
+                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE/i.test(String(deviceId || ''));
             }
 
             function visibleDeviceValues() {
