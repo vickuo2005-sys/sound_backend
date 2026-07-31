@@ -7892,7 +7892,7 @@ def dashboard_v4_clean():
                 return Array.from(devices.values())
                     .filter(device => {
                         if (!device || !device.device_id || isDiagnosticDevice(device.device_id)) return false;
-                        return isOnline(device) || device.is_listening === true || isAlertActive(device.device_id);
+                        return true;
                     })
                     .sort((a, b) => String(a.device_id).localeCompare(String(b.device_id)));
             }
@@ -7913,7 +7913,7 @@ def dashboard_v4_clean():
             }
 
             function mapDevices() {
-                return visibleDevices();
+                return visibleDevices().filter(device => deviceEffectivePosition(device));
             }
 
             function isAlertActive(deviceId) {
