@@ -60,7 +60,7 @@ DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
 DIAGNOSTIC_DEVICE_ID_PATTERN = re.compile(
-    r"(COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE)",
+    r"(TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\d+)",
     re.IGNORECASE,
 )
 _postgres_pool: Any = None
@@ -4229,8 +4229,9 @@ def list_device_status_rows() -> list[dict]:
                 ORDER BY device_id ASC
                 """
             ).fetchall()
+            raw_rows = [serialize_db_row(dict(row)) for row in rows]
         return enrich_device_status_rows(
-            [serialize_db_row(dict(row)) for row in rows]
+            merge_device_status_rows_with_event_fallback(raw_rows)
         )
 
     connection = get_postgres_connection()
@@ -4248,7 +4249,9 @@ def list_device_status_rows() -> list[dict]:
                 rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
     finally:
         connection.close()
-    enriched_rows = enrich_device_status_rows(rows)
+    enriched_rows = enrich_device_status_rows(
+        merge_device_status_rows_with_event_fallback(rows)
+    )
     set_device_status_cache(enriched_rows)
     return enriched_rows
 
@@ -4292,6 +4295,23 @@ def fallback_device_status_rows_from_events() -> list[dict]:
             "updated_at": event.get("created_at") or event.get("timestamp"),
         }
     return enrich_device_status_rows(list(by_device.values()))
+
+
+def merge_device_status_rows_with_event_fallback(rows: list[dict]) -> list[dict]:
+    by_device: dict[str, dict] = {}
+
+    for row in fallback_device_status_rows_from_events():
+        device_id = str(row.get("device_id") or "").strip()
+        if device_id:
+            by_device[device_id] = dict(row)
+
+    for row in rows:
+        device_id = str(row.get("device_id") or "").strip()
+        if not device_id:
+            continue
+        by_device[device_id] = {**by_device.get(device_id, {}), **dict(row)}
+
+    return list(by_device.values())
 
 
 def list_device_fixed_locations() -> list[dict]:
