@@ -6653,6 +6653,25 @@ def device_status():
         source = "device_status_fallback"
         devices = fallback_device_status_rows_from_events()
     devices = filter_diagnostic_device_rows(devices)
+    if len(devices) < 2:
+        fallback_devices = filter_diagnostic_device_rows(
+            fallback_device_status_rows_from_events()
+        )
+        by_device = {
+            str(device.get("device_id")): dict(device)
+            for device in fallback_devices
+            if device.get("device_id")
+        }
+        for device in devices:
+            device_id = str(device.get("device_id") or "")
+            if device_id:
+                by_device[device_id] = {**by_device.get(device_id, {}), **dict(device)}
+        devices = sorted(
+            by_device.values(),
+            key=lambda item: str(item.get("device_id") or ""),
+        )
+        if len(devices) > 1 and source == "device_status":
+            source = "device_status_with_event_fallback"
 
     return {
         "status": "success",
