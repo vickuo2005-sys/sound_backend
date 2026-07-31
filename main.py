@@ -5127,6 +5127,28 @@ def verify_upload_token(upload_token: Optional[str]) -> None:
         )
 
 
+def verify_dashboard_write_token(upload_token: Optional[str]) -> None:
+    token_required = os.getenv("DASHBOARD_WRITE_TOKEN_REQUIRED", "false").lower()
+    if token_required not in {"1", "true", "yes", "on"}:
+        return
+
+    expected_token = (
+        os.getenv("DASHBOARD_ADMIN_TOKEN")
+        or os.getenv("UPLOAD_TOKEN")
+        or DEFAULT_UPLOAD_TOKEN
+    ).strip()
+    if not expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dashboard write token is not configured",
+        )
+    if upload_token != expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid dashboard write token",
+        )
+
+
 def is_alert_event_label(label: Optional[str]) -> bool:
     if not label:
         return False
@@ -6636,7 +6658,7 @@ async def put_device_location(
     payload: DeviceFixedLocationUpsert,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
-    verify_upload_token(upload_token)
+    verify_dashboard_write_token(upload_token)
     try:
         location = upsert_device_fixed_location(device_id, payload)
     except DeviceLocationValidationError as exc:
@@ -6655,7 +6677,7 @@ async def clear_device_location(
     device_id: str,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
-    verify_upload_token(upload_token)
+    verify_dashboard_write_token(upload_token)
     deleted = delete_device_fixed_location(device_id)
     groups = recompute_active_regions_for_device(device_id)
     await broadcast_device_location_change(device_id, groups)
@@ -8930,28 +8952,27 @@ def dashboard_v4_clean():
             }
 
             function dashboardWriteToken() {
-                let token = sessionStorage.getItem('dashboardWriteToken') || '';
-                if (!token) {
-                    token = window.prompt('請輸入管理 token，才能修改固定節點位置。') || '';
-                    token = token.trim();
-                    if (token) sessionStorage.setItem('dashboardWriteToken', token);
-                }
-                if (!token) throw new Error('未輸入管理 token');
-                return token;
+                return localStorage.getItem('dashboardWriteToken')
+                    || sessionStorage.getItem('dashboardWriteToken')
+                    || '';
             }
 
             async function authorizedJson(url, options = {}) {
                 const token = dashboardWriteToken();
+                const headers = {
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {}),
+                };
+                if (token) {
+                    headers['x-upload-token'] = token;
+                }
                 const response = await fetch(url, {
                     ...options,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-upload-token': token,
-                        ...(options.headers || {}),
-                    },
+                    headers,
                 });
                 const body = await response.json().catch(() => ({}));
-                if (response.status === 401) {
+                if (response.status === 401 || response.status === 403) {
+                    localStorage.removeItem('dashboardWriteToken');
                     sessionStorage.removeItem('dashboardWriteToken');
                 }
                 if (!response.ok) {
