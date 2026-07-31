@@ -4051,7 +4051,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     last_event_id = excluded.last_event_id,
                     last_event_at = excluded.last_event_at,
                     status = 'event',
-                    is_listening = 1,
+                    is_listening = COALESCE(device_status.is_listening, excluded.is_listening),
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
                     gps_speed_mps = COALESCE(excluded.gps_speed_mps, device_status.gps_speed_mps),
@@ -4133,7 +4133,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         last_event_id = EXCLUDED.last_event_id,
                         last_event_at = now(),
                         status = 'event',
-                        is_listening = true,
+                        is_listening = COALESCE(device_status.is_listening, EXCLUDED.is_listening),
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
                         gps_speed_mps = COALESCE(EXCLUDED.gps_speed_mps, device_status.gps_speed_mps),
@@ -6214,7 +6214,7 @@ def process_event_submission(event: SoundEvent) -> dict:
                 "last_time_sync_at": None,
                 "last_event_id": event.event_id,
                 "last_event_at": created_at,
-                "is_listening": True,
+                "is_listening": None,
                 "last_command_id": None,
                 "updated_at": created_at,
             }
@@ -6350,12 +6350,11 @@ async def create_event(
                 "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
-                "is_listening": True,
+                "is_listening": enriched_device_row.get("is_listening"),
                 "rms_peak": saved_event.get("rms_peak", event.rms_peak),
                 "event": saved_event,
                 "device": {
                     **enriched_device_row,
-                    "is_listening": True,
                     "status": "event",
                 },
             }
@@ -7866,7 +7865,10 @@ def dashboard_v4_clean():
 
             function visibleDevices() {
                 return Array.from(devices.values())
-                    .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
+                    .filter(device => {
+                        if (!device || !device.device_id || isDiagnosticDevice(device.device_id)) return false;
+                        return isOnline(device) || device.is_listening === true || isAlertActive(device.device_id);
+                    })
                     .sort((a, b) => String(a.device_id).localeCompare(String(b.device_id)));
             }
 
@@ -7874,9 +7876,19 @@ def dashboard_v4_clean():
                 return device.status === 'online' || device.status === 'event';
             }
 
+            function deviceCanAlert(device) {
+                return Boolean(device)
+                    && !isDiagnosticDevice(device.device_id)
+                    && isOnline(device)
+                    && device.is_listening === true;
+            }
+
             function deviceAllowsAlert(deviceId) {
-                const device = devices.get(deviceId);
-                return !device || device.is_listening !== false;
+                return deviceCanAlert(devices.get(deviceId));
+            }
+
+            function mapDevices() {
+                return visibleDevices().filter(device => deviceAllowsAlert(device.device_id) || isAlertActive(device.device_id));
             }
 
             function isAlertActive(deviceId) {
@@ -7894,6 +7906,14 @@ def dashboard_v4_clean():
                 ));
             }
 
+            function activeGroupDeviceIds(group) {
+                return groupDeviceIds(group).filter(deviceAllowsAlert);
+            }
+
+            function activeAlertGroupDeviceIds(group) {
+                return activeGroupDeviceIds(group).filter(isAlertActive);
+            }
+
             function activateAlertForDevice(deviceId, until, respectListening = true) {
                 if (!deviceId || isDiagnosticDevice(deviceId)) return;
                 if (respectListening && !deviceAllowsAlert(deviceId)) return;
@@ -7904,8 +7924,8 @@ def dashboard_v4_clean():
             }
 
             function activateAlertsForGroup(group, force = false) {
-                if (!group || !isTarget(group.label) || !isDisplayableEstimate(group)) return;
-                const ids = groupDeviceIds(group);
+                if (!group || !isTarget(group.label) || !canTriggerEstimate(group)) return;
+                const ids = activeGroupDeviceIds(group);
                 if (!ids.length) return;
                 const baseTime = parseTime(
                     group.region_updated_at || group.last_event_time || group.updated_at || group.created_at
@@ -7917,7 +7937,7 @@ def dashboard_v4_clean():
                     until = Date.now() + alertDurationMs;
                 }
                 if (!force && until <= Date.now()) return;
-                ids.forEach(deviceId => activateAlertForDevice(deviceId, until, !force));
+                ids.forEach(deviceId => activateAlertForDevice(deviceId, until, true));
             }
 
             function parseTime(value) {
@@ -7928,7 +7948,7 @@ def dashboard_v4_clean():
             function syncAlertFromDevice(device) {
                 const deviceId = device?.device_id;
                 if (!deviceId) return;
-                if (device.is_listening === false) {
+                if (!deviceCanAlert(device)) {
                     alertUntil.delete(deviceId);
                     return;
                 }
@@ -8147,10 +8167,8 @@ def dashboard_v4_clean():
                                 device.device_id,
                                 mergeDeviceState(devices.get(device.device_id), device),
                             ));
-                        if (nextDevices.size > 0 || devices.size === 0) {
-                            devices.clear();
-                            nextDevices.forEach((device, deviceId) => devices.set(deviceId, device));
-                        }
+                        devices.clear();
+                        nextDevices.forEach((device, deviceId) => devices.set(deviceId, device));
                     }
 
                     if (Array.isArray(eventsData?.events)) {
@@ -8165,9 +8183,11 @@ def dashboard_v4_clean():
 
                         estimates.clear();
                         groupsData.event_groups.forEach(group => {
-                            if (group.id && isDisplayableEstimate(group)) {
-                                estimates.set(String(group.id), group);
+                            if (group.id && canTriggerEstimate(group)) {
                                 activateAlertsForGroup(group);
+                                if (isDisplayableEstimate(group)) {
+                                    estimates.set(String(group.id), group);
+                                }
                             }
                         });
                     }
@@ -8295,6 +8315,14 @@ def dashboard_v4_clean():
 
             function updateDeviceMarker(device) {
                 if (!map || !window.google || !device?.device_id || isDiagnosticDevice(device.device_id)) return;
+                if (!deviceAllowsAlert(device.device_id) && !isAlertActive(device.device_id)) {
+                    const staleMarker = markers.get(device.device_id);
+                    if (staleMarker) {
+                        staleMarker.setMap(null);
+                        markers.delete(device.device_id);
+                    }
+                    return;
+                }
                 const options = markerOptionsForDevice(device);
                 let marker = markers.get(device.device_id);
                 if (!options) {
@@ -8314,7 +8342,7 @@ def dashboard_v4_clean():
             }
 
             function cleanupHiddenMarkers() {
-                const visibleIds = new Set(visibleDevices().map(device => device.device_id));
+                const visibleIds = new Set(mapDevices().map(device => device.device_id));
                 markers.forEach((marker, deviceId) => {
                     if (!visibleIds.has(deviceId)) {
                         marker.setMap(null);
@@ -8332,10 +8360,17 @@ def dashboard_v4_clean():
                     if (options) marker.setIcon(options.icon);
                 });
                 updateEstimateVisibility();
+                cleanupHiddenMarkers();
+                renderTrackLines();
             }
 
             function updateEstimateVisibility() {
-                if (selectedEstimateId) return;
+                if (selectedEstimateId) {
+                    const selected = estimates.get(selectedEstimateId);
+                    if (selected && isDisplayableEstimate(selected)) return;
+                    selectedEstimateId = null;
+                    clearEstimateObjects(false);
+                }
                 const latest = latestEstimate();
                 if (!latest || !estimateIsFresh(latest)) {
                     autoEstimateId = null;
@@ -8345,7 +8380,7 @@ def dashboard_v4_clean():
 
             function renderMap() {
                 if (!map || !window.google) return;
-                visibleDevices().forEach(updateDeviceMarker);
+                mapDevices().forEach(updateDeviceMarker);
                 cleanupHiddenMarkers();
                 renderEstimateOnMap();
                 renderTrackLines();
@@ -8402,10 +8437,18 @@ def dashboard_v4_clean():
             }
 
             function estimateNodeCount(item) {
-                const explicit = Number(item?.reporting_node_count ?? item?.node_count ?? item?.tdoa_node_count);
-                if (Number.isFinite(explicit)) return explicit;
-                const devices = item?.reporting_device_ids || item?.devices || [];
-                return Array.isArray(devices) ? devices.length : 0;
+                return activeAlertGroupDeviceIds(item).length;
+            }
+
+            function canTriggerEstimate(item) {
+                if (!Number.isFinite(Number(item?.region_center_lat)) || !Number.isFinite(Number(item?.region_center_lng))) {
+                    return false;
+                }
+                if (String(item?.region_type || '').toLowerCase() === 'single_node') {
+                    return false;
+                }
+                const ids = groupDeviceIds(item);
+                return ids.length >= 2 && ids.every(deviceAllowsAlert);
             }
 
             function isDisplayableEstimate(item) {
@@ -8415,7 +8458,8 @@ def dashboard_v4_clean():
                 if (String(item?.region_type || '').toLowerCase() === 'single_node') {
                     return false;
                 }
-                return estimateNodeCount(item) >= 2;
+                const ids = groupDeviceIds(item);
+                return ids.length >= 2 && ids.every(deviceId => deviceAllowsAlert(deviceId) && isAlertActive(deviceId));
             }
 
             function validTrackPoints(track) {
@@ -8556,8 +8600,19 @@ def dashboard_v4_clean():
             function renderTrackLines() {
                 if (!map || !window.google) return;
                 const activeIds = new Set();
+                const visibleEstimateIds = new Set(
+                    Array.from(estimates.values())
+                        .filter(isDisplayableEstimate)
+                        .map(estimateId)
+                );
                 tracks.forEach(track => {
                     const id = String(track?.id || '');
+                    const linkedEstimateIds = new Set(
+                        validTrackPoints(track)
+                            .map(point => String(point.group_id || ''))
+                            .filter(Boolean)
+                    );
+                    if (![...linkedEstimateIds].some(groupId => visibleEstimateIds.has(groupId))) return;
                     const path = trackArrowPath(track);
                     if (!id || !path) return;
                     activeIds.add(id);
@@ -8788,13 +8843,14 @@ def dashboard_v4_clean():
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
                 const speed = estimateSpeedMps(item);
                 const heading = estimateHeadingDeg(item);
+                const activeIds = activeAlertGroupDeviceIds(item);
                 infoWindow.setContent(`
                     <div class="map-info-card">
                         <strong>可能聲源區域</strong>
                         <div class="map-info-row"><span>類別</span><span>${displayLabel(item.label)}</span></div>
                         <div class="map-info-row"><span>區域類型</span><span>${displayRegionType(item.region_type)}</span></div>
-                        <div class="map-info-row"><span>回報節點數</span><span>${safe(item.reporting_node_count)}</span></div>
-                        <div class="map-info-row"><span>回報節點</span><span>${safe((item.reporting_device_ids || item.devices || []).join(', '))}</span></div>
+                        <div class="map-info-row"><span>回報節點數</span><span>${safe(activeIds.length)}</span></div>
+                        <div class="map-info-row"><span>回報節點</span><span>${safe(activeIds.join(', '))}</span></div>
                         <div class="map-info-row"><span>事件時間</span><span>${safe(item.last_event_time)}</span></div>
                         <div class="map-info-row"><span>中心點</span><span>${lat.toFixed(6)}, ${lng.toFixed(6)}</span></div>
                         <div class="map-info-row"><span>速度</span><span>${formatSpeed(speed)}</span></div>
@@ -8820,13 +8876,13 @@ def dashboard_v4_clean():
                 list.innerHTML = values.map(item => {
                     const id = estimateId(item);
                     const selected = id === selectedEstimateId;
-                    const devices = item.reporting_device_ids || item.devices || [];
+                    const devices = activeAlertGroupDeviceIds(item);
                     const speed = estimateSpeedMps(item);
                     const heading = estimateHeadingDeg(item);
                     return `
                         <div class="event-row target ${selected ? 'selected' : ''}">
                             <div class="event-title"><span>多節點區域推定</span><span>${displayLabel(item.label)}</span></div>
-                            <div class="event-detail">${displayRegionType(item.region_type)} / 回報節點 ${safe(item.reporting_node_count)}</div>
+                            <div class="event-detail">${displayRegionType(item.region_type)} / 回報節點 ${safe(devices.length)}</div>
                             <div class="event-detail">中心 ${Number(item.region_center_lat).toFixed(6)}, ${Number(item.region_center_lng).toFixed(6)}</div>
                             <div class="event-detail">速度 ${formatSpeed(speed)} / 方向 ${formatHeading(heading)}</div>
                             <div class="event-detail">${safe(devices.join(', '))}</div>
@@ -9426,12 +9482,18 @@ def dashboard_v4_clean():
                         refreshAll();
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.last_event_at || new Date().toISOString();
-                        alertUntil.set(data.device_id, Date.now() + alertDurationMs);
+                        const previousDevice = devices.get(data.device_id);
+                        const canAlert = deviceCanAlert(previousDevice);
+                        if (canAlert) {
+                            alertUntil.set(data.device_id, Date.now() + alertDurationMs);
+                        } else {
+                            alertUntil.delete(data.device_id);
+                        }
                         const device = setDeviceState({
-                            ...(data.device || {}),
+                            ...(previousDevice || {}),
                             ...data,
-                            status: 'event',
-                            is_listening: data.is_listening ?? true,
+                            status: canAlert ? 'event' : (previousDevice?.status || 'offline'),
+                            is_listening: previousDevice?.is_listening ?? false,
                             last_event_id: data.event_id,
                             last_event_at: triggerTime,
                         });
@@ -9468,11 +9530,15 @@ def dashboard_v4_clean():
                         });
                         if (group.id) {
                             eventGroups.set(group.id, group);
-                            if (isDisplayableEstimate(group)) {
+                            if (canTriggerEstimate(group)) {
                                 const groupId = String(group.id);
-                                estimates.set(groupId, group);
                                 activateAlertsForGroup(group, true);
-                                autoPreviewEstimate(group, true);
+                                if (isDisplayableEstimate(group)) {
+                                    estimates.set(groupId, group);
+                                    autoPreviewEstimate(group, true);
+                                } else {
+                                    estimates.delete(groupId);
+                                }
                             } else {
                                 estimates.delete(String(group.id));
                             }
