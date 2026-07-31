@@ -308,7 +308,7 @@ def status_from_last_seen(last_seen: Any, stored_status: Optional[str]) -> str:
     seen_at = parse_datetime(last_seen)
     if seen_at is None:
         return stored_status or "offline"
-    if datetime.now(timezone.utc) - seen_at > timedelta(seconds=15):
+    if datetime.now(timezone.utc) - seen_at > timedelta(seconds=NODE_OFFLINE_TIMEOUT_SECONDS):
         return "offline"
     return stored_status or "online"
 
@@ -2947,6 +2947,29 @@ def set_device_status_cache(rows: list[dict]) -> None:
         return
     with device_status_cache_lock:
         device_status_cache = (monotonic(), clone_rows(rows))
+
+
+def update_device_status_cache_row(row: Optional[dict]) -> None:
+    global device_status_cache
+
+    if (
+        not row
+        or not row.get("device_id")
+        or not use_postgres()
+        or DEVICE_STATUS_CACHE_TTL_SECONDS <= 0
+    ):
+        return
+
+    with device_status_cache_lock:
+        cached_at, rows = device_status_cache
+        next_rows = [
+            dict(existing)
+            for existing in rows
+            if existing.get("device_id") != row.get("device_id")
+        ]
+        next_rows.append(dict(row))
+        next_rows.sort(key=lambda item: str(item.get("device_id") or ""))
+        device_status_cache = (monotonic(), next_rows)
 
 
 def get_tracks_cache(key: str) -> Optional[dict]:
@@ -6260,7 +6283,7 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         upload_mode=location.upload_mode,
         battery=location.battery,
         ai_status=location.ai_status,
-        backend_status=location.backend_status,
+        backend_status="connected",
         app_status=location.app_status,
         last_ai_label=location.last_ai_label,
         last_upload_status=location.last_upload_status,
@@ -6271,6 +6294,7 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         last_time_sync_at=location.last_time_sync_at,
     )
     enriched_device_row = enrich_device_status_rows([device_row])[0]
+    update_device_status_cache_row(enriched_device_row)
     return device_row, enriched_device_row
 
 
@@ -6331,6 +6355,7 @@ async def create_event(
 
     if device_row:
         enriched_device_row = enrich_device_status_rows([device_row])[0]
+        update_device_status_cache_row(enriched_device_row)
         effective_latitude = saved_event.get("effective_latitude")
         effective_longitude = saved_event.get("effective_longitude")
         await dashboard_manager.broadcast(
