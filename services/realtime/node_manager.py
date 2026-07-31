@@ -30,6 +30,22 @@ class NodeConnectionState:
     gps_available: Optional[bool] = None
     network_type: Optional[str] = None
     app_version: Optional[str] = None
+    upload_mode: Optional[str] = None
+    ai_status: Optional[str] = None
+    backend_status: Optional[str] = None
+    app_status: Optional[str] = None
+    last_ai_label: Optional[str] = None
+    last_upload_status: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    gps_speed_mps: Optional[float] = None
+    gps_heading_deg: Optional[float] = None
+    gps_accuracy_m: Optional[float] = None
+    time_sync_offset_ms: Optional[float] = None
+    time_sync_rtt_ms: Optional[float] = None
+    time_sync_quality: Optional[str] = None
+    time_sync_at: Optional[str] = None
+    last_time_sync_at: Optional[str] = None
     reconnect_count: int = 0
     last_disconnect_at: Optional[float] = None
     last_disconnect_reason: Optional[str] = None
@@ -70,6 +86,22 @@ class NodeConnectionState:
             "gps_available": self.gps_available,
             "network_type": self.network_type,
             "app_version": self.app_version,
+            "upload_mode": self.upload_mode,
+            "ai_status": self.ai_status,
+            "backend_status": self.backend_status,
+            "app_status": self.app_status,
+            "last_ai_label": self.last_ai_label,
+            "last_upload_status": self.last_upload_status,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "gps_speed_mps": self.gps_speed_mps,
+            "gps_heading_deg": self.gps_heading_deg,
+            "gps_accuracy_m": self.gps_accuracy_m,
+            "time_sync_offset_ms": self.time_sync_offset_ms,
+            "time_sync_rtt_ms": self.time_sync_rtt_ms,
+            "time_sync_quality": self.time_sync_quality,
+            "time_sync_at": self.time_sync_at,
+            "last_time_sync_at": self.last_time_sync_at,
             "reconnect_count": self.reconnect_count,
             "last_disconnect_at": (
                 datetime.fromtimestamp(
@@ -165,27 +197,81 @@ class NodeManager:
         payload: dict[str, Any],
     ) -> None:
         if "recording" in payload:
-            state.recording = bool(payload.get("recording"))
+            parsed = self._optional_bool(payload.get("recording"))
+            if parsed is not None:
+                state.recording = parsed
         if "detection_enabled" in payload:
-            state.detection_enabled = bool(payload.get("detection_enabled"))
+            parsed = self._optional_bool(payload.get("detection_enabled"))
+            if parsed is not None:
+                state.detection_enabled = parsed
         if "streaming" in payload:
-            state.streaming = bool(payload.get("streaming"))
+            parsed = self._optional_bool(payload.get("streaming"))
+            if parsed is not None:
+                state.streaming = parsed
         if "battery_percent" in payload and payload.get("battery_percent") is not None:
             try:
                 state.battery_percent = int(payload.get("battery_percent"))
             except (TypeError, ValueError):
                 state.battery_percent = None
         if "gps_available" in payload:
-            state.gps_available = bool(payload.get("gps_available"))
-        if "network_type" in payload:
-            state.network_type = str(payload.get("network_type") or "")
-        if "app_version" in payload:
-            state.app_version = str(payload.get("app_version") or "")
+            state.gps_available = self._optional_bool(payload.get("gps_available"))
+        for key in (
+            "network_type",
+            "app_version",
+            "upload_mode",
+            "ai_status",
+            "backend_status",
+            "app_status",
+            "last_ai_label",
+            "last_upload_status",
+            "time_sync_quality",
+            "time_sync_at",
+            "last_time_sync_at",
+        ):
+            if key in payload:
+                value = payload.get(key)
+                setattr(state, key, str(value) if value is not None else None)
+        for key in (
+            "latitude",
+            "longitude",
+            "gps_speed_mps",
+            "gps_heading_deg",
+            "gps_accuracy_m",
+            "time_sync_offset_ms",
+            "time_sync_rtt_ms",
+        ):
+            if key in payload:
+                setattr(state, key, self._optional_float(payload.get(key)))
         if "reconnect_count" in payload and payload.get("reconnect_count") is not None:
             try:
                 state.reconnect_count = int(payload.get("reconnect_count"))
             except (TypeError, ValueError):
                 pass
+
+    @staticmethod
+    def _optional_bool(value: Any) -> Optional[bool]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "off"}:
+                return False
+        return None
+
+    @staticmethod
+    def _optional_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     async def update_heartbeat(
         self,

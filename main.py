@@ -4314,6 +4314,81 @@ def merge_device_status_rows_with_event_fallback(rows: list[dict]) -> list[dict]
     return list(by_device.values())
 
 
+def is_live_coordinate_pair(latitude: Any, longitude: Any) -> bool:
+    try:
+        lat = float(latitude)
+        lng = float(longitude)
+    except (TypeError, ValueError):
+        return False
+    return (
+        math.isfinite(lat)
+        and math.isfinite(lng)
+        and -90 <= lat <= 90
+        and -180 <= lng <= 180
+        and not (abs(lat) < 0.000001 and abs(lng) < 0.000001)
+    )
+
+
+def merge_device_status_rows_with_live_nodes(rows: list[dict]) -> list[dict]:
+    by_device = {
+        str(row.get("device_id") or ""): dict(row)
+        for row in rows
+        if row.get("device_id")
+    }
+
+    for node in node_manager.live_states():
+        device_id = str(node.get("device_id") or "").strip()
+        if not device_id or is_diagnostic_device_id(device_id):
+            continue
+
+        row = dict(by_device.get(device_id, {"device_id": device_id}))
+        availability = str(node.get("availability_status") or "").upper()
+        is_live = bool(node.get("websocket_connected")) and availability != "OFFLINE"
+        is_recording = bool(node.get("recording") or node.get("detection_enabled"))
+        heartbeat_at = node.get("last_heartbeat_at") or node.get("connected_at")
+
+        row["last_seen"] = heartbeat_at or row.get("last_seen")
+        row["updated_at"] = heartbeat_at or row.get("updated_at")
+        row["status"] = "online" if is_live else "offline"
+        row["is_listening"] = is_recording
+        row["backend_status"] = "connected" if is_live else row.get("backend_status")
+        row["app_status"] = "listening" if is_recording else "stopped"
+        row["battery"] = node.get("battery_percent") if node.get("battery_percent") is not None else row.get("battery")
+
+        for key in (
+            "upload_mode",
+            "ai_status",
+            "last_ai_label",
+            "last_upload_status",
+            "time_sync_offset_ms",
+            "time_sync_rtt_ms",
+            "time_sync_quality",
+            "time_sync_at",
+            "last_time_sync_at",
+            "gps_speed_mps",
+            "gps_heading_deg",
+            "gps_accuracy_m",
+            "network_type",
+            "app_version",
+        ):
+            if node.get(key) is not None:
+                row[key] = node.get(key)
+
+        if is_live_coordinate_pair(node.get("latitude"), node.get("longitude")):
+            row["latitude"] = node.get("latitude")
+            row["longitude"] = node.get("longitude")
+
+        if node.get("gps_available") is not None and row.get("gps_status") is None:
+            row["gps_status"] = "ok" if node.get("gps_available") else "unavailable"
+
+        by_device[device_id] = row
+
+    return sorted(
+        by_device.values(),
+        key=lambda item: str(item.get("device_id") or ""),
+    )
+
+
 def list_device_fixed_locations() -> list[dict]:
     def normalized_rows(rows) -> list[dict]:
         output = []
@@ -6653,6 +6728,7 @@ def device_status():
         source = "device_status_fallback"
         devices = fallback_device_status_rows_from_events()
     devices = filter_diagnostic_device_rows(devices)
+    devices = merge_device_status_rows_with_live_nodes(devices)
     if len(devices) < 2:
         fallback_devices = filter_diagnostic_device_rows(
             fallback_device_status_rows_from_events()
@@ -6670,6 +6746,7 @@ def device_status():
             by_device.values(),
             key=lambda item: str(item.get("device_id") or ""),
         )
+        devices = merge_device_status_rows_with_live_nodes(devices)
         if len(devices) > 1 and source == "device_status":
             source = "device_status_with_event_fallback"
 
@@ -7924,7 +8001,7 @@ def dashboard_v4_clean():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE/i.test(String(deviceId || ''));
+                return /TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\\d+/i.test(String(deviceId || ''));
             }
 
             function visibleDevices() {
@@ -8055,6 +8132,57 @@ def dashboard_v4_clean():
                 const merged = mergeDeviceState(devices.get(incoming.device_id), incoming);
                 devices.set(incoming.device_id, merged);
                 return merged;
+            }
+
+            function liveNodeToDeviceState(node) {
+                if (!node?.device_id) return null;
+                const availability = String(node.availability_status || '').toUpperCase();
+                const isLive = node.websocket_connected === true && availability !== 'OFFLINE';
+                const isListening = Boolean(node.recording || node.detection_enabled);
+                const state = {
+                    device_id: node.device_id,
+                    last_seen: node.last_heartbeat_at || node.connected_at,
+                    updated_at: node.last_heartbeat_at || node.connected_at,
+                    status: isLive ? 'online' : 'offline',
+                    is_listening: isListening,
+                    backend_status: isLive ? 'connected' : 'disconnected',
+                    app_status: isListening ? 'listening' : 'stopped',
+                };
+                if (node.battery_percent !== null && node.battery_percent !== undefined) {
+                    state.battery = node.battery_percent;
+                }
+                if (node.gps_available !== null && node.gps_available !== undefined) {
+                    state.gps_status = node.gps_available ? 'ok' : 'unavailable';
+                }
+                [
+                    'upload_mode',
+                    'ai_status',
+                    'last_ai_label',
+                    'last_upload_status',
+                    'time_sync_offset_ms',
+                    'time_sync_rtt_ms',
+                    'time_sync_quality',
+                    'time_sync_at',
+                    'last_time_sync_at',
+                    'gps_speed_mps',
+                    'gps_heading_deg',
+                    'gps_accuracy_m',
+                    'network_type',
+                    'app_version',
+                ].forEach((key) => {
+                    if (node[key] !== null && node[key] !== undefined) {
+                        state[key] = node[key];
+                    }
+                });
+                if (isValidCoordinatePair(node.latitude, node.longitude)) {
+                    const latitude = Number(node.latitude);
+                    const longitude = Number(node.longitude);
+                    if (Math.abs(latitude) > 0.000001 || Math.abs(longitude) > 0.000001) {
+                        state.latitude = latitude;
+                        state.longitude = longitude;
+                    }
+                }
+                return state;
             }
 
             function finiteNumber(value) {
@@ -9548,6 +9676,12 @@ def dashboard_v4_clean():
                     if (data.type === 'location_update') {
                         const device = setDeviceState(data);
                         renderSummary();
+                        updateDeviceMarker(device);
+                    } else if (data.type === 'node_connected' || data.type === 'node_heartbeat' || data.type === 'node_live_update' || data.type === 'node_disconnected') {
+                        const device = setDeviceState(liveNodeToDeviceState(data.node || data));
+                        renderSummary();
+                        renderNodes();
+                        refreshLiveAudioDeviceSelect();
                         updateDeviceMarker(device);
                     } else if (data.type === 'device_location_updated') {
                         refreshAll();
