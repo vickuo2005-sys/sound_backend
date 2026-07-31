@@ -7756,6 +7756,8 @@ def dashboard_v4_clean():
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
+            const trackVisibleMs = 20000;
+            const trackMinMoveMeters = 12;
             let map = null;
             let infoWindow = null;
             let selectedEstimateId = null;
@@ -8400,6 +8402,101 @@ def dashboard_v4_clean():
                     .sort((a, b) => Number(a.measurement_time_ms || 0) - Number(b.measurement_time_ms || 0));
             }
 
+            function trackPointTimeMs(point) {
+                const measurement = Number(point?.measurement_time_ms);
+                if (Number.isFinite(measurement) && measurement > 0) return measurement;
+                return parseTime(point?.created_at || point?.updated_at);
+            }
+
+            function trackTimeMs(track) {
+                const measurement = Number(track?.last_event_time_ms);
+                if (Number.isFinite(measurement) && measurement > 0) return measurement;
+                return parseTime(track?.updated_at || track?.created_at);
+            }
+
+            function isTrackFresh(track) {
+                const time = trackTimeMs(track);
+                return Number.isFinite(time) && Date.now() - time <= trackVisibleMs;
+            }
+
+            function recentTrackPoints(track) {
+                const now = Date.now();
+                return validTrackPoints(track).filter(point => {
+                    const time = trackPointTimeMs(point);
+                    return Number.isFinite(time) && now - time <= trackVisibleMs;
+                });
+            }
+
+            function distanceMeters(a, b) {
+                const lat1 = Number(a?.lat);
+                const lng1 = Number(a?.lng);
+                const lat2 = Number(b?.lat);
+                const lng2 = Number(b?.lng);
+                if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return 0;
+                const earthRadiusM = 6371000;
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLng = (lng2 - lng1) * Math.PI / 180;
+                const rLat1 = lat1 * Math.PI / 180;
+                const rLat2 = lat2 * Math.PI / 180;
+                const h = Math.sin(dLat / 2) ** 2
+                    + Math.cos(rLat1) * Math.cos(rLat2) * Math.sin(dLng / 2) ** 2;
+                return 2 * earthRadiusM * Math.asin(Math.min(1, Math.sqrt(h)));
+            }
+
+            function projectPoint(lat, lng, headingDeg, distanceM) {
+                const earthRadiusM = 6371000;
+                const bearing = Number(headingDeg) * Math.PI / 180;
+                const angularDistance = Number(distanceM) / earthRadiusM;
+                const lat1 = Number(lat) * Math.PI / 180;
+                const lng1 = Number(lng) * Math.PI / 180;
+                const lat2 = Math.asin(
+                    Math.sin(lat1) * Math.cos(angularDistance)
+                    + Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+                );
+                const lng2 = lng1 + Math.atan2(
+                    Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+                    Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+                );
+                return {
+                    lat: lat2 * 180 / Math.PI,
+                    lng: lng2 * 180 / Math.PI,
+                };
+            }
+
+            function trackArrowPath(track) {
+                if (!track || String(track.status || 'ACTIVE').toUpperCase() !== 'ACTIVE' || !isTrackFresh(track)) {
+                    return null;
+                }
+
+                const points = recentTrackPoints(track);
+                const latestPoint = points.length > 0 ? points[points.length - 1] : null;
+                const latest = latestPoint
+                    ? { lat: Number(latestPoint.filtered_lat), lng: Number(latestPoint.filtered_lng) }
+                    : { lat: Number(track.last_lat), lng: Number(track.last_lng) };
+                if (!Number.isFinite(latest.lat) || !Number.isFinite(latest.lng)) return null;
+
+                let heading = Number(track.last_heading_deg);
+                if (!Number.isFinite(heading) && points.length >= 2) {
+                    const previousPoint = points[points.length - 2];
+                    const previous = {
+                        lat: Number(previousPoint.filtered_lat),
+                        lng: Number(previousPoint.filtered_lng),
+                    };
+                    if (distanceMeters(previous, latest) >= trackMinMoveMeters) {
+                        const dLng = (latest.lng - previous.lng) * Math.cos(latest.lat * Math.PI / 180);
+                        const dLat = latest.lat - previous.lat;
+                        heading = (Math.atan2(dLng, dLat) * 180 / Math.PI + 360) % 360;
+                    }
+                }
+
+                if (!Number.isFinite(heading)) return null;
+                const speed = Number(track.last_speed_mps);
+                const arrowLengthM = Math.max(35, Math.min(Number.isFinite(speed) ? speed * 3 : 55, 90));
+                const start = projectPoint(latest.lat, latest.lng, heading + 180, arrowLengthM * 0.35);
+                const end = projectPoint(latest.lat, latest.lng, heading, arrowLengthM);
+                return [start, end];
+            }
+
             function updateTrackState(track) {
                 const id = String(track?.id || '');
                 if (!id) return;
@@ -8439,12 +8536,8 @@ def dashboard_v4_clean():
                 const activeIds = new Set();
                 tracks.forEach(track => {
                     const id = String(track?.id || '');
-                    const points = validTrackPoints(track);
-                    if (!id || points.length < 2 || String(track.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return;
-                    const path = points.map(point => ({
-                        lat: Number(point.filtered_lat),
-                        lng: Number(point.filtered_lng),
-                    }));
+                    const path = trackArrowPath(track);
+                    if (!id || !path) return;
                     activeIds.add(id);
                     let line = trackLines.get(id);
                     if (!line) {
@@ -8452,13 +8545,15 @@ def dashboard_v4_clean():
                             map,
                             path,
                             strokeColor: '#38bdf8',
-                            strokeOpacity: 0.95,
-                            strokeWeight: 4,
+                            strokeOpacity: 0.9,
+                            strokeWeight: 3,
                             icons: [{
                                 icon: {
                                     path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                                    scale: 3,
+                                    scale: 4,
                                     strokeColor: '#38bdf8',
+                                    fillColor: '#38bdf8',
+                                    fillOpacity: 1,
                                 },
                                 offset: '100%',
                             }],
@@ -8466,6 +8561,7 @@ def dashboard_v4_clean():
                         trackLines.set(id, line);
                     } else {
                         line.setPath(path);
+                        line.setMap(map);
                     }
                 });
                 trackLines.forEach((line, id) => {
