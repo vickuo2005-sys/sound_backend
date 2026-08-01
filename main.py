@@ -4108,108 +4108,76 @@ def upsert_device_location(
     try:
         with connection:
             with connection.cursor() as cursor:
-                columns = ", ".join(DEVICE_STATUS_COLUMNS)
+                available_columns = existing_table_columns("device_status", cursor=cursor)
+                returning_columns = device_status_select_clause(cursor=cursor)
+                now_dt = datetime.now(timezone.utc)
+                column_values = {
+                    "device_id": device_id,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "last_seen": now_dt,
+                    "status": "online",
+                    "is_listening": is_listening,
+                    "upload_mode": upload_mode,
+                    "battery": battery,
+                    "ai_status": ai_status,
+                    "backend_status": backend_status,
+                    "backend_http_status": backend_http_status,
+                    "node_websocket_status": node_websocket_status,
+                    "app_status": app_status,
+                    "last_ai_label": last_ai_label,
+                    "last_upload_status": last_upload_status,
+                    "metadata_upload_status": metadata_upload_status,
+                    "audio_upload_status": audio_upload_status,
+                    "gps_upload_status": gps_upload_status,
+                    "last_location_upload_at": parsed_last_location_upload_at,
+                    "gps_speed_mps": gps_speed_mps,
+                    "gps_heading_deg": gps_heading_deg,
+                    "gps_accuracy_m": gps_accuracy_m,
+                    "time_sync_offset_ms": time_sync_offset_ms,
+                    "time_sync_rtt_ms": time_sync_rtt_ms,
+                    "time_sync_quality": normalized_time_sync_quality,
+                    "time_sync_at": parsed_time_sync_at,
+                    "last_time_sync_at": parsed_time_sync_at,
+                    "updated_at": now_dt,
+                }
+                insert_columns = [
+                    column
+                    for column in column_values
+                    if column in available_columns
+                ]
+                if "device_id" not in insert_columns:
+                    raise RuntimeError("device_status.device_id column is missing")
+
+                update_parts = []
+                for column in insert_columns:
+                    if column == "device_id":
+                        continue
+                    if column == "status":
+                        if "last_event_at" in available_columns:
+                            update_parts.append(
+                                "status = CASE "
+                                "WHEN device_status.last_event_at IS NOT NULL "
+                                f"AND device_status.last_event_at >= now() - INTERVAL '{postgres_alert_interval}' "
+                                "THEN 'event' ELSE EXCLUDED.status END"
+                            )
+                        else:
+                            update_parts.append("status = EXCLUDED.status")
+                    elif column in {"last_seen", "updated_at"}:
+                        update_parts.append(f"{column} = now()")
+                    else:
+                        update_parts.append(f"{column} = EXCLUDED.{column}")
+
                 cursor.execute(
                     f"""
-                    INSERT INTO device_status (
-                        device_id,
-                        latitude,
-                        longitude,
-                        last_seen,
-                        status,
-                        is_listening,
-                        upload_mode,
-                        battery,
-                        ai_status,
-                        backend_status,
-                        backend_http_status,
-                        node_websocket_status,
-                        app_status,
-                        last_ai_label,
-                        last_upload_status,
-                        metadata_upload_status,
-                        audio_upload_status,
-                        gps_upload_status,
-                        last_location_upload_at,
-                        gps_speed_mps,
-                        gps_heading_deg,
-                        gps_accuracy_m,
-                        time_sync_offset_ms,
-                        time_sync_rtt_ms,
-                        time_sync_quality,
-                        time_sync_at,
-                        last_time_sync_at,
-                        updated_at
-                    )
-                    VALUES (
-                        %s, %s, %s, now(), 'online',
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s, %s, %s, now()
-                    )
+                    INSERT INTO device_status ({", ".join(insert_columns)})
+                    VALUES ({", ".join(["%s"] * len(insert_columns))})
                     ON CONFLICT (device_id) DO UPDATE SET
-                        latitude = EXCLUDED.latitude,
-                        longitude = EXCLUDED.longitude,
-                        last_seen = now(),
-                        status = CASE
-                            WHEN device_status.last_event_at IS NOT NULL
-                             AND device_status.last_event_at >= now() - INTERVAL '{postgres_alert_interval}'
-                            THEN 'event'
-                            ELSE 'online'
-                        END,
-                        is_listening = EXCLUDED.is_listening,
-                        upload_mode = EXCLUDED.upload_mode,
-                        battery = EXCLUDED.battery,
-                        ai_status = EXCLUDED.ai_status,
-                        backend_status = EXCLUDED.backend_status,
-                        backend_http_status = EXCLUDED.backend_http_status,
-                        node_websocket_status = EXCLUDED.node_websocket_status,
-                        app_status = EXCLUDED.app_status,
-                        last_ai_label = EXCLUDED.last_ai_label,
-                        last_upload_status = EXCLUDED.last_upload_status,
-                        metadata_upload_status = EXCLUDED.metadata_upload_status,
-                        audio_upload_status = EXCLUDED.audio_upload_status,
-                        gps_upload_status = EXCLUDED.gps_upload_status,
-                        last_location_upload_at = EXCLUDED.last_location_upload_at,
-                        gps_speed_mps = EXCLUDED.gps_speed_mps,
-                        gps_heading_deg = EXCLUDED.gps_heading_deg,
-                        gps_accuracy_m = EXCLUDED.gps_accuracy_m,
-                        time_sync_offset_ms = EXCLUDED.time_sync_offset_ms,
-                        time_sync_rtt_ms = EXCLUDED.time_sync_rtt_ms,
-                        time_sync_quality = EXCLUDED.time_sync_quality,
-                        time_sync_at = EXCLUDED.time_sync_at,
-                        last_time_sync_at = EXCLUDED.last_time_sync_at,
-                        updated_at = now()
+                        {", ".join(update_parts)}
                     RETURNING
-                        {columns}
+                        {returning_columns}
                     """,
-                    (
-                        device_id,
-                        latitude,
-                        longitude,
-                        is_listening,
-                        upload_mode,
-                        battery,
-                        ai_status,
-                        backend_status,
-                        backend_http_status,
-                        node_websocket_status,
-                        app_status,
-                        last_ai_label,
-                        last_upload_status,
-                        metadata_upload_status,
-                        audio_upload_status,
-                        gps_upload_status,
-                        parsed_last_location_upload_at,
-                        gps_speed_mps,
-                        gps_heading_deg,
-                        gps_accuracy_m,
-                        time_sync_offset_ms,
-                        time_sync_rtt_ms,
-                        normalized_time_sync_quality,
-                        parsed_time_sync_at,
-                        parsed_time_sync_at,
-                    ),
+                    tuple(column_values[column] for column in insert_columns),
                 )
                 row = cursor.fetchone()
                 return serialize_db_row(dict(row))
@@ -4385,17 +4353,47 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
         connection.close()
 
 
-def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
+def existing_table_columns(
+    table_name: str,
+    cursor: Any = None,
+    sqlite_connection: Any = None,
+) -> set[str]:
     if use_postgres():
-        return ", ".join(DEVICE_STATUS_COLUMNS)
+        if cursor is None:
+            return set()
+        try:
+            cursor.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = %s
+                """,
+                (table_name,),
+            )
+            return {
+                str(row["column_name"] if isinstance(row, dict) else row[0])
+                for row in cursor.fetchall()
+            }
+        except Exception:
+            logger.exception("Failed to inspect %s columns", table_name)
+            return set()
 
     existing_columns = set()
     try:
         if sqlite_connection is not None:
-            rows = sqlite_connection.execute("PRAGMA table_info(device_status)").fetchall()
+            rows = sqlite_connection.execute(f"PRAGMA table_info({table_name})").fetchall()
             existing_columns = {str(row["name"]) for row in rows}
     except Exception:
-        logger.exception("Failed to inspect device_status columns")
+        logger.exception("Failed to inspect %s columns", table_name)
+    return existing_columns
+
+
+def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
+    existing_columns = existing_table_columns(
+        "device_status",
+        cursor=cursor,
+        sqlite_connection=sqlite_connection,
+    )
 
     select_parts = []
     for column in DEVICE_STATUS_COLUMNS:
