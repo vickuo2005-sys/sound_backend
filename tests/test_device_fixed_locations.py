@@ -241,7 +241,7 @@ def test_clearing_fixed_location_returns_to_event_gps_fallback() -> None:
     assert second["region_center_lng"] == 121.0
 
 
-def test_device_location_api_crud_and_authorization(tmp_path, monkeypatch) -> None:
+def test_device_location_api_crud_allows_internal_dashboard_without_token(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "fixed_locations.db"
     monkeypatch.setattr(main, "DB_NAME", str(db_path))
     monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -249,19 +249,8 @@ def test_device_location_api_crud_and_authorization(tmp_path, monkeypatch) -> No
     main.init_sqlite_db()
     client = TestClient(main.app)
 
-    unauthorized = client.put(
-        "/device-locations/node_A01",
-        json={
-            "latitude": 25.041234,
-            "longitude": 121.531567,
-            "location_source": "manual_map",
-        },
-    )
-    assert unauthorized.status_code == 401
-
     created = client.put(
         "/device-locations/node_A01",
-        headers={"x-upload-token": "secret-token"},
         json={
             "latitude": 25.041234,
             "longitude": 121.531567,
