@@ -229,9 +229,15 @@ class LocationUpdate(BaseModel):
     battery: Optional[int] = None
     ai_status: Optional[str] = None
     backend_status: Optional[str] = None
+    backend_http_status: Optional[str] = None
+    node_websocket_status: Optional[str] = None
     app_status: Optional[str] = None
     last_ai_label: Optional[str] = None
     last_upload_status: Optional[str] = None
+    metadata_upload_status: Optional[str] = None
+    audio_upload_status: Optional[str] = None
+    gps_upload_status: Optional[str] = None
+    last_location_upload_at: Optional[str] = None
     time_sync_offset_ms: Optional[float] = None
     time_sync_rtt_ms: Optional[float] = None
     time_sync_quality: Optional[str] = None
@@ -425,9 +431,15 @@ DEVICE_STATUS_COLUMNS = [
     "battery",
     "ai_status",
     "backend_status",
+    "backend_http_status",
+    "node_websocket_status",
     "app_status",
     "last_ai_label",
     "last_upload_status",
+    "metadata_upload_status",
+    "audio_upload_status",
+    "gps_upload_status",
+    "last_location_upload_at",
     "gps_speed_mps",
     "gps_heading_deg",
     "gps_accuracy_m",
@@ -882,9 +894,15 @@ def init_sqlite_db() -> None:
                 battery INTEGER,
                 ai_status TEXT,
                 backend_status TEXT,
+                backend_http_status TEXT,
+                node_websocket_status TEXT,
                 app_status TEXT,
                 last_ai_label TEXT,
                 last_upload_status TEXT,
+                metadata_upload_status TEXT,
+                audio_upload_status TEXT,
+                gps_upload_status TEXT,
+                last_location_upload_at TEXT,
                 gps_speed_mps REAL,
                 gps_heading_deg REAL,
                 gps_accuracy_m REAL,
@@ -910,9 +928,15 @@ def init_sqlite_db() -> None:
             ("battery", "INTEGER"),
             ("ai_status", "TEXT"),
             ("backend_status", "TEXT"),
+            ("backend_http_status", "TEXT"),
+            ("node_websocket_status", "TEXT"),
             ("app_status", "TEXT"),
             ("last_ai_label", "TEXT"),
             ("last_upload_status", "TEXT"),
+            ("metadata_upload_status", "TEXT"),
+            ("audio_upload_status", "TEXT"),
+            ("gps_upload_status", "TEXT"),
+            ("last_location_upload_at", "TEXT"),
             ("gps_speed_mps", "REAL"),
             ("gps_heading_deg", "REAL"),
             ("gps_accuracy_m", "REAL"),
@@ -1589,9 +1613,15 @@ def init_postgres_db() -> None:
                         battery INTEGER,
                         ai_status TEXT,
                         backend_status TEXT,
+                        backend_http_status TEXT,
+                        node_websocket_status TEXT,
                         app_status TEXT,
                         last_ai_label TEXT,
                         last_upload_status TEXT,
+                        metadata_upload_status TEXT,
+                        audio_upload_status TEXT,
+                        gps_upload_status TEXT,
+                        last_location_upload_at TIMESTAMPTZ,
                         gps_speed_mps DOUBLE PRECISION,
                         gps_heading_deg DOUBLE PRECISION,
                         gps_accuracy_m DOUBLE PRECISION,
@@ -1617,9 +1647,15 @@ def init_postgres_db() -> None:
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS battery INTEGER",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS ai_status TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS backend_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS backend_http_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS node_websocket_status TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS app_status TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_ai_label TEXT",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS metadata_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS audio_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_upload_status TEXT",
+                    "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS last_location_upload_at TIMESTAMPTZ",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION",
                     "ALTER TABLE device_status ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION",
@@ -3304,6 +3340,9 @@ def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]
     label = str(event_group.get("label") or event_group.get("group_label") or "").lower()
     if not is_alert_event_label(label):
         return None
+    region_type = str(event_group.get("region_type") or "").lower()
+    if region_type in {"", "single_node", "unknown"}:
+        return None
 
     lat = parse_float_value(
         event_group.get("region_center_lat")
@@ -3921,9 +3960,15 @@ def upsert_device_location(
     battery: Optional[int] = None,
     ai_status: Optional[str] = None,
     backend_status: Optional[str] = None,
+    backend_http_status: Optional[str] = None,
+    node_websocket_status: Optional[str] = None,
     app_status: Optional[str] = None,
     last_ai_label: Optional[str] = None,
     last_upload_status: Optional[str] = None,
+    metadata_upload_status: Optional[str] = None,
+    audio_upload_status: Optional[str] = None,
+    gps_upload_status: Optional[str] = None,
+    last_location_upload_at: Optional[str] = None,
     time_sync_offset_ms: Optional[float] = None,
     time_sync_rtt_ms: Optional[float] = None,
     time_sync_quality: Optional[str] = None,
@@ -3942,6 +3987,10 @@ def upsert_device_location(
     if parsed_time_sync_at is None and time_sync_offset_ms is not None:
         parsed_time_sync_at = datetime.now(timezone.utc)
     sqlite_time_sync_at = parsed_time_sync_at.isoformat() if parsed_time_sync_at else None
+    parsed_last_location_upload_at = (
+        parse_datetime(last_location_upload_at) or datetime.now(timezone.utc)
+    )
+    sqlite_last_location_upload_at = parsed_last_location_upload_at.isoformat()
 
     if not use_postgres():
         now = current_time_iso()
@@ -3959,9 +4008,15 @@ def upsert_device_location(
                     battery,
                     ai_status,
                     backend_status,
+                    backend_http_status,
+                    node_websocket_status,
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    metadata_upload_status,
+                    audio_upload_status,
+                    gps_upload_status,
+                    last_location_upload_at,
                     gps_speed_mps,
                     gps_heading_deg,
                     gps_accuracy_m,
@@ -3972,7 +4027,7 @@ def upsert_device_location(
                     last_time_sync_at,
                     updated_at
                 )
-                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
                     latitude = excluded.latitude,
                     longitude = excluded.longitude,
@@ -3988,9 +4043,15 @@ def upsert_device_location(
                     battery = excluded.battery,
                     ai_status = excluded.ai_status,
                     backend_status = excluded.backend_status,
+                    backend_http_status = excluded.backend_http_status,
+                    node_websocket_status = excluded.node_websocket_status,
                     app_status = excluded.app_status,
                     last_ai_label = excluded.last_ai_label,
                     last_upload_status = excluded.last_upload_status,
+                    metadata_upload_status = excluded.metadata_upload_status,
+                    audio_upload_status = excluded.audio_upload_status,
+                    gps_upload_status = excluded.gps_upload_status,
+                    last_location_upload_at = excluded.last_location_upload_at,
                     gps_speed_mps = excluded.gps_speed_mps,
                     gps_heading_deg = excluded.gps_heading_deg,
                     gps_accuracy_m = excluded.gps_accuracy_m,
@@ -4011,9 +4072,15 @@ def upsert_device_location(
                     battery,
                     ai_status,
                     backend_status,
+                    backend_http_status,
+                    node_websocket_status,
                     app_status,
                     last_ai_label,
                     last_upload_status,
+                    metadata_upload_status,
+                    audio_upload_status,
+                    gps_upload_status,
+                    sqlite_last_location_upload_at,
                     gps_speed_mps,
                     gps_heading_deg,
                     gps_accuracy_m,
@@ -4055,9 +4122,15 @@ def upsert_device_location(
                         battery,
                         ai_status,
                         backend_status,
+                        backend_http_status,
+                        node_websocket_status,
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        metadata_upload_status,
+                        audio_upload_status,
+                        gps_upload_status,
+                        last_location_upload_at,
                         gps_speed_mps,
                         gps_heading_deg,
                         gps_accuracy_m,
@@ -4070,7 +4143,7 @@ def upsert_device_location(
                     )
                     VALUES (
                         %s, %s, %s, now(), 'online',
-                        %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s,
                         %s, %s, %s, %s, %s, now()
                     )
@@ -4089,9 +4162,15 @@ def upsert_device_location(
                         battery = EXCLUDED.battery,
                         ai_status = EXCLUDED.ai_status,
                         backend_status = EXCLUDED.backend_status,
+                        backend_http_status = EXCLUDED.backend_http_status,
+                        node_websocket_status = EXCLUDED.node_websocket_status,
                         app_status = EXCLUDED.app_status,
                         last_ai_label = EXCLUDED.last_ai_label,
                         last_upload_status = EXCLUDED.last_upload_status,
+                        metadata_upload_status = EXCLUDED.metadata_upload_status,
+                        audio_upload_status = EXCLUDED.audio_upload_status,
+                        gps_upload_status = EXCLUDED.gps_upload_status,
+                        last_location_upload_at = EXCLUDED.last_location_upload_at,
                         gps_speed_mps = EXCLUDED.gps_speed_mps,
                         gps_heading_deg = EXCLUDED.gps_heading_deg,
                         gps_accuracy_m = EXCLUDED.gps_accuracy_m,
@@ -4113,9 +4192,15 @@ def upsert_device_location(
                         battery,
                         ai_status,
                         backend_status,
+                        backend_http_status,
+                        node_websocket_status,
                         app_status,
                         last_ai_label,
                         last_upload_status,
+                        metadata_upload_status,
+                        audio_upload_status,
+                        gps_upload_status,
+                        parsed_last_location_upload_at,
                         gps_speed_mps,
                         gps_heading_deg,
                         gps_accuracy_m,
@@ -4324,9 +4409,7 @@ def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = Non
 def list_device_status_rows() -> list[dict]:
     cached_rows = get_device_status_cache()
     if cached_rows is not None:
-        return enrich_device_status_rows(
-            merge_device_status_rows_with_event_fallback(cached_rows)
-        )
+        return enrich_device_status_rows(cached_rows)
 
     if not use_postgres():
         with get_sqlite_connection() as connection:
@@ -4339,9 +4422,7 @@ def list_device_status_rows() -> list[dict]:
                 """
             ).fetchall()
             raw_rows = [serialize_db_row(dict(row)) for row in rows]
-        return enrich_device_status_rows(
-            merge_device_status_rows_with_event_fallback(raw_rows)
-        )
+        return enrich_device_status_rows(raw_rows)
 
     connection = get_postgres_connection()
     try:
@@ -4358,9 +4439,7 @@ def list_device_status_rows() -> list[dict]:
                 rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
     finally:
         connection.close()
-    enriched_rows = enrich_device_status_rows(
-        merge_device_status_rows_with_event_fallback(rows)
-    )
+    enriched_rows = enrich_device_status_rows(rows)
     set_device_status_cache(enriched_rows)
     return enriched_rows
 
@@ -4390,9 +4469,15 @@ def fallback_device_status_rows_from_events() -> list[dict]:
             "battery": None,
             "ai_status": None,
             "backend_status": "device_status_fallback",
+            "backend_http_status": None,
+            "node_websocket_status": None,
             "app_status": None,
             "last_ai_label": event.get("label"),
             "last_upload_status": event.get("audio_encoding_status"),
+            "metadata_upload_status": None,
+            "audio_upload_status": event.get("audio_encoding_status"),
+            "gps_upload_status": None,
+            "last_location_upload_at": None,
             "time_sync_offset_ms": event.get("time_sync_offset_ms"),
             "time_sync_rtt_ms": event.get("time_sync_rtt_ms"),
             "time_sync_quality": event.get("time_sync_quality"),
@@ -4467,8 +4552,14 @@ def merge_device_status_rows_with_live_nodes(rows: list[dict]) -> list[dict]:
         for key in (
             "upload_mode",
             "ai_status",
+            "backend_http_status",
+            "node_websocket_status",
             "last_ai_label",
             "last_upload_status",
+            "metadata_upload_status",
+            "audio_upload_status",
+            "gps_upload_status",
+            "last_location_upload_at",
             "time_sync_offset_ms",
             "time_sync_rtt_ms",
             "time_sync_quality",
@@ -6570,9 +6661,15 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         battery=location.battery,
         ai_status=location.ai_status,
         backend_status="connected",
+        backend_http_status=location.backend_http_status or location.backend_status,
+        node_websocket_status=location.node_websocket_status,
         app_status=location.app_status,
         last_ai_label=location.last_ai_label,
         last_upload_status=location.last_upload_status,
+        metadata_upload_status=location.metadata_upload_status,
+        audio_upload_status=location.audio_upload_status,
+        gps_upload_status=location.gps_upload_status,
+        last_location_upload_at=location.last_location_upload_at,
         time_sync_offset_ms=location.time_sync_offset_ms,
         time_sync_rtt_ms=location.time_sync_rtt_ms,
         time_sync_quality=location.time_sync_quality,
@@ -6896,33 +6993,12 @@ def device_status():
     try:
         devices = list_device_status_rows()
     except Exception:
-        logger.exception("Failed to read device_status; using recent event fallback")
-        source = "device_status_fallback"
-        devices = fallback_device_status_rows_from_events()
+        logger.exception("Failed to read device_status")
+        source = "device_status_unavailable"
+        devices = []
     devices = filter_diagnostic_device_rows(devices)
     devices = merge_device_status_rows_with_live_nodes(devices)
     devices = enrich_device_status_rows(devices)
-    if len(devices) < 2:
-        fallback_devices = filter_diagnostic_device_rows(
-            fallback_device_status_rows_from_events()
-        )
-        by_device = {
-            str(device.get("device_id")): dict(device)
-            for device in fallback_devices
-            if device.get("device_id")
-        }
-        for device in devices:
-            device_id = str(device.get("device_id") or "")
-            if device_id:
-                by_device[device_id] = {**by_device.get(device_id, {}), **dict(device)}
-        devices = sorted(
-            by_device.values(),
-            key=lambda item: str(item.get("device_id") or ""),
-        )
-        devices = merge_device_status_rows_with_live_nodes(devices)
-        devices = enrich_device_status_rows(devices)
-        if len(devices) > 1 and source == "device_status":
-            source = "device_status_with_event_fallback"
 
     return {
         "status": "success",
@@ -8331,8 +8407,14 @@ def dashboard_v4_clean():
                 [
                     'upload_mode',
                     'ai_status',
+                    'backend_http_status',
+                    'node_websocket_status',
                     'last_ai_label',
                     'last_upload_status',
+                    'metadata_upload_status',
+                    'audio_upload_status',
+                    'gps_upload_status',
+                    'last_location_upload_at',
                     'time_sync_offset_ms',
                     'time_sync_rtt_ms',
                     'time_sync_quality',
@@ -8644,6 +8726,10 @@ def dashboard_v4_clean():
                         </div>
                         <div class="kv">
                             <span>AI</span><strong>${safe(device.ai_status)}</strong>
+                            <span>後端</span><strong>${safe(device.backend_http_status || device.backend_status)}</strong>
+                            <span>GPS 上傳</span><strong>${safe(device.gps_upload_status)}</strong>
+                            <span>Metadata</span><strong>${safe(device.metadata_upload_status || device.last_upload_status)}</strong>
+                            <span>音檔</span><strong>${safe(device.audio_upload_status)}</strong>
                             <span>有效位置</span><strong>${formatPosition(effective)}</strong>
                             <span>原始 GPS</span><strong>${formatPosition(rawGps)}</strong>
                             <span>固定來源</span><strong>${hasFixed ? displayFixedLocationSource(device.fixed_location_source) : '尚未設定'}</strong>

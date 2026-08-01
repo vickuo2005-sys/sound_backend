@@ -3,6 +3,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -254,8 +255,10 @@ def run_event_time_sync_snapshot_tests() -> None:
                 )
                 assert_equal(event["timing_quality"], "good", "Event timing quality")
 
-                observation = dict(
-                    connection.execute(
+                observation_row = None
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    observation_row = connection.execute(
                         """
                         SELECT
                             time_sync_version,
@@ -270,7 +273,12 @@ def run_event_time_sync_snapshot_tests() -> None:
                         """,
                         ("evt_time_sync_snapshot",),
                     ).fetchone()
-                )
+                    if observation_row is not None:
+                        break
+                    time.sleep(0.05)
+                if observation_row is None:
+                    raise AssertionError("Event fusion observation was not written")
+                observation = dict(observation_row)
                 for key in (
                     "time_sync_version",
                     "time_sync_offset_ms",
