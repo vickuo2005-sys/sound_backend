@@ -8268,8 +8268,7 @@ def dashboard_v4_clean():
             function deviceCanAlert(device) {
                 return Boolean(device)
                     && !isDiagnosticDevice(device.device_id)
-                    && isOnline(device)
-                    && device.is_listening === true;
+                    && isOnline(device);
             }
 
             function deviceAllowsAlert(deviceId) {
@@ -9946,12 +9945,8 @@ def dashboard_v4_clean():
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.last_event_at || new Date().toISOString();
                         const previousDevice = devices.get(data.device_id);
-                        const canAlert = deviceCanAlert(previousDevice);
-                        if (canAlert) {
-                            alertUntil.set(data.device_id, Date.now() + alertDurationMs);
-                        } else {
-                            alertUntil.delete(data.device_id);
-                        }
+                        const canAlert = !isDiagnosticDevice(data.device_id);
+                        alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         const device = setDeviceState({
                             ...(previousDevice || {}),
                             ...data,
