@@ -8022,9 +8022,6 @@ def dashboard_v4_clean():
                 flex-direction: column;
                 contain: layout paint;
             }
-            .panel:has(#eventGroupList) {
-                display: none !important;
-            }
             .panel-body {
                 padding: 12px;
                 min-height: 0;
@@ -8069,7 +8066,7 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 126px 136px minmax(130px, 1fr) minmax(130px, 1fr);
+                grid-template-rows: 112px 126px minmax(110px, .8fr) minmax(130px, 1fr) minmax(150px, 1.1fr);
                 gap: 12px;
                 min-height: 0;
             }
@@ -8295,6 +8292,15 @@ def dashboard_v4_clean():
                 gap: 8px;
                 align-items: center;
                 margin-top: 8px;
+                flex-wrap: wrap;
+            }
+            .track-summary {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+                margin-top: 7px;
+                color: #d4dde7;
+                font-size: 12px;
             }
             .status-line {
                 color: var(--muted);
@@ -8392,13 +8398,13 @@ def dashboard_v4_clean():
                 </section>
 
                 <section class="panel">
-                    <h2>可能聲源區域</h2>
+                    <h2>目前聲源區域</h2>
                     <div class="panel-body right-scroll" id="targetEstimateList"></div>
                 </section>
 
                 <section class="panel">
-                    <h2>事件群組</h2>
-                    <div class="panel-body right-scroll" id="eventGroupList"></div>
+                    <h2>歷史無人機追蹤</h2>
+                    <div class="panel-body right-scroll" id="historyTrackList"></div>
                 </section>
             </aside>
 
@@ -8423,6 +8429,9 @@ def dashboard_v4_clean():
             const tracks = new Map();
             const markers = new Map();
             const trackLines = new Map();
+            let historyTrackLine = null;
+            let historyTrackStartMarker = null;
+            let historyTrackEndMarker = null;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
@@ -8431,6 +8440,7 @@ def dashboard_v4_clean():
             let map = null;
             let infoWindow = null;
             let selectedEstimateId = null;
+            let selectedHistoryTrackId = null;
             let autoEstimateId = null;
             let estimateMarker = null;
             let estimateCircle = null;
@@ -8923,7 +8933,7 @@ def dashboard_v4_clean():
                         fetchJson('/device-status', null),
                         fetchJson('/events?limit=20', null),
                         fetchJson('/event-groups?limit=8', null),
-                        fetchJson('/tracks?limit=10&points_limit=20', null),
+                        fetchJson('/tracks?limit=20&points_limit=100', null),
                     ]);
 
                     if (Array.isArray(statusData?.devices)) {
@@ -9356,6 +9366,134 @@ def dashboard_v4_clean():
                 return Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)}°` : '-';
             }
 
+            function trackId(track) {
+                return String(track?.id || '');
+            }
+
+            function trackStartTime(track) {
+                const value = Number(track?.first_event_time_ms);
+                if (Number.isFinite(value) && value > 0) return value;
+                const points = validTrackPoints(track);
+                if (points.length) return trackPointTimeMs(points[0]);
+                return parseTime(track?.created_at);
+            }
+
+            function trackEndTime(track) {
+                const value = Number(track?.last_event_time_ms);
+                if (Number.isFinite(value) && value > 0) return value;
+                const points = validTrackPoints(track);
+                if (points.length) return trackPointTimeMs(points[points.length - 1]);
+                return parseTime(track?.updated_at);
+            }
+
+            function formatTimeMs(value) {
+                const number = Number(value);
+                if (!Number.isFinite(number) || number <= 0) return '-';
+                return new Date(number).toLocaleString('zh-TW', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
+                });
+            }
+
+            function trackPath(track) {
+                return validTrackPoints(track)
+                    .map(point => ({
+                        lat: Number(point.filtered_lat),
+                        lng: Number(point.filtered_lng),
+                    }))
+                    .filter(point => isValidCoordinatePair(point.lat, point.lng));
+            }
+
+            function clearHistoryTrackObjects(closeInfo = false) {
+                [historyTrackLine, historyTrackStartMarker, historyTrackEndMarker].forEach(item => {
+                    if (item) item.setMap(null);
+                });
+                historyTrackLine = null;
+                historyTrackStartMarker = null;
+                historyTrackEndMarker = null;
+                if (closeInfo && infoWindow) infoWindow.close();
+            }
+
+            function renderHistoryTrackOnMap() {
+                if (!map || !window.google) return;
+                const track = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
+                const path = trackPath(track);
+                if (!track || path.length < 1) {
+                    clearHistoryTrackObjects(false);
+                    return;
+                }
+
+                if (!historyTrackLine) {
+                    historyTrackLine = new google.maps.Polyline({
+                        map,
+                        path,
+                        strokeColor: '#facc15',
+                        strokeOpacity: 0.95,
+                        strokeWeight: 5,
+                        icons: [{
+                            icon: {
+                                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                scale: 4,
+                                strokeColor: '#facc15',
+                                fillColor: '#facc15',
+                                fillOpacity: 1,
+                            },
+                            offset: '100%',
+                        }],
+                    });
+                } else {
+                    historyTrackLine.setPath(path);
+                    historyTrackLine.setMap(map);
+                }
+
+                const start = path[0];
+                const end = path[path.length - 1];
+                const startIcon = {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 7,
+                    fillColor: '#22c55e',
+                    fillOpacity: 1,
+                    strokeColor: '#111827',
+                    strokeWeight: 2,
+                };
+                const endIcon = droneTargetIcon();
+                if (!historyTrackStartMarker) {
+                    historyTrackStartMarker = new google.maps.Marker({
+                        map,
+                        position: start,
+                        title: '歷史追蹤起點',
+                        label: { text: '起', color: '#111827', fontWeight: '900', fontSize: '11px' },
+                        icon: startIcon,
+                    });
+                } else {
+                    historyTrackStartMarker.setPosition(start);
+                    historyTrackStartMarker.setIcon(startIcon);
+                    historyTrackStartMarker.setMap(map);
+                }
+                if (!historyTrackEndMarker) {
+                    historyTrackEndMarker = new google.maps.Marker({
+                        map,
+                        position: end,
+                        title: '歷史追蹤最後位置',
+                        label: { text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' },
+                        icon: endIcon,
+                    });
+                    historyTrackEndMarker.addListener('click', () => {
+                        const currentTrack = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
+                        if (currentTrack) showTrackInfo(currentTrack);
+                    });
+                } else {
+                    historyTrackEndMarker.setPosition(end);
+                    historyTrackEndMarker.setIcon(endIcon);
+                    historyTrackEndMarker.setLabel({ text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' });
+                    historyTrackEndMarker.setMap(map);
+                }
+            }
+
             function renderTrackLines() {
                 if (!map || !window.google) return;
                 const activeIds = new Set();
@@ -9406,6 +9544,7 @@ def dashboard_v4_clean():
                         trackLines.delete(id);
                     }
                 });
+                renderHistoryTrackOnMap();
             }
 
             function estimateIsFresh(item) {
@@ -9622,6 +9761,57 @@ def dashboard_v4_clean():
                 infoWindow.open(map);
             }
 
+            function showTrackInfo(track) {
+                if (!infoWindow || !map) return;
+                const path = trackPath(track);
+                if (!path.length) return;
+                const latest = path[path.length - 1];
+                infoWindow.setContent(`
+                    <div class="map-info-card">
+                        <strong>歷史無人機追蹤</strong>
+                        <div class="map-info-row"><span>類別</span><span>${displayLabel(track.label)}</span></div>
+                        <div class="map-info-row"><span>狀態</span><span>${safe(track.status)}</span></div>
+                        <div class="map-info-row"><span>追蹤點數</span><span>${safe(track.point_count || path.length)}</span></div>
+                        <div class="map-info-row"><span>開始時間</span><span>${formatTimeMs(trackStartTime(track))}</span></div>
+                        <div class="map-info-row"><span>最後時間</span><span>${formatTimeMs(trackEndTime(track))}</span></div>
+                        <div class="map-info-row"><span>最後位置</span><span>${latest.lat.toFixed(6)}, ${latest.lng.toFixed(6)}</span></div>
+                        <div class="map-info-row"><span>速度</span><span>${formatSpeed(track.last_speed_mps)}</span></div>
+                        <div class="map-info-row"><span>方向</span><span>${formatHeading(track.last_heading_deg)}</span></div>
+                        <div class="map-info-row"><span>信心值</span><span>${safe(track.last_confidence)}</span></div>
+                    </div>
+                `);
+                infoWindow.setPosition(latest);
+                infoWindow.open(map);
+            }
+
+            function fitTrackOnMap(track) {
+                if (!map || !window.google) return;
+                const path = trackPath(track);
+                if (!path.length) return;
+                if (path.length === 1) {
+                    map.panTo(path[0]);
+                    if ((map.getZoom() || 12) < 16) map.setZoom(16);
+                    return;
+                }
+                const bounds = new google.maps.LatLngBounds();
+                path.forEach(point => bounds.extend(point));
+                map.fitBounds(bounds, 64);
+            }
+
+            function previewHistoryTrack(id) {
+                selectedHistoryTrackId = selectedHistoryTrackId === id ? null : id;
+                if (!selectedHistoryTrackId) {
+                    clearHistoryTrackObjects(true);
+                }
+                renderHistoryTracks();
+                renderMap();
+                const track = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
+                if (track) {
+                    fitTrackOnMap(track);
+                    showTrackInfo(track);
+                }
+            }
+
             function renderTargetEstimates() {
                 const list = document.getElementById('targetEstimateList');
                 const values = Array.from(estimates.values())
@@ -9654,23 +9844,39 @@ def dashboard_v4_clean():
                 }).join('');
             }
 
-            function renderEventGroups() {
-                const list = document.getElementById('eventGroupList');
-                const groups = Array.from(eventGroups.values())
-                    .sort((a, b) => (parseTime(b.last_event_time || b.updated_at) || 0) - (parseTime(a.last_event_time || a.updated_at) || 0))
-                    .slice(0, 8);
-                if (!groups.length) {
-                    list.innerHTML = '<div class="subtitle">目前沒有事件群組</div>';
+            function renderHistoryTracks() {
+                const list = document.getElementById('historyTrackList');
+                if (!list) return;
+                const values = Array.from(tracks.values())
+                    .filter(track => isTarget(track.label) && trackPath(track).length > 0)
+                    .sort((a, b) => (trackEndTime(b) || 0) - (trackEndTime(a) || 0))
+                    .slice(0, 12);
+                if (!values.length) {
+                    list.innerHTML = '<div class="subtitle">目前沒有歷史無人機追蹤</div>';
                     return;
                 }
-                list.innerHTML = groups.map(group => `
-                    <div class="event-row">
-                        <div class="event-title"><span>Group ${escapeHtml(String(group.id || '').slice(0, 8))}</span><span>${safe(group.status)}</span></div>
-                        <div class="event-detail">類別 ${displayLabel(group.label)} / ${displayRegionType(group.region_type)}</div>
-                        <div class="event-detail">回報節點 ${safe(group.reporting_node_count)} / ${safe((group.reporting_device_ids || group.devices || []).join(', '))}</div>
-                        <div class="event-detail">最後事件 ${safe(group.last_event_time)}</div>
-                    </div>
-                `).join('');
+                list.innerHTML = values.map(track => {
+                    const id = trackId(track);
+                    const selected = id === selectedHistoryTrackId;
+                    const points = trackPath(track);
+                    return `
+                        <div class="event-row target ${selected ? 'selected' : ''}">
+                            <div class="event-title"><span>追蹤 ${escapeHtml(id.slice(0, 8))}</span><span>${safe(track.status)}</span></div>
+                            <div class="track-summary">
+                                <span>點數 ${safe(track.point_count || points.length)}</span>
+                                <span>速度 ${formatSpeed(track.last_speed_mps)}</span>
+                                <span>方向 ${formatHeading(track.last_heading_deg)}</span>
+                                <span>信心 ${safe(track.last_confidence)}</span>
+                            </div>
+                            <div class="event-detail">開始 ${formatTimeMs(trackStartTime(track))}</div>
+                            <div class="event-detail">最後 ${formatTimeMs(trackEndTime(track))}</div>
+                            <div class="estimate-toolbar">
+                                <button type="button" onclick="event.stopPropagation(); previewHistoryTrack('${escapeHtml(id)}')">${selected ? '關閉軌跡' : '回放軌跡'}</button>
+                                <span class="status-line">${selected ? '已在地圖顯示歷史軌跡' : '點選可回看歷史路線'}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             }
 
             function renderAlerts() {
@@ -9727,7 +9933,7 @@ def dashboard_v4_clean():
                 renderMap();
                 renderAlerts();
                 renderTargetEstimates();
-                renderEventGroups();
+                renderHistoryTracks();
                 renderTimeline();
                 renderLiveAudioDeviceSelect();
             }
@@ -10313,7 +10519,7 @@ def dashboard_v4_clean():
                         }
                         renderSummary();
                         renderTargetEstimates();
-                        renderEventGroups();
+                        renderHistoryTracks();
                         renderMap();
                     } else if (data.type === 'track_update') {
                         const track = data.track || data;
@@ -10323,6 +10529,7 @@ def dashboard_v4_clean():
                             autoPreviewEstimate(estimates.get(String(linkedGroupId)), true);
                         }
                         renderTargetEstimates();
+                        renderHistoryTracks();
                         renderMap();
                     } else if (data.type === 'event_audio_update' || data.type === 'device_command_ack') {
                         refreshAll();
