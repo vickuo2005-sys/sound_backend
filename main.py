@@ -8643,10 +8643,83 @@ def dashboard_v4_clean():
                 });
             }
 
+            const alertPositionJumpLimitM = 3000;
+
+            function firstValidPosition(source, pairs) {
+                for (const [latKey, lngKey] of pairs) {
+                    const latitude = finiteNumber(source?.[latKey]);
+                    const longitude = finiteNumber(source?.[lngKey]);
+                    if (isValidCoordinatePair(latitude, longitude)) {
+                        return { lat: latitude, lng: longitude };
+                    }
+                }
+                return null;
+            }
+
+            function distanceMeters(a, b) {
+                if (!a || !b) return null;
+                const radius = 6371000;
+                const toRad = value => value * Math.PI / 180;
+                const dLat = toRad(b.lat - a.lat);
+                const dLng = toRad(b.lng - a.lng);
+                const lat1 = toRad(a.lat);
+                const lat2 = toRad(b.lat);
+                const h = Math.sin(dLat / 2) ** 2
+                    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+                return 2 * radius * Math.asin(Math.min(1, Math.sqrt(h)));
+            }
+
+            function isEventLikeDeviceUpdate(incoming) {
+                const type = String(incoming?.type || '').toLowerCase();
+                const status = String(incoming?.status || '').toLowerCase();
+                return type === 'event_trigger'
+                    || status === 'event'
+                    || Boolean(incoming?.last_event_id && incoming?.last_event_at);
+            }
+
+            function preserveMarkerPositionDuringAlert(merged, existing, incoming) {
+                if (!existing || !incoming || !isEventLikeDeviceUpdate(incoming)) return;
+
+                const fixedPosition = firstValidPosition(merged, [['fixed_latitude', 'fixed_longitude']]);
+                if (fixedPosition) {
+                    merged.marker_latitude = fixedPosition.lat;
+                    merged.marker_longitude = fixedPosition.lng;
+                    merged.marker_location_source = merged.fixed_location_source || 'fixed_location';
+                    merged.marker_position_locked = true;
+                    return;
+                }
+
+                const previousPosition = firstValidPosition(existing, [
+                    ['marker_latitude', 'marker_longitude'],
+                    ['fixed_latitude', 'fixed_longitude'],
+                    ['effective_latitude', 'effective_longitude'],
+                    ['latitude', 'longitude'],
+                    ['raw_latitude', 'raw_longitude'],
+                ]);
+                const incomingPosition = firstValidPosition(incoming, [
+                    ['effective_latitude', 'effective_longitude'],
+                    ['latitude', 'longitude'],
+                    ['raw_latitude', 'raw_longitude'],
+                ]);
+                if (!previousPosition || !incomingPosition) return;
+
+                const jumpDistance = distanceMeters(previousPosition, incomingPosition);
+                if (jumpDistance !== null && jumpDistance > alertPositionJumpLimitM) {
+                    merged.marker_latitude = previousPosition.lat;
+                    merged.marker_longitude = previousPosition.lng;
+                    merged.marker_location_source = existing.marker_location_source
+                        || existing.effective_location_source
+                        || 'previous_device_position';
+                    merged.marker_position_locked = true;
+                    merged.marker_position_warning = `alert_position_jump_${Math.round(jumpDistance)}m`;
+                }
+            }
+
             function mergeDeviceState(existing, incoming) {
                 const merged = { ...(existing || {}), ...(incoming || {}) };
                 preserveCoordinatePair(merged, existing, incoming, 'latitude', 'longitude');
                 preserveCoordinatePair(merged, existing, incoming, 'raw_latitude', 'raw_longitude');
+                preserveCoordinatePair(merged, existing, incoming, 'marker_latitude', 'marker_longitude', ['marker_location_source']);
                 preserveCoordinatePair(
                     merged,
                     existing,
@@ -8663,6 +8736,7 @@ def dashboard_v4_clean():
                     'fixed_longitude',
                     ['fixed_location_source', 'fixed_location_accuracy_m', 'fixed_location_updated_at'],
                 );
+                preserveMarkerPositionDuringAlert(merged, existing, incoming);
                 syncAlertFromDevice(merged);
                 if (isAlertActive(merged.device_id)) {
                     merged.status = 'event';
@@ -8762,8 +8836,9 @@ def dashboard_v4_clean():
 
             function deviceEffectivePosition(device) {
                 const candidates = [
-                    [device?.effective_latitude, device?.effective_longitude],
+                    [device?.marker_latitude, device?.marker_longitude],
                     [device?.fixed_latitude, device?.fixed_longitude],
+                    [device?.effective_latitude, device?.effective_longitude],
                     [device?.latitude, device?.longitude],
                     [device?.raw_latitude, device?.raw_longitude],
                 ];
