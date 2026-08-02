@@ -8066,7 +8066,7 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 112px 126px minmax(110px, .8fr) minmax(130px, 1fr) minmax(150px, 1.1fr);
+                grid-template-rows: 112px 126px minmax(150px, .9fr) minmax(240px, 1.5fr);
                 gap: 12px;
                 min-height: 0;
             }
@@ -8395,11 +8395,6 @@ def dashboard_v4_clean():
                 <section class="panel">
                     <h2>即時警示</h2>
                     <div class="panel-body right-scroll" id="alertList"></div>
-                </section>
-
-                <section class="panel">
-                    <h2>目前聲源區域</h2>
-                    <div class="panel-body right-scroll" id="targetEstimateList"></div>
                 </section>
 
                 <section class="panel">
@@ -9610,7 +9605,7 @@ def dashboard_v4_clean():
                     estimateMarker = new google.maps.Marker({
                         map,
                         position: { lat, lng },
-                        title: '可能聲源區域',
+                        title: '目前聲源位置',
                         label: { text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' },
                         icon: droneTargetIcon(),
                     });
@@ -9744,7 +9739,7 @@ def dashboard_v4_clean():
                 const activeIds = activeAlertGroupDeviceIds(item);
                 infoWindow.setContent(`
                     <div class="map-info-card">
-                        <strong>可能聲源區域</strong>
+                        <strong>目前聲源位置</strong>
                         <div class="map-info-row"><span>類別</span><span>${displayLabel(item.label)}</span></div>
                         <div class="map-info-row"><span>區域類型</span><span>${displayRegionType(item.region_type)}</span></div>
                         <div class="map-info-row"><span>回報節點數</span><span>${safe(activeIds.length)}</span></div>
@@ -9814,6 +9809,7 @@ def dashboard_v4_clean():
 
             function renderTargetEstimates() {
                 const list = document.getElementById('targetEstimateList');
+                if (!list) return;
                 const values = Array.from(estimates.values())
                     .filter(isDisplayableEstimate)
                     .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))
