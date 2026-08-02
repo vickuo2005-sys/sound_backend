@@ -60,7 +60,7 @@ DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
 DIAGNOSTIC_DEVICE_ID_PATTERN = re.compile(
-    r"(TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\d+)",
+    r"(TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|REMOTE_CONN|AFTER_STOP|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\d+)",
     re.IGNORECASE,
 )
 _postgres_pool: Any = None
@@ -2959,7 +2959,12 @@ def clone_rows(rows: list[dict]) -> list[dict]:
 
 
 def is_diagnostic_device_id(device_id: Any) -> bool:
-    return bool(DIAGNOSTIC_DEVICE_ID_PATTERN.search(str(device_id or "")))
+    value = str(device_id or "")
+    if not value:
+        return False
+    if not value.isascii():
+        return True
+    return bool(DIAGNOSTIC_DEVICE_ID_PATTERN.search(value))
 
 
 def filter_diagnostic_device_rows(rows: list[dict]) -> list[dict]:
@@ -3010,6 +3015,22 @@ def update_device_status_cache_row(row: Optional[dict]) -> None:
         next_rows.append(dict(row))
         next_rows.sort(key=lambda item: str(item.get("device_id") or ""))
         device_status_cache = (monotonic(), next_rows)
+
+
+def remove_device_status_cache_row(device_id: str) -> None:
+    global device_status_cache
+
+    if not device_id or not use_postgres() or DEVICE_STATUS_CACHE_TTL_SECONDS <= 0:
+        return
+
+    with device_status_cache_lock:
+        cached_at, rows = device_status_cache
+        next_rows = [
+            dict(existing)
+            for existing in rows
+            if existing.get("device_id") != device_id
+        ]
+        device_status_cache = (cached_at, next_rows)
 
 
 def get_tracks_cache(key: str) -> Optional[dict]:
@@ -4440,6 +4461,44 @@ def list_device_status_rows() -> list[dict]:
     enriched_rows = enrich_device_status_rows(rows)
     set_device_status_cache(enriched_rows)
     return enriched_rows
+
+
+def delete_device_status_row(device_id: str) -> dict:
+    normalized_device_id = str(device_id or "").strip()
+    if not normalized_device_id:
+        raise HTTPException(status_code=400, detail="device_id is required")
+
+    deleted_location = delete_device_fixed_location(normalized_device_id)
+
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM device_status WHERE device_id = ?",
+                (normalized_device_id,),
+            )
+            deleted_status = cursor.rowcount > 0
+            connection.commit()
+    else:
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM device_status WHERE device_id = %s",
+                        (normalized_device_id,),
+                    )
+                    deleted_status = cursor.rowcount > 0
+        finally:
+            connection.close()
+
+    remove_device_status_cache_row(normalized_device_id)
+    return {
+        "status": "success",
+        "device_id": normalized_device_id,
+        "deleted": deleted_status or deleted_location,
+        "deleted_device_status": deleted_status,
+        "deleted_device_location": deleted_location,
+    }
 
 
 def fallback_device_status_rows_from_events() -> list[dict]:
@@ -7006,6 +7065,22 @@ def device_status():
     }
 
 
+@app.delete("/device-status/{device_id}")
+async def delete_device_status(
+    device_id: str,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    result = delete_device_status_row(device_id)
+    await dashboard_manager.broadcast(
+        {
+            "type": "device_status_deleted",
+            "device_id": result["device_id"],
+        }
+    )
+    return result
+
+
 @app.get("/device-locations")
 def device_locations():
     locations = list_device_fixed_locations()
@@ -8249,7 +8324,8 @@ def dashboard_v4_clean():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\\d+/i.test(String(deviceId || ''));
+                const value = String(deviceId || '');
+                return !/^[\\x00-\\x7F]*$/.test(value) || /TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|REMOTE_CONN|AFTER_STOP|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\\d+/i.test(value);
             }
 
             function visibleDevices() {
@@ -10818,7 +10894,8 @@ def dashboard_legacy_unused():
             }
 
             function isDiagnosticDevice(deviceId) {
-                return /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE/i.test(String(deviceId || ''));
+                const value = String(deviceId || '');
+                return !/^[\\x00-\\x7F]*$/.test(value) || /COMMAND_TEST|ACK_FAILED_TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|REMOTE_CONN|AFTER_STOP/i.test(value);
             }
 
             function visibleDeviceValues() {
