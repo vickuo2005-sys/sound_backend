@@ -2662,7 +2662,92 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
             """,
             (event_id,),
         ).fetchone()
-    return enrich_event_location_row(dict(row)) if row else None
+        return enrich_event_location_row(dict(row)) if row else None
+
+
+def delete_event_by_event_id(event_id: str) -> dict:
+    normalized_event_id = str(event_id or "").strip()
+    if not normalized_event_id:
+        raise HTTPException(status_code=400, detail="event_id is required")
+
+    deleted_groups = 0
+    deleted_observations = 0
+    deleted_event = False
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM event_group_observations WHERE event_id = %s RETURNING group_id",
+                        (normalized_event_id,),
+                    )
+                    group_ids = [
+                        row.get("group_id")
+                        for row in cursor.fetchall()
+                        if row.get("group_id")
+                    ]
+                    deleted_observations = cursor.rowcount
+
+                    cursor.execute(
+                        "DELETE FROM events WHERE event_id = %s",
+                        (normalized_event_id,),
+                    )
+                    deleted_event = cursor.rowcount > 0
+
+                    for group_id in sorted({str(value) for value in group_ids}):
+                        cursor.execute(
+                            "SELECT COUNT(*) AS count FROM event_group_observations WHERE group_id = %s",
+                            (group_id,),
+                        )
+                        row = cursor.fetchone() or {}
+                        if int(row.get("count") or 0) == 0:
+                            cursor.execute(
+                                "DELETE FROM event_groups WHERE id = %s",
+                                (group_id,),
+                            )
+                            deleted_groups += cursor.rowcount
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                "SELECT group_id FROM event_group_observations WHERE event_id = ?",
+                (normalized_event_id,),
+            ).fetchall()
+            group_ids = [row["group_id"] for row in rows if row["group_id"]]
+            cursor = connection.execute(
+                "DELETE FROM event_group_observations WHERE event_id = ?",
+                (normalized_event_id,),
+            )
+            deleted_observations = cursor.rowcount
+            cursor = connection.execute(
+                "DELETE FROM events WHERE event_id = ?",
+                (normalized_event_id,),
+            )
+            deleted_event = cursor.rowcount > 0
+            for group_id in sorted({str(value) for value in group_ids}):
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM event_group_observations WHERE group_id = ?",
+                    (group_id,),
+                ).fetchone()
+                if int(row["count"] if row else 0) == 0:
+                    cursor = connection.execute(
+                        "DELETE FROM event_groups WHERE id = ?",
+                        (group_id,),
+                    )
+                    deleted_groups += cursor.rowcount
+            connection.commit()
+
+    return {
+        "status": "success",
+        "event_id": normalized_event_id,
+        "deleted": deleted_event,
+        "deleted_event": deleted_event,
+        "deleted_observations": deleted_observations,
+        "deleted_empty_groups": deleted_groups,
+    }
 
 
 def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
@@ -7108,6 +7193,15 @@ def list_events(limit: int = Query(default=20, ge=1, le=100)):
         "count": len(events),
         "events": events,
     }
+
+
+@app.delete("/events/{event_id}")
+def delete_event(
+    event_id: str,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+    return delete_event_by_event_id(event_id)
 
 
 @app.post("/location-update")
