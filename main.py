@@ -8441,6 +8441,7 @@ def dashboard_v4_clean():
             let estimateCircle = null;
             let estimateBox = null;
             let estimateRegion = null;
+            let estimateInfoItem = null;
             let currentFilter = 'all';
             let dashboardStarted = false;
             let locationEdit = null;
@@ -9265,7 +9266,80 @@ def dashboard_v4_clean():
                 infoWindow.open(map);
             }
 
+            function activeAlertDevicesForEstimate() {
+                pruneStaleAlerts();
+                return mapDevices()
+                    .filter(device => isDeviceAlertVisible(device.device_id))
+                    .map(device => ({
+                        device,
+                        position: deviceEffectivePosition(device),
+                    }))
+                    .filter(item => item.position);
+            }
+
+            function polygonCoordinatesForActiveDevices(activeDevices, center) {
+                const ordered = activeDevices
+                    .slice()
+                    .sort((a, b) => (
+                        Math.atan2(a.position.lat - center.lat, a.position.lng - center.lng)
+                        - Math.atan2(b.position.lat - center.lat, b.position.lng - center.lng)
+                    ));
+                const coordinates = ordered.map(item => [item.position.lng, item.position.lat]);
+                if (coordinates.length) coordinates.push(coordinates[0]);
+                return coordinates;
+            }
+
+            function liveAlertEstimate() {
+                const activeDevices = activeAlertDevicesForEstimate();
+                if (activeDevices.length < 2) return null;
+                const center = activeDevices.reduce((sum, item) => ({
+                    lat: sum.lat + item.position.lat,
+                    lng: sum.lng + item.position.lng,
+                }), { lat: 0, lng: 0 });
+                center.lat /= activeDevices.length;
+                center.lng /= activeDevices.length;
+                const radius = Math.max(
+                    60,
+                    Math.min(
+                        300,
+                        Math.max(...activeDevices.map(item => distanceMeters(center, item.position))) + 25,
+                    ),
+                );
+                const now = new Date().toISOString();
+                const deviceIds = activeDevices.map(item => item.device.device_id);
+                const geometry = activeDevices.length >= 3
+                    ? {
+                        type: 'Polygon',
+                        coordinates: [polygonCoordinatesForActiveDevices(activeDevices, center)],
+                    }
+                    : {
+                        type: 'LineString',
+                        coordinates: activeDevices.map(item => [item.position.lng, item.position.lat]),
+                    };
+                return {
+                    id: 'live_alert_region',
+                    group_id: 'live_alert_region',
+                    label: 'aircraft',
+                    region_type: activeDevices.length >= 3 ? 'polygon' : 'segment',
+                    region_center_lat: center.lat,
+                    region_center_lng: center.lng,
+                    region_geojson: geometry,
+                    reporting_node_count: activeDevices.length,
+                    reporting_device_ids: deviceIds,
+                    region_updated_at: now,
+                    updated_at: now,
+                    created_at: now,
+                    last_event_time: now,
+                    uncertainty_radius_m: radius,
+                    confidence: Math.min(0.95, 0.45 + activeDevices.length * 0.12),
+                    localization_method: 'live_alert_frontend',
+                    live_estimate: true,
+                };
+            }
+
             function latestEstimate() {
+                const live = liveAlertEstimate();
+                if (live) return live;
                 return Array.from(estimates.values())
                     .filter(isDisplayableEstimate)
                     .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))[0];
@@ -9618,6 +9692,7 @@ def dashboard_v4_clean():
             }
 
             function estimateIsFresh(item) {
+                if (item?.live_estimate) return Boolean(liveAlertEstimate());
                 const time = parseTime(item?.region_updated_at || item?.updated_at || item?.created_at);
                 return Number.isFinite(time) && Date.now() - time <= estimateVisibleMs;
             }
@@ -9676,6 +9751,7 @@ def dashboard_v4_clean():
                 const lat = Number(item.region_center_lat);
                 const lng = Number(item.region_center_lng);
                 if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                estimateInfoItem = item;
                 if (!estimateMarker) {
                     estimateMarker = new google.maps.Marker({
                         map,
@@ -9684,7 +9760,7 @@ def dashboard_v4_clean():
                         label: { text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' },
                         icon: droneTargetIcon(),
                     });
-                    estimateMarker.addListener('click', () => showEstimateInfo(item));
+                    estimateMarker.addListener('click', () => showEstimateInfo(estimateInfoItem));
                 } else {
                     estimateMarker.setPosition({ lat, lng });
                     estimateMarker.setIcon(droneTargetIcon());
@@ -9768,6 +9844,7 @@ def dashboard_v4_clean():
                 estimateCircle = null;
                 estimateBox = null;
                 estimateRegion = null;
+                estimateInfoItem = null;
                 if (closeInfo && infoWindow) infoWindow.close();
             }
 
@@ -10563,6 +10640,7 @@ def dashboard_v4_clean():
                         updateDeviceMarker(device);
                         renderAlerts();
                         renderTimeline();
+                        renderMap();
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
                         (group.merged_group_ids || []).forEach(groupId => {
