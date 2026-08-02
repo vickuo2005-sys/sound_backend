@@ -2415,6 +2415,11 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
 
 
 def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
+    db_id, _inserted = upsert_event_postgres_with_inserted(event, created_at)
+    return db_id
+
+
+def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
     columns = ", ".join(EVENT_WRITE_COLUMNS)
     placeholders = ", ".join(["%s"] * len(EVENT_WRITE_COLUMNS))
     update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
@@ -2431,17 +2436,27 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
                     VALUES ({placeholders})
                     ON CONFLICT (event_id) DO UPDATE SET
                         {update_clause}
-                    RETURNING id
+                    RETURNING id, (xmax = 0) AS inserted
                     """,
                     event_values(event, created_at),
                 )
                 row = cursor.fetchone()
-                return int(row["id"])
+                inserted_value = row.get("inserted")
+                if isinstance(inserted_value, bool):
+                    inserted = inserted_value
+                else:
+                    inserted = str(inserted_value).lower() in {"1", "t", "true", "yes"}
+                return int(row["id"]), inserted
     finally:
         connection.close()
 
 
 def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
+    db_id, _inserted = upsert_event_sqlite_with_inserted(event, created_at)
+    return db_id
+
+
+def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
     columns = ", ".join(EVENT_WRITE_COLUMNS)
     placeholders = ", ".join(["?"] * len(EVENT_WRITE_COLUMNS))
     update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
@@ -2466,6 +2481,7 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
                 """,
                 values[1:] + (db_id,),
             )
+            inserted = False
         else:
             cursor = connection.execute(
                 f"""
@@ -2475,15 +2491,22 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
                 values,
             )
             db_id = int(cursor.lastrowid)
+            inserted = True
 
         connection.commit()
-        return db_id
+        return db_id, inserted
 
 
 def save_event(event: SoundEvent, created_at: str) -> int:
     if use_postgres():
         return upsert_event_postgres(event, created_at)
     return upsert_event_sqlite(event, created_at)
+
+
+def save_event_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
+    if use_postgres():
+        return upsert_event_postgres_with_inserted(event, created_at)
+    return upsert_event_sqlite_with_inserted(event, created_at)
 
 
 def update_event_audio_path(
@@ -6573,30 +6596,53 @@ def fallback_device_event_status_row(
     }
 
 
-def process_event_initial_submission(event: SoundEvent) -> dict:
-    existing_event = get_event_by_event_id(event.event_id)
-    created_at = current_time_iso()
-    db_id = save_event(event, created_at)
-    device_row = None
-    is_existing_event = existing_event is not None
-    saved_event = get_event_by_event_id(event.event_id)
+def fast_saved_event_payload(event: SoundEvent, db_id: int, created_at: str) -> dict:
+    return {
+        "id": db_id,
+        "event_id": event.event_id,
+        "device_id": event.device_id,
+        "timestamp": event.timestamp,
+        "latitude": event.latitude,
+        "longitude": event.longitude,
+        "raw_latitude": event.latitude,
+        "raw_longitude": event.longitude,
+        "effective_latitude": event.latitude,
+        "effective_longitude": event.longitude,
+        "effective_location_source": "event_gps",
+        "duration_s": event.duration_s,
+        "rms_peak": event.rms_peak,
+        "avg_db": event.avg_db,
+        "peak_db": event.peak_db,
+        "estimated_avg_db": event.estimated_avg_db,
+        "estimated_peak_db": event.estimated_peak_db,
+        "gps_speed_mps": event.gps_speed_mps,
+        "gps_heading_deg": event.gps_heading_deg,
+        "gps_accuracy_m": event.gps_accuracy_m,
+        "label": event.label,
+        "audio_file_name": event.audio_file_name,
+        "audio_path": event.audio_path,
+        "audio_format": event.audio_format,
+        "note": event.note,
+        "created_at": created_at,
+    }
 
+
+def process_event_initial_submission(event: SoundEvent) -> dict:
+    created_at = current_time_iso()
+    db_id, inserted = save_event_with_inserted(event, created_at)
+    is_existing_event = not inserted
+    saved_event = fast_saved_event_payload(event, db_id, created_at)
+
+    device_row = None
     if is_alert_event_label(event.label) and not is_existing_event:
-        try:
-            device_row = upsert_device_event_status(event)
-        except Exception:
-            logger.exception(
-                "Device event status update failed for event_id=%s device_id=%s",
-                event.event_id,
-                event.device_id,
-            )
-            device_row = fallback_device_event_status_row(event, saved_event, created_at)
+        device_row = fallback_device_event_status_row(event, saved_event, created_at)
 
     return {
         "db_id": db_id,
         "device_row": device_row,
         "is_existing_event": is_existing_event,
         "saved_event": saved_event,
+        "created_at": created_at,
     }
 
 
@@ -6669,6 +6715,52 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
                     "track": localization_package.get("track"),
                 }
             )
+
+
+async def broadcast_device_status_update(row: Optional[dict]) -> None:
+    if not row:
+        return
+    await dashboard_manager.broadcast(
+        {
+            "type": "location_update",
+            **row,
+        }
+    )
+
+
+def run_device_event_status_worker(
+    loop: asyncio.AbstractEventLoop,
+    event: SoundEvent,
+) -> None:
+    try:
+        device_row = upsert_device_event_status(event)
+        enriched_rows = enrich_device_status_rows([device_row]) if device_row else []
+        enriched_device_row = enriched_rows[0] if enriched_rows else None
+        update_device_status_cache_row(enriched_device_row)
+    except Exception:
+        logger.exception(
+            "Device event status background update failed for event_id=%s device_id=%s",
+            event.event_id,
+            event.device_id,
+        )
+        return
+
+    try:
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(broadcast_device_status_update(enriched_device_row))
+        )
+    except RuntimeError:
+        logger.exception("Event loop closed before device status broadcast for %s", event.event_id)
+
+
+def schedule_device_event_status_update(event: SoundEvent) -> None:
+    loop = asyncio.get_running_loop()
+    worker = threading.Thread(
+        target=run_device_event_status_worker,
+        args=(loop, event),
+        daemon=True,
+    )
+    worker.start()
 
 
 def run_event_post_ingest_worker(
@@ -6791,14 +6883,12 @@ async def create_event(
     saved_event = result.get("saved_event") or {}
 
     if device_row:
-        enriched_device_row = enrich_device_status_rows([device_row])[0]
-        update_device_status_cache_row(enriched_device_row)
         effective_latitude = saved_event.get("effective_latitude")
         effective_longitude = saved_event.get("effective_longitude")
         await dashboard_manager.broadcast(
             {
                 "type": "event_trigger",
-                **enriched_device_row,
+                **device_row,
                 "device_id": event.device_id,
                 "event_id": event.event_id,
                 "latitude": effective_latitude,
@@ -6812,15 +6902,16 @@ async def create_event(
                 "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
-                "is_listening": enriched_device_row.get("is_listening"),
+                "is_listening": device_row.get("is_listening"),
                 "rms_peak": saved_event.get("rms_peak", event.rms_peak),
                 "event": saved_event,
                 "device": {
-                    **enriched_device_row,
+                    **device_row,
                     "status": "event",
                 },
             }
         )
+        schedule_device_event_status_update(event)
 
     if not is_existing_event and is_alert_event_label(saved_event.get("label", event.label)):
         schedule_event_post_ingest(
