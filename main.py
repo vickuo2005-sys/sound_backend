@@ -8624,8 +8624,40 @@ def dashboard_v4_clean():
                 }
             }
 
+            function preserveCoordinatePair(merged, existing, incoming, latKey, lngKey, metadataKeys = []) {
+                const incomingValid = isValidCoordinatePair(incoming?.[latKey], incoming?.[lngKey]);
+                const existingValid = isValidCoordinatePair(existing?.[latKey], existing?.[lngKey]);
+                if (incomingValid || !existingValid) return;
+
+                merged[latKey] = existing[latKey];
+                merged[lngKey] = existing[lngKey];
+                metadataKeys.forEach(key => {
+                    if (incoming?.[key] === null || incoming?.[key] === undefined || incoming?.[key] === '') {
+                        merged[key] = existing[key];
+                    }
+                });
+            }
+
             function mergeDeviceState(existing, incoming) {
                 const merged = { ...(existing || {}), ...(incoming || {}) };
+                preserveCoordinatePair(merged, existing, incoming, 'latitude', 'longitude');
+                preserveCoordinatePair(merged, existing, incoming, 'raw_latitude', 'raw_longitude');
+                preserveCoordinatePair(
+                    merged,
+                    existing,
+                    incoming,
+                    'effective_latitude',
+                    'effective_longitude',
+                    ['effective_location_source'],
+                );
+                preserveCoordinatePair(
+                    merged,
+                    existing,
+                    incoming,
+                    'fixed_latitude',
+                    'fixed_longitude',
+                    ['fixed_location_source', 'fixed_location_accuracy_m', 'fixed_location_updated_at'],
+                );
                 syncAlertFromDevice(merged);
                 if (isAlertActive(merged.device_id)) {
                     merged.status = 'event';
@@ -8712,7 +8744,8 @@ def dashboard_v4_clean():
                     && latitude >= -90
                     && latitude <= 90
                     && longitude >= -180
-                    && longitude <= 180;
+                    && longitude <= 180
+                    && !(Math.abs(latitude) < 0.000001 && Math.abs(longitude) < 0.000001);
             }
 
             function deviceRawGpsPosition(device) {
@@ -8723,17 +8756,32 @@ def dashboard_v4_clean():
             }
 
             function deviceEffectivePosition(device) {
-                const latitude = finiteNumber(device?.effective_latitude ?? device?.latitude);
-                const longitude = finiteNumber(device?.effective_longitude ?? device?.longitude);
-                if (!isValidCoordinatePair(latitude, longitude)) return null;
-                return { lat: latitude, lng: longitude };
+                const candidates = [
+                    [device?.effective_latitude, device?.effective_longitude],
+                    [device?.fixed_latitude, device?.fixed_longitude],
+                    [device?.latitude, device?.longitude],
+                    [device?.raw_latitude, device?.raw_longitude],
+                ];
+                for (const [lat, lng] of candidates) {
+                    const latitude = finiteNumber(lat);
+                    const longitude = finiteNumber(lng);
+                    if (isValidCoordinatePair(latitude, longitude)) return { lat: latitude, lng: longitude };
+                }
+                return null;
             }
 
             function eventEffectivePosition(event) {
-                const latitude = finiteNumber(event?.effective_latitude ?? event?.latitude);
-                const longitude = finiteNumber(event?.effective_longitude ?? event?.longitude);
-                if (!isValidCoordinatePair(latitude, longitude)) return null;
-                return { lat: latitude, lng: longitude };
+                const candidates = [
+                    [event?.effective_latitude, event?.effective_longitude],
+                    [event?.fixed_latitude, event?.fixed_longitude],
+                    [event?.latitude, event?.longitude],
+                ];
+                for (const [lat, lng] of candidates) {
+                    const latitude = finiteNumber(lat);
+                    const longitude = finiteNumber(lng);
+                    if (isValidCoordinatePair(latitude, longitude)) return { lat: latitude, lng: longitude };
+                }
+                return null;
             }
 
             function eventRawPosition(event) {
@@ -8879,15 +8927,9 @@ def dashboard_v4_clean():
                     ]);
 
                     if (Array.isArray(statusData?.devices)) {
-                        const nextDevices = new Map();
                         statusData.devices
                             .filter(device => device && device.device_id && !isDiagnosticDevice(device.device_id))
-                            .forEach(device => nextDevices.set(
-                                device.device_id,
-                                mergeDeviceState(devices.get(device.device_id), device),
-                            ));
-                        devices.clear();
-                        nextDevices.forEach((device, deviceId) => devices.set(deviceId, device));
+                            .forEach(device => setDeviceState(device));
                     }
 
                     if (Array.isArray(eventsData?.events)) {
@@ -10202,17 +10244,24 @@ def dashboard_v4_clean():
                         refreshLiveAudioDeviceSelect();
                         updateDeviceMarker(device);
                     } else if (data.type === 'device_location_updated') {
+                        if (data.device_id) {
+                            const marker = markers.get(data.device_id);
+                            if (marker) marker.setMap(null);
+                            markers.delete(data.device_id);
+                            devices.delete(data.device_id);
+                        }
                         refreshAll();
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.last_event_at || new Date().toISOString();
                         const previousDevice = devices.get(data.device_id);
                         const canAlert = !isDiagnosticDevice(data.device_id);
+                        const incomingDevice = data.device || {};
                         alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         const device = setDeviceState({
-                            ...(previousDevice || {}),
+                            ...incomingDevice,
                             ...data,
-                            status: canAlert ? 'event' : (previousDevice?.status || 'offline'),
-                            is_listening: previousDevice?.is_listening ?? false,
+                            status: canAlert ? 'event' : (previousDevice?.status || incomingDevice.status || 'offline'),
+                            is_listening: previousDevice?.is_listening ?? incomingDevice.is_listening ?? data.is_listening ?? false,
                             last_event_id: data.event_id,
                             last_event_at: triggerTime,
                         });
