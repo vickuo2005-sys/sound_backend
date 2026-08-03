@@ -9017,6 +9017,20 @@ def dashboard_v4_clean():
                 return activeGroupDeviceIds(group).filter(isDeviceAlertVisible);
             }
 
+            function deviceRelativeTimeline(group) {
+                const entries = Array.isArray(group?.device_relative_times)
+                    ? group.device_relative_times
+                    : [];
+                if (!entries.length) return '';
+                return entries
+                    .map(item => {
+                        const seconds = Number(item.relative_time_s);
+                        const suffix = Number.isFinite(seconds) ? `+${seconds.toFixed(2)}s` : '+--s';
+                        return `${safe(item.device_id)} ${suffix}`;
+                    })
+                    .join(' / ');
+            }
+
             function activateAlertForDevice(deviceId, until, respectListening = true) {
                 if (!deviceId || isDiagnosticDevice(deviceId)) return;
                 if (respectListening && !deviceAllowsAlert(deviceId)) return;
@@ -10837,6 +10851,7 @@ def dashboard_v4_clean():
                     const devices = activeAlertGroupDeviceIds(item);
                     const speed = estimateSpeedMps(item);
                     const heading = estimateHeadingDeg(item);
+                    const relativeTimeline = deviceRelativeTimeline(item);
                     return `
                         <div class="event-row target ${selected ? 'selected' : ''}">
                             <div class="event-title"><span>多節點區域推定</span><span>${displayLabel(item.label)}</span></div>
@@ -10844,6 +10859,7 @@ def dashboard_v4_clean():
                             <div class="event-detail">中心 ${Number(item.region_center_lat).toFixed(6)}, ${Number(item.region_center_lng).toFixed(6)}</div>
                             <div class="event-detail">速度 ${formatSpeed(speed)} / 方向 ${formatHeading(heading)}</div>
                             <div class="event-detail">${safe(devices.join(', '))}</div>
+                            ${relativeTimeline ? `<div class="event-detail">節點時間序列 ${relativeTimeline}</div>` : ''}
                             <div class="estimate-toolbar">
                                 <button type="button" onclick="event.stopPropagation(); previewEstimate('${escapeHtml(id)}')">${selected ? '關閉預覽' : '預覽位置'}</button>
                                 <span class="status-line">${selected ? '已在地圖預覽' : '點選可在地圖預覽位置'}</span>

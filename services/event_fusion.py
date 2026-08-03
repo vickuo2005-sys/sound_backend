@@ -184,19 +184,33 @@ def event_timestamp(event_record: dict) -> datetime:
     return parsed
 
 
-def fusion_episode_timestamp(event_record: dict) -> datetime:
-    """Use server-side event creation time for active episode grouping.
+def device_observed_timestamp(event_record: dict) -> datetime:
+    """Return when the phone observed the sound, independent of upload latency.
 
-    Device timing metadata is still preserved for future TDOA math, but the
-    live dashboard region should group AI-confirmed reports by when the backend
-    receives them. That keeps multi-node region updates from splitting when
-    phones finish recording or inference at slightly different moments.
+    Event fusion is an episode-ordering problem for the current phone-based
+    hardware. Software time sync can still be stored for diagnostics and later
+    TDOA experiments, but live grouping should not depend on it. Prefer the
+    audio sample peak/event time recorded on the device, then fall back through
+    the app timestamp and finally server-side creation time.
     """
     return (
-        parse_datetime(event_record.get("created_at"))
+        epoch_ms_to_datetime(event_record.get("rms_peak_time_ms"))
+        or epoch_ms_to_datetime(event_record.get("device_event_time_ms"))
+        or parse_datetime(event_record.get("timestamp"))
+        or parse_datetime(event_record.get("created_at"))
         or parse_datetime(event_record.get("received_at"))
-        or event_timestamp(event_record)
+        or datetime.now(timezone.utc)
     )
+
+
+def fusion_episode_timestamp(event_record: dict) -> datetime:
+    """Use phone-observed sound time for live episode grouping.
+
+    Upload, AI, MP3 encoding, and network delays may reorder arrivals at the
+    backend. Grouping by the device-observed sound time lets late metadata be
+    attached back to the episode where it actually belongs.
+    """
+    return device_observed_timestamp(event_record)
 
 
 def dynamic_fusion_window_seconds(
@@ -1166,10 +1180,86 @@ def group_devices(cursor: Any, group_id: str, is_postgres: bool) -> list[str]:
     return [str(row["device_id"]) for row in fetchall_dict(cursor)]
 
 
+def group_device_relative_times(
+    cursor: Any,
+    group_id: str,
+    is_postgres: bool,
+) -> list[dict]:
+    execute(
+        cursor,
+        is_postgres,
+        """
+        SELECT device_id, MIN(event_timestamp) AS event_timestamp
+        FROM event_group_observations
+        WHERE group_id = %s
+          AND COALESCE(observation_kind, 'target_estimate') = %s
+          AND device_id IS NOT NULL
+          AND event_timestamp IS NOT NULL
+        GROUP BY device_id
+        ORDER BY MIN(event_timestamp) ASC, device_id ASC
+        """,
+        (group_id, FUSION_KIND),
+    )
+    rows = fetchall_dict(cursor)
+    parsed_rows = []
+    for row in rows:
+        event_time = parse_datetime(row.get("event_timestamp"))
+        if event_time is None:
+            continue
+        parsed_rows.append((event_time, str(row.get("device_id") or ""), row))
+
+    if not parsed_rows:
+        return []
+
+    base_time = min(item[0] for item in parsed_rows)
+    result = []
+    for event_time, device_id, row in sorted(parsed_rows, key=lambda item: (item[0], item[1])):
+        relative_ms = (event_time - base_time).total_seconds() * 1000.0
+        result.append(
+            {
+                "device_id": device_id,
+                "event_timestamp": event_time.isoformat(),
+                "relative_time_ms": round(relative_ms, 1),
+                "relative_time_s": round(relative_ms / 1000.0, 2),
+            }
+        )
+    return result
+
+
+def annotate_relative_times(observations: list[dict]) -> list[dict]:
+    parsed = []
+    for item in observations:
+        event_time = parse_datetime(item.get("event_timestamp"))
+        if event_time is not None:
+            parsed.append(event_time)
+    if not parsed:
+        return observations
+
+    base_time = min(parsed)
+    annotated = []
+    for item in observations:
+        event_time = parse_datetime(item.get("event_timestamp"))
+        if event_time is None:
+            annotated.append(item)
+            continue
+        relative_ms = (event_time - base_time).total_seconds() * 1000.0
+        annotated.append(
+            {
+                **item,
+                "relative_time_ms": round(relative_ms, 1),
+                "relative_time_s": round(relative_ms / 1000.0, 2),
+            }
+        )
+    return annotated
+
+
 def group_payload(cursor: Any, row: dict, is_postgres: bool) -> dict:
     serialized = serialize_row(row) or {}
     group_id = serialized.get("id")
     devices = group_devices(cursor, group_id, is_postgres) if group_id else []
+    device_relative_times = (
+        group_device_relative_times(cursor, group_id, is_postgres) if group_id else []
+    )
     reporting_device_ids = parse_json_field(serialized.get("reporting_device_ids"))
     if not isinstance(reporting_device_ids, list):
         reporting_device_ids = devices
@@ -1208,6 +1298,7 @@ def group_payload(cursor: Any, row: dict, is_postgres: bool) -> dict:
         or (REGION_METHOD if serialized.get("region_type") else None),
         "confidence": serialized.get("confidence"),
         "devices": devices,
+        "device_relative_times": device_relative_times,
     }
 
 
@@ -1410,6 +1501,8 @@ def get_event_group_detail(
             """,
             (group_id, FUSION_KIND),
         )
-        observations = [serialize_row(row) for row in fetchall_dict(cursor)]
+        observations = annotate_relative_times(
+            [serialize_row(row) for row in fetchall_dict(cursor)]
+        )
         payload["observations"] = observations
         return payload

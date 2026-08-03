@@ -192,8 +192,9 @@ def add_event(
     device_id: str,
     label: str,
     event_time: datetime,
+    created_at: datetime | None = None,
 ) -> dict:
-    created_at = event_time.isoformat()
+    created_at_iso = (created_at or event_time).isoformat()
     cursor = connection.execute(
         """
         INSERT INTO events (
@@ -282,7 +283,7 @@ def add_event(
             int(event_time.timestamp() * 1000) - 100,
             100,
             int(event_time.timestamp() * 1000) + 12.5,
-            created_at,
+            created_at_iso,
         ),
     )
     connection.commit()
@@ -511,6 +512,65 @@ def run_service_tests() -> None:
     )
     assert_equal(late_arrival["id"], late_first["id"], "Test 14 late observation group id")
     assert_equal(late_arrival["node_count"], 3, "Test 14 late observation node_count")
+
+    delayed_upload_connection = make_connection()
+    delayed_first = process_event(
+        delayed_upload_connection,
+        add_event(
+            delayed_upload_connection,
+            "evt_device_time_a01",
+            "node_A01",
+            "aircraft",
+            base,
+            created_at=base + timedelta(seconds=25),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    delayed_second = process_event(
+        delayed_upload_connection,
+        add_event(
+            delayed_upload_connection,
+            "evt_device_time_a02",
+            "node_A02",
+            "aircraft",
+            base + timedelta(seconds=1),
+            created_at=base + timedelta(seconds=50),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(
+        delayed_second["id"],
+        delayed_first["id"],
+        "Test 15 delayed upload uses device event time for grouping",
+    )
+    delayed_detail = get_event_group_detail(
+        delayed_upload_connection,
+        delayed_first["id"],
+        is_postgres=False,
+    )
+    delayed_observations = delayed_detail["observations"]
+    assert_equal(
+        [item["device_id"] for item in delayed_observations],
+        ["node_A01", "node_A02"],
+        "Test 15 observations are ordered by device-observed sound time",
+    )
+    assert_equal(
+        delayed_detail["device_relative_times"][0]["device_id"],
+        "node_A01",
+        "Test 15 relative order first node",
+    )
+    assert_equal(
+        delayed_detail["device_relative_times"][1]["relative_time_s"],
+        1.0,
+        "Test 15 relative interval preserved",
+    )
+    assert_equal(
+        delayed_observations[1]["relative_time_s"],
+        1.0,
+        "Test 15 observation relative interval preserved",
+    )
 
 
 def run_route_failure_test() -> None:
