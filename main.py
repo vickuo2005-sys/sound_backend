@@ -8855,6 +8855,9 @@ def dashboard_v4_clean():
             let historyTrackStartMarker = null;
             let historyTrackEndMarker = null;
             let historyTrackBadgeOverlay = null;
+            let historyTrackAnimationFrame = null;
+            let historyTrackPlaybackTrackId = null;
+            const historyTrackPlaybackDurationMs = 6500;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
@@ -10046,7 +10049,7 @@ def dashboard_v4_clean():
                 }
             }
 
-            function historyTrackBadgeHtml(track) {
+            function historyTrackBadgeHtml(track, currentTimeMs = null) {
                 const points = trackPath(track);
                 return `
                     <div class="uav-badge-title">
@@ -10057,15 +10060,15 @@ def dashboard_v4_clean():
                         <span>點數</span><strong>${escapeHtml(String(track?.point_count || points.length || '-'))}</strong>
                         <span>速度</span><strong>${escapeHtml(formatSpeed(track?.last_speed_mps))}</strong>
                         <span>方向</span><strong>${escapeHtml(formatHeading(track?.last_heading_deg))}</strong>
-                        <span>時間</span><strong>${escapeHtml(formatTimeMs(trackEndTime(track)))}</strong>
+                        <span>時間</span><strong>${escapeHtml(formatTimeMs(currentTimeMs || trackEndTime(track)))}</strong>
                     </div>
                 `;
             }
 
-            function renderHistoryTrackBadge(track, position) {
+            function renderHistoryTrackBadge(track, position, currentTimeMs = null) {
                 const OverlayClass = ensureUavStatusOverlayClass();
                 if (!OverlayClass || !map || !track || !position) return;
-                const html = historyTrackBadgeHtml(track);
+                const html = historyTrackBadgeHtml(track, currentTimeMs);
                 if (!historyTrackBadgeOverlay) {
                     historyTrackBadgeOverlay = new OverlayClass(position, html, map);
                 } else {
@@ -10116,7 +10119,81 @@ def dashboard_v4_clean():
                     .filter(point => isValidCoordinatePair(point.lat, point.lng));
             }
 
+            function trackTimedPath(track) {
+                return validTrackPoints(track)
+                    .map(point => ({
+                        lat: Number(point.filtered_lat),
+                        lng: Number(point.filtered_lng),
+                        timeMs: trackPointTimeMs(point),
+                    }))
+                    .filter(point => isValidCoordinatePair(point.lat, point.lng));
+            }
+
+            function cancelHistoryTrackAnimation() {
+                if (historyTrackAnimationFrame) {
+                    cancelAnimationFrame(historyTrackAnimationFrame);
+                    historyTrackAnimationFrame = null;
+                }
+                historyTrackPlaybackTrackId = null;
+            }
+
+            function interpolateLatLng(a, b, ratio) {
+                const clamped = Math.max(0, Math.min(Number(ratio) || 0, 1));
+                return {
+                    lat: Number(a.lat) + (Number(b.lat) - Number(a.lat)) * clamped,
+                    lng: Number(a.lng) + (Number(b.lng) - Number(a.lng)) * clamped,
+                };
+            }
+
+            function playbackFrame(points, progress) {
+                if (!points.length) return null;
+                if (points.length === 1) {
+                    return {
+                        position: points[0],
+                        path: [points[0]],
+                        timeMs: points[0].timeMs,
+                    };
+                }
+
+                const distances = [0];
+                let totalDistance = 0;
+                for (let index = 1; index < points.length; index += 1) {
+                    totalDistance += distanceMeters(points[index - 1], points[index]);
+                    distances.push(totalDistance);
+                }
+
+                if (totalDistance <= 0) {
+                    const scaledIndex = Math.min(points.length - 1, Math.floor(progress * points.length));
+                    return {
+                        position: points[scaledIndex],
+                        path: points.slice(0, scaledIndex + 1),
+                        timeMs: points[scaledIndex].timeMs,
+                    };
+                }
+
+                const targetDistance = totalDistance * Math.max(0, Math.min(progress, 1));
+                let segmentIndex = 1;
+                while (segmentIndex < distances.length && distances[segmentIndex] < targetDistance) {
+                    segmentIndex += 1;
+                }
+                const previousDistance = distances[segmentIndex - 1] || 0;
+                const segmentDistance = Math.max(0.001, distances[segmentIndex] - previousDistance);
+                const ratio = (targetDistance - previousDistance) / segmentDistance;
+                const position = interpolateLatLng(points[segmentIndex - 1], points[segmentIndex], ratio);
+                const previousTime = Number(points[segmentIndex - 1].timeMs);
+                const nextTime = Number(points[segmentIndex].timeMs);
+                const timeMs = Number.isFinite(previousTime) && Number.isFinite(nextTime)
+                    ? previousTime + (nextTime - previousTime) * Math.max(0, Math.min(ratio, 1))
+                    : trackEndTime(tracks.get(selectedHistoryTrackId));
+                return {
+                    position,
+                    path: [...points.slice(0, segmentIndex), position],
+                    timeMs,
+                };
+            }
+
             function clearHistoryTrackObjects(closeInfo = false) {
+                cancelHistoryTrackAnimation();
                 [historyTrackLine, historyTrackStartMarker, historyTrackEndMarker].forEach(item => {
                     if (item) item.setMap(null);
                 });
@@ -10130,6 +10207,110 @@ def dashboard_v4_clean():
                 if (closeInfo && infoWindow) infoWindow.close();
             }
 
+            function ensureHistoryTrackLine(path = []) {
+                if (!historyTrackLine) {
+                    historyTrackLine = new google.maps.Polyline({
+                        map,
+                        path,
+                        strokeColor: '#facc15',
+                        strokeOpacity: 0.95,
+                        strokeWeight: 5,
+                        icons: [{
+                            icon: {
+                                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                scale: 4,
+                                strokeColor: '#facc15',
+                                fillColor: '#facc15',
+                                fillOpacity: 1,
+                            },
+                            offset: '100%',
+                        }],
+                    });
+                } else {
+                    historyTrackLine.setPath(path);
+                    historyTrackLine.setMap(map);
+                }
+            }
+
+            function ensureHistoryTrackMarkers(track, start, current) {
+                const startIcon = {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 7,
+                    fillColor: '#22c55e',
+                    fillOpacity: 1,
+                    strokeColor: '#111827',
+                    strokeWeight: 2,
+                };
+                if (!historyTrackStartMarker) {
+                    historyTrackStartMarker = new google.maps.Marker({
+                        map,
+                        position: start,
+                        title: '歷史追蹤起點',
+                        label: { text: '起', color: '#111827', fontWeight: '900', fontSize: '11px' },
+                        icon: startIcon,
+                    });
+                } else {
+                    historyTrackStartMarker.setPosition(start);
+                    historyTrackStartMarker.setIcon(startIcon);
+                    historyTrackStartMarker.setMap(map);
+                }
+
+                if (!historyTrackEndMarker) {
+                    historyTrackEndMarker = new google.maps.Marker({
+                        map,
+                        position: current,
+                        title: '歷史追蹤回放位置',
+                        label: { text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' },
+                        icon: droneTargetIcon(),
+                    });
+                    historyTrackEndMarker.addListener('click', () => {
+                        const currentTrack = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
+                        if (currentTrack) showTrackInfo(currentTrack);
+                    });
+                } else {
+                    historyTrackEndMarker.setPosition(current);
+                    historyTrackEndMarker.setIcon(droneTargetIcon());
+                    historyTrackEndMarker.setLabel({ text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' });
+                    historyTrackEndMarker.setMap(map);
+                }
+            }
+
+            function updateHistoryTrackPlayback(track, frame) {
+                if (!track || !frame) return;
+                ensureHistoryTrackLine(frame.path);
+                ensureHistoryTrackMarkers(track, frame.path[0], frame.position);
+                renderHistoryTrackBadge(track, frame.position, frame.timeMs);
+            }
+
+            function startHistoryTrackPlayback(track) {
+                if (!map || !window.google || !track) return;
+                const points = trackTimedPath(track);
+                if (!points.length) return;
+                cancelHistoryTrackAnimation();
+                historyTrackPlaybackTrackId = trackId(track);
+                updateHistoryTrackPlayback(track, {
+                    position: points[0],
+                    path: [points[0]],
+                    timeMs: points[0].timeMs,
+                });
+
+                if (points.length === 1) return;
+
+                const startedAt = performance.now();
+                const step = now => {
+                    if (historyTrackPlaybackTrackId !== trackId(track)) return;
+                    const progress = Math.min((now - startedAt) / historyTrackPlaybackDurationMs, 1);
+                    updateHistoryTrackPlayback(track, playbackFrame(points, progress));
+                    if (progress < 1) {
+                        historyTrackAnimationFrame = requestAnimationFrame(step);
+                    } else {
+                        historyTrackAnimationFrame = null;
+                        historyTrackPlaybackTrackId = null;
+                    }
+                };
+                historyTrackAnimationFrame = requestAnimationFrame(step);
+            }
+
             function renderHistoryTrackOnMap() {
                 if (!map || !window.google) return;
                 const track = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
@@ -10138,6 +10319,7 @@ def dashboard_v4_clean():
                     clearHistoryTrackObjects(false);
                     return;
                 }
+                if (historyTrackPlaybackTrackId === trackId(track)) return;
 
                 if (!historyTrackLine) {
                     historyTrackLine = new google.maps.Polyline({
@@ -10520,17 +10702,21 @@ def dashboard_v4_clean():
             }
 
             function previewHistoryTrack(id) {
-                selectedHistoryTrackId = selectedHistoryTrackId === id ? null : id;
-                if (!selectedHistoryTrackId) {
-                    clearHistoryTrackObjects(true);
-                }
+                selectedHistoryTrackId = id;
                 renderHistoryTracks();
                 renderMap();
                 const track = selectedHistoryTrackId ? tracks.get(selectedHistoryTrackId) : null;
                 if (track) {
                     fitTrackOnMap(track);
-                    showTrackInfo(track);
+                    startHistoryTrackPlayback(track);
                 }
+            }
+
+            function closeHistoryTrackPlayback() {
+                selectedHistoryTrackId = null;
+                clearHistoryTrackObjects(true);
+                renderHistoryTracks();
+                renderMap();
             }
 
             function renderTargetEstimates() {
@@ -10593,8 +10779,9 @@ def dashboard_v4_clean():
                             <div class="event-detail">開始 ${formatTimeMs(trackStartTime(track))}</div>
                             <div class="event-detail">最後 ${formatTimeMs(trackEndTime(track))}</div>
                             <div class="estimate-toolbar">
-                                <button type="button" onclick="event.stopPropagation(); previewHistoryTrack('${escapeHtml(id)}')">${selected ? '關閉軌跡' : '回放軌跡'}</button>
-                                <span class="status-line">${selected ? '已在地圖顯示歷史軌跡' : '點選可回看歷史路線'}</span>
+                                <button type="button" onclick="event.stopPropagation(); previewHistoryTrack('${escapeHtml(id)}')">${selected ? '重播軌跡' : '播放軌跡'}</button>
+                                ${selected ? `<button type="button" onclick="event.stopPropagation(); closeHistoryTrackPlayback()">關閉</button>` : ''}
+                                <span class="status-line">${selected ? '正在地圖回放歷史軌跡' : '點選可播放無人機移動路線'}</span>
                             </div>
                         </div>
                     `;
