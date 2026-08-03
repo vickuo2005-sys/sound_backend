@@ -9414,9 +9414,9 @@ def dashboard_v4_clean():
                 setInterval(renderLiveEffects, 500);
             }
 
-            async function fetchJson(url, fallback) {
+            async function fetchJson(url, fallback, timeoutMs = 7000) {
                 const controller = new AbortController();
-                const timeout = window.setTimeout(() => controller.abort(), 7000);
+                const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
                 try {
                     const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
                     if (!response.ok) return fallback;
@@ -9436,7 +9436,7 @@ def dashboard_v4_clean():
                         fetchJson('/device-status', null),
                         fetchJson('/events?limit=20', null),
                         fetchJson('/event-groups?limit=8', null),
-                        fetchJson('/tracks?limit=20&points_limit=100', null),
+                        fetchJson('/tracks?limit=20&points_limit=100', null, 15000),
                     ]);
 
                     if (Array.isArray(statusData?.devices)) {
