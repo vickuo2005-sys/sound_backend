@@ -8197,6 +8197,45 @@ def dashboard_v4_clean():
                 font-size: 13px;
                 pointer-events: none;
             }
+            .uav-status-badge {
+                position: absolute;
+                transform: translate(40px, -74px);
+                min-width: 168px;
+                padding: 9px 10px;
+                border: 1px solid rgba(249, 115, 22, .9);
+                border-radius: 10px;
+                background: rgba(15, 17, 21, .92);
+                color: #f8fafc;
+                box-shadow: 0 10px 26px rgba(0, 0, 0, .35);
+                font-size: 12px;
+                line-height: 1.35;
+                pointer-events: none;
+                z-index: 8;
+                white-space: nowrap;
+            }
+            .uav-status-badge::before {
+                content: "";
+                position: absolute;
+                left: -8px;
+                top: 46px;
+                border-width: 8px 8px 8px 0;
+                border-style: solid;
+                border-color: transparent rgba(249, 115, 22, .9) transparent transparent;
+            }
+            .uav-badge-title {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+                font-weight: 800;
+                color: #fed7aa;
+                margin-bottom: 4px;
+            }
+            .uav-badge-grid {
+                display: grid;
+                grid-template-columns: auto auto;
+                gap: 2px 10px;
+            }
+            .uav-badge-grid span:nth-child(odd) { color: #aab3bd; }
             .map-wrap {
                 position: relative;
                 flex: 1;
@@ -8582,6 +8621,7 @@ def dashboard_v4_clean():
             let estimateBox = null;
             let estimateRegion = null;
             let estimateInfoItem = null;
+            let estimateBadgeOverlay = null;
             let currentFilter = 'all';
             let dashboardStarted = false;
             let locationEdit = null;
@@ -9650,6 +9690,113 @@ def dashboard_v4_clean():
                 return Number.isFinite(Number(value)) ? `${Number(value).toFixed(0)}°` : '-';
             }
 
+            function estimateTimeMs(item) {
+                const track = trackForEstimate(item);
+                const trackTime = Number(track?.last_event_time_ms);
+                if (Number.isFinite(trackTime) && trackTime > 0) return trackTime;
+                const candidates = [
+                    item?.region_updated_at,
+                    item?.last_event_time,
+                    item?.updated_at,
+                    item?.created_at,
+                ];
+                for (const value of candidates) {
+                    const parsed = parseTime(value);
+                    if (Number.isFinite(parsed)) return parsed;
+                }
+                return NaN;
+            }
+
+            function formatEstimateTime(item) {
+                const time = estimateTimeMs(item);
+                if (!Number.isFinite(time)) return '-';
+                return new Date(time).toLocaleTimeString('zh-TW', {
+                    hour12: false,
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                });
+            }
+
+            function estimateBadgeHtml(item) {
+                const speed = estimateSpeedMps(item);
+                const heading = estimateHeadingDeg(item);
+                const activeIds = activeAlertGroupDeviceIds(item);
+                const nodeCount = activeIds.length
+                    || Number(item?.reporting_node_count)
+                    || Number(item?.node_count)
+                    || 0;
+                return `
+                    <div class="uav-badge-title">
+                        <span>UAV</span>
+                        <span>${escapeHtml(String(nodeCount || '-'))} 節點</span>
+                    </div>
+                    <div class="uav-badge-grid">
+                        <span>速度</span><strong>${escapeHtml(formatSpeed(speed))}</strong>
+                        <span>方向</span><strong>${escapeHtml(formatHeading(heading))}</strong>
+                        <span>時間</span><strong>${escapeHtml(formatEstimateTime(item))}</strong>
+                    </div>
+                `;
+            }
+
+            function ensureUavStatusOverlayClass() {
+                if (window.UavStatusOverlayClass || !window.google) return window.UavStatusOverlayClass;
+                window.UavStatusOverlayClass = class extends google.maps.OverlayView {
+                    constructor(position, html, targetMap) {
+                        super();
+                        this.position = position;
+                        this.html = html;
+                        this.div = null;
+                        this.setMap(targetMap);
+                    }
+
+                    onAdd() {
+                        this.div = document.createElement('div');
+                        this.div.className = 'uav-status-badge';
+                        this.div.innerHTML = this.html;
+                        this.getPanes().overlayMouseTarget.appendChild(this.div);
+                    }
+
+                    draw() {
+                        if (!this.div) return;
+                        const projection = this.getProjection();
+                        if (!projection) return;
+                        const point = projection.fromLatLngToDivPixel(
+                            new google.maps.LatLng(this.position.lat, this.position.lng)
+                        );
+                        if (!point) return;
+                        this.div.style.left = `${point.x}px`;
+                        this.div.style.top = `${point.y}px`;
+                        this.div.innerHTML = this.html;
+                    }
+
+                    onRemove() {
+                        if (this.div) this.div.remove();
+                        this.div = null;
+                    }
+
+                    setData(position, html) {
+                        this.position = position;
+                        this.html = html;
+                        if (this.div) this.div.innerHTML = html;
+                        this.draw();
+                    }
+                };
+                return window.UavStatusOverlayClass;
+            }
+
+            function renderEstimateBadge(item, position) {
+                const OverlayClass = ensureUavStatusOverlayClass();
+                if (!OverlayClass || !map || !position) return;
+                const html = estimateBadgeHtml(item);
+                if (!estimateBadgeOverlay) {
+                    estimateBadgeOverlay = new OverlayClass(position, html, map);
+                } else {
+                    estimateBadgeOverlay.setData(position, html);
+                    if (!estimateBadgeOverlay.getMap()) estimateBadgeOverlay.setMap(map);
+                }
+            }
+
             function trackId(track) {
                 return String(track?.id || '');
             }
@@ -9906,6 +10053,7 @@ def dashboard_v4_clean():
                     estimateMarker.setIcon(droneTargetIcon());
                     estimateMarker.setLabel({ text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' });
                 }
+                renderEstimateBadge(item, { lat, lng });
                 if (estimateCircle) {
                     estimateCircle.setMap(null);
                     estimateCircle = null;
@@ -9985,6 +10133,10 @@ def dashboard_v4_clean():
                 estimateBox = null;
                 estimateRegion = null;
                 estimateInfoItem = null;
+                if (estimateBadgeOverlay) {
+                    estimateBadgeOverlay.setMap(null);
+                    estimateBadgeOverlay = null;
+                }
                 if (closeInfo && infoWindow) infoWindow.close();
             }
 
