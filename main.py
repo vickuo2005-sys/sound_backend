@@ -3435,9 +3435,14 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
     return best[1] if best else None
 
 
-def process_tracking_measurement(measurement: dict) -> Optional[dict]:
+def process_tracking_measurement(
+    measurement: dict,
+    *,
+    close_stale: bool = True,
+) -> Optional[dict]:
     with tracking_update_lock:
-        close_stale_tracks()
+        if close_stale:
+            close_stale_tracks()
         track = choose_track_for_measurement(measurement)
         state = update_track_from_measurement(track, measurement)
         saved_track = save_track_point(track, measurement, state)
@@ -3468,7 +3473,11 @@ def process_tracking_for_localization(localization: dict) -> Optional[dict]:
     return process_tracking_measurement(measurement)
 
 
-def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]:
+def process_tracking_for_event_group_region(
+    event_group: dict,
+    *,
+    close_stale: bool = True,
+) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
     label = str(event_group.get("label") or event_group.get("group_label") or "").lower()
@@ -3524,7 +3533,7 @@ def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]
         "reporting_node_count": node_count,
         "reporting_device_ids": event_group.get("reporting_device_ids"),
     }
-    return process_tracking_measurement(measurement)
+    return process_tracking_measurement(measurement, close_stale=close_stale)
 
 
 def tracking_lat_lng(latitude: Any, longitude: Any) -> Optional[tuple[float, float]]:
@@ -4177,6 +4186,202 @@ def close_track(track_id: str) -> dict:
         saved = serialize_db_row(dict(row))
         invalidate_tracks_cache()
         return saved
+
+
+def rebuild_cutoff(hours: Optional[float]) -> tuple[Optional[datetime], Optional[float]]:
+    if hours is None or float(hours) <= 0:
+        return None, None
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=float(hours))
+    return cutoff, cutoff.timestamp() * 1000.0
+
+
+def delete_target_tracks_for_rebuild(hours: Optional[float]) -> int:
+    cutoff, cutoff_ms = rebuild_cutoff(hours)
+    labels = ("aircraft", "drone")
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    if cutoff is None:
+                        cursor.execute(
+                            """
+                            DELETE FROM target_tracks
+                            WHERE LOWER(COALESCE(label, '')) IN %s
+                            RETURNING id
+                            """,
+                            (labels,),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            DELETE FROM target_tracks
+                            WHERE LOWER(COALESCE(label, '')) IN %s
+                              AND (
+                                  updated_at >= %s
+                                  OR created_at >= %s
+                                  OR last_event_time_ms >= %s
+                              )
+                            RETURNING id
+                            """,
+                            (labels, cutoff, cutoff, cutoff_ms),
+                        )
+                    deleted = cursor.fetchall()
+        finally:
+            connection.close()
+        invalidate_tracks_cache()
+        return len(deleted)
+
+    with get_sqlite_connection() as connection:
+        if cutoff is None:
+            rows = connection.execute(
+                """
+                SELECT id
+                FROM target_tracks
+                WHERE LOWER(COALESCE(label, '')) IN (?, ?)
+                """,
+                labels,
+            ).fetchall()
+        else:
+            cutoff_iso = cutoff.isoformat()
+            rows = connection.execute(
+                """
+                SELECT id
+                FROM target_tracks
+                WHERE LOWER(COALESCE(label, '')) IN (?, ?)
+                  AND (
+                      updated_at >= ?
+                      OR created_at >= ?
+                      OR last_event_time_ms >= ?
+                  )
+                """,
+                (*labels, cutoff_iso, cutoff_iso, cutoff_ms),
+            ).fetchall()
+        track_ids = [str(row["id"]) for row in rows]
+        if track_ids:
+            placeholders = ", ".join(["?"] * len(track_ids))
+            connection.execute(
+                f"DELETE FROM target_tracks WHERE id IN ({placeholders})",
+                tuple(track_ids),
+            )
+            connection.commit()
+    invalidate_tracks_cache()
+    return len(track_ids)
+
+
+def tracking_rebuild_event_groups(
+    *,
+    hours: Optional[float],
+    limit: int,
+) -> list[dict]:
+    safe_limit = max(1, min(int(limit or 500), 2000))
+    cutoff, _ = rebuild_cutoff(hours)
+    params: list[Any] = ["fusion", "aircraft", "drone"]
+    cutoff_clause = ""
+    if cutoff is not None:
+        cutoff_clause = """
+          AND (
+              region_updated_at >= %s
+              OR last_event_time >= %s
+              OR updated_at >= %s
+              OR created_at >= %s
+          )
+        """
+        params.extend([cutoff, cutoff, cutoff, cutoff])
+    params.append(safe_limit)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT *
+                        FROM event_groups
+                        WHERE COALESCE(group_kind, 'target_estimate') = %s
+                          AND LOWER(COALESCE(label, group_label, '')) IN (%s, %s)
+                          AND COALESCE(region_type, '') NOT IN ('', 'unknown', 'single_node')
+                          AND region_center_lat IS NOT NULL
+                          AND region_center_lng IS NOT NULL
+                          {cutoff_clause}
+                        ORDER BY COALESCE(
+                            region_updated_at,
+                            last_event_time,
+                            updated_at,
+                            created_at
+                        ) ASC
+                        LIMIT %s
+                        """,
+                        tuple(params),
+                    )
+                    return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+
+    sqlite_cutoff_clause = cutoff_clause.replace("%s", "?")
+    sqlite_params: list[Any] = ["fusion", "aircraft", "drone"]
+    if cutoff is not None:
+        sqlite_params.extend([cutoff.isoformat()] * 4)
+    sqlite_params.append(safe_limit)
+    with get_sqlite_connection() as connection:
+        rows = connection.execute(
+            f"""
+            SELECT *
+            FROM event_groups
+            WHERE COALESCE(group_kind, 'target_estimate') = ?
+              AND LOWER(COALESCE(label, group_label, '')) IN (?, ?)
+              AND COALESCE(region_type, '') NOT IN ('', 'unknown', 'single_node')
+              AND region_center_lat IS NOT NULL
+              AND region_center_lng IS NOT NULL
+              {sqlite_cutoff_clause}
+            ORDER BY COALESCE(
+                region_updated_at,
+                last_event_time,
+                updated_at,
+                created_at
+            ) ASC
+            LIMIT ?
+            """,
+            tuple(sqlite_params),
+        ).fetchall()
+    return [serialize_db_row(dict(row)) for row in rows]
+
+
+def rebuild_tracks_from_history(
+    *,
+    hours: Optional[float] = 48.0,
+    limit: int = 500,
+    clear_existing: bool = True,
+) -> dict:
+    deleted_tracks = delete_target_tracks_for_rebuild(hours) if clear_existing else 0
+    source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
+    rebuilt_tracks: dict[str, dict] = {}
+    skipped = 0
+
+    for group in source_groups:
+        track = process_tracking_for_event_group_region(group, close_stale=False)
+        if track and track.get("id"):
+            rebuilt_tracks[str(track["id"])] = track
+        else:
+            skipped += 1
+
+    closed_tracks = close_stale_tracks()
+    invalidate_tracks_cache()
+    return {
+        "status": "success",
+        "hours": hours,
+        "source_groups": len(source_groups),
+        "rebuilt_track_count": len(rebuilt_tracks),
+        "rebuilt_point_count": sum(
+            int(track.get("point_count") or 0) for track in rebuilt_tracks.values()
+        ),
+        "deleted_track_count": deleted_tracks,
+        "closed_track_count": len(closed_tracks),
+        "skipped_group_count": skipped,
+        "tracks": list(rebuilt_tracks.values()),
+    }
 
 
 def time_sync_quality_from_rtt(rtt_ms: Optional[float]) -> str:
@@ -7303,6 +7508,29 @@ def track_points(track_id: str, limit: int = Query(default=100, ge=1, le=500)):
         raise HTTPException(status_code=404, detail="Track not found")
     points = list_track_points(track_id, limit=limit)
     return {"status": "success", "count": len(points), "points": points}
+
+
+@app.post("/admin/rebuild-tracks")
+async def rebuild_tracks_admin(
+    hours: float = Query(default=48.0, ge=0, le=24 * 14),
+    limit: int = Query(default=500, ge=1, le=2000),
+    clear_existing: bool = Query(default=True),
+    confirm: str = Query(default=""),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    if confirm != "rebuild_tracks":
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=rebuild_tracks is required",
+        )
+    result = rebuild_tracks_from_history(
+        hours=hours,
+        limit=limit,
+        clear_existing=clear_existing,
+    )
+    await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    return result
 
 
 @app.post("/tracks/{track_id}/close")
