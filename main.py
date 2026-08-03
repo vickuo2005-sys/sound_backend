@@ -8606,6 +8606,7 @@ def dashboard_v4_clean():
             let historyTrackLine = null;
             let historyTrackStartMarker = null;
             let historyTrackEndMarker = null;
+            let historyTrackBadgeOverlay = null;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
@@ -9797,6 +9798,34 @@ def dashboard_v4_clean():
                 }
             }
 
+            function historyTrackBadgeHtml(track) {
+                const points = trackPath(track);
+                return `
+                    <div class="uav-badge-title">
+                        <span>UAV</span>
+                        <span>歷史回放</span>
+                    </div>
+                    <div class="uav-badge-grid">
+                        <span>點數</span><strong>${escapeHtml(String(track?.point_count || points.length || '-'))}</strong>
+                        <span>速度</span><strong>${escapeHtml(formatSpeed(track?.last_speed_mps))}</strong>
+                        <span>方向</span><strong>${escapeHtml(formatHeading(track?.last_heading_deg))}</strong>
+                        <span>時間</span><strong>${escapeHtml(formatTimeMs(trackEndTime(track)))}</strong>
+                    </div>
+                `;
+            }
+
+            function renderHistoryTrackBadge(track, position) {
+                const OverlayClass = ensureUavStatusOverlayClass();
+                if (!OverlayClass || !map || !track || !position) return;
+                const html = historyTrackBadgeHtml(track);
+                if (!historyTrackBadgeOverlay) {
+                    historyTrackBadgeOverlay = new OverlayClass(position, html, map);
+                } else {
+                    historyTrackBadgeOverlay.setData(position, html);
+                    if (!historyTrackBadgeOverlay.getMap()) historyTrackBadgeOverlay.setMap(map);
+                }
+            }
+
             function trackId(track) {
                 return String(track?.id || '');
             }
@@ -9846,6 +9875,10 @@ def dashboard_v4_clean():
                 historyTrackLine = null;
                 historyTrackStartMarker = null;
                 historyTrackEndMarker = null;
+                if (historyTrackBadgeOverlay) {
+                    historyTrackBadgeOverlay.setMap(null);
+                    historyTrackBadgeOverlay = null;
+                }
                 if (closeInfo && infoWindow) infoWindow.close();
             }
 
@@ -9923,6 +9956,7 @@ def dashboard_v4_clean():
                     historyTrackEndMarker.setLabel({ text: 'UAV', color: '#111827', fontWeight: '900', fontSize: '12px' });
                     historyTrackEndMarker.setMap(map);
                 }
+                renderHistoryTrackBadge(track, end);
             }
 
             function renderTrackLines() {
