@@ -8493,7 +8493,7 @@ def dashboard_v4_clean():
                 grid-column: 3;
                 grid-row: 1 / 3;
                 display: grid;
-                grid-template-rows: 112px 126px minmax(150px, .9fr) minmax(240px, 1.5fr);
+                grid-template-rows: minmax(170px, .9fr) minmax(220px, 1.2fr) 118px 118px;
                 gap: 12px;
                 min-height: 0;
             }
@@ -8797,6 +8797,16 @@ def dashboard_v4_clean():
 
             <aside class="side-stack">
                 <section class="panel">
+                    <h2>即時警示</h2>
+                    <div class="panel-body right-scroll" id="alertList"></div>
+                </section>
+
+                <section class="panel">
+                    <h2>歷史無人機追蹤</h2>
+                    <div class="panel-body right-scroll" id="historyTrackList"></div>
+                </section>
+
+                <section class="panel">
                     <h2>音檔播放</h2>
                     <div class="audio-player">
                         <div class="title" id="audioPlayerTitle">請選擇事件查看音檔</div>
@@ -8817,16 +8827,6 @@ def dashboard_v4_clean():
                         <div class="live-audio-meter"><span>Stream</span><strong id="liveAudioStreamId">-</strong></div>
                         <div class="live-audio-meter"><span>Buffer</span><strong id="liveAudioBufferMs">0 ms</strong></div>
                     </div>
-                </section>
-
-                <section class="panel">
-                    <h2>即時警示</h2>
-                    <div class="panel-body right-scroll" id="alertList"></div>
-                </section>
-
-                <section class="panel">
-                    <h2>歷史無人機追蹤</h2>
-                    <div class="panel-body right-scroll" id="historyTrackList"></div>
                 </section>
             </aside>
 
@@ -11254,6 +11254,8 @@ def dashboard_v4_clean():
                         renderTargetEstimates();
                         renderHistoryTracks();
                         renderMap();
+                    } else if (data.type === 'tracks_rebuilt') {
+                        refreshAll();
                     } else if (data.type === 'event_audio_update' || data.type === 'device_command_ack') {
                         refreshAll();
                     }
