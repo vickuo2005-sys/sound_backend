@@ -8857,7 +8857,10 @@ def dashboard_v4_clean():
             let historyTrackBadgeOverlay = null;
             let historyTrackAnimationFrame = null;
             let historyTrackPlaybackTrackId = null;
-            const historyTrackPlaybackDurationMs = 6500;
+            const historyTrackPlaybackFallbackDurationMs = 6500;
+            const historyTrackPlaybackMinDurationMs = 4500;
+            const historyTrackPlaybackMaxDurationMs = 22000;
+            const historyTrackPlaybackCompression = 8;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
             const estimateVisibleMs = alertDurationMs;
@@ -9854,6 +9857,18 @@ def dashboard_v4_clean():
                 return 2 * earthRadiusM * Math.asin(Math.min(1, Math.sqrt(h)));
             }
 
+            function headingDegrees(a, b) {
+                const lat1 = Number(a?.lat);
+                const lng1 = Number(a?.lng);
+                const lat2 = Number(b?.lat);
+                const lng2 = Number(b?.lng);
+                if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return null;
+                const dLng = (lng2 - lng1) * Math.cos(lat2 * Math.PI / 180);
+                const dLat = lat2 - lat1;
+                if (Math.abs(dLat) < 1e-12 && Math.abs(dLng) < 1e-12) return null;
+                return (Math.atan2(dLng, dLat) * 180 / Math.PI + 360) % 360;
+            }
+
             function projectPoint(lat, lng, headingDeg, distanceM) {
                 const earthRadiusM = 6371000;
                 const bearing = Number(headingDeg) * Math.PI / 180;
@@ -9936,6 +9951,13 @@ def dashboard_v4_clean():
 
             function formatSpeed(value) {
                 return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} m/s` : '-';
+            }
+
+            function formatDistance(value) {
+                const number = Number(value);
+                if (!Number.isFinite(number)) return '-';
+                if (number >= 1000) return `${(number / 1000).toFixed(2)} km`;
+                return `${number.toFixed(0)} m`;
             }
 
             function formatHeading(value) {
@@ -10049,8 +10071,17 @@ def dashboard_v4_clean():
                 }
             }
 
-            function historyTrackBadgeHtml(track, currentTimeMs = null) {
+            function historyTrackBadgeHtml(track, currentTimeMs = null, playback = {}) {
                 const points = trackPath(track);
+                const speed = Number.isFinite(Number(playback.speedMps))
+                    ? playback.speedMps
+                    : track?.last_speed_mps;
+                const distance = Number.isFinite(Number(playback.distanceM))
+                    ? playback.distanceM
+                    : totalTrackDistanceMeters(track);
+                const heading = Number.isFinite(Number(playback.headingDeg))
+                    ? playback.headingDeg
+                    : track?.last_heading_deg;
                 return `
                     <div class="uav-badge-title">
                         <span>UAV</span>
@@ -10058,17 +10089,18 @@ def dashboard_v4_clean():
                     </div>
                     <div class="uav-badge-grid">
                         <span>點數</span><strong>${escapeHtml(String(track?.point_count || points.length || '-'))}</strong>
-                        <span>速度</span><strong>${escapeHtml(formatSpeed(track?.last_speed_mps))}</strong>
-                        <span>方向</span><strong>${escapeHtml(formatHeading(track?.last_heading_deg))}</strong>
+                        <span>速度</span><strong>${escapeHtml(formatSpeed(speed))}</strong>
+                        <span>距離</span><strong>${escapeHtml(formatDistance(distance))}</strong>
+                        <span>方向</span><strong>${escapeHtml(formatHeading(heading))}</strong>
                         <span>時間</span><strong>${escapeHtml(formatTimeMs(currentTimeMs || trackEndTime(track)))}</strong>
                     </div>
                 `;
             }
 
-            function renderHistoryTrackBadge(track, position, currentTimeMs = null) {
+            function renderHistoryTrackBadge(track, position, currentTimeMs = null, playback = {}) {
                 const OverlayClass = ensureUavStatusOverlayClass();
                 if (!OverlayClass || !map || !track || !position) return;
-                const html = historyTrackBadgeHtml(track, currentTimeMs);
+                const html = historyTrackBadgeHtml(track, currentTimeMs, playback);
                 if (!historyTrackBadgeOverlay) {
                     historyTrackBadgeOverlay = new OverlayClass(position, html, map);
                 } else {
@@ -10129,6 +10161,35 @@ def dashboard_v4_clean():
                     .filter(point => isValidCoordinatePair(point.lat, point.lng));
             }
 
+            function cumulativeTrackDistances(points) {
+                const distances = [0];
+                let totalDistance = 0;
+                for (let index = 1; index < points.length; index += 1) {
+                    totalDistance += distanceMeters(points[index - 1], points[index]);
+                    distances.push(totalDistance);
+                }
+                return { distances, totalDistance };
+            }
+
+            function totalTrackDistanceMeters(track) {
+                return cumulativeTrackDistances(trackPath(track)).totalDistance;
+            }
+
+            function historyTrackPlaybackDuration(points) {
+                if (points.length >= 2) {
+                    const start = Number(points[0].timeMs);
+                    const end = Number(points[points.length - 1].timeMs);
+                    const span = end - start;
+                    if (Number.isFinite(span) && span > 0) {
+                        return Math.max(
+                            historyTrackPlaybackMinDurationMs,
+                            Math.min(span / historyTrackPlaybackCompression, historyTrackPlaybackMaxDurationMs),
+                        );
+                    }
+                }
+                return historyTrackPlaybackFallbackDurationMs;
+            }
+
             function cancelHistoryTrackAnimation() {
                 if (historyTrackAnimationFrame) {
                     cancelAnimationFrame(historyTrackAnimationFrame);
@@ -10147,31 +10208,63 @@ def dashboard_v4_clean():
 
             function playbackFrame(points, progress) {
                 if (!points.length) return null;
+                const clampedProgress = Math.max(0, Math.min(progress, 1));
                 if (points.length === 1) {
                     return {
                         position: points[0],
                         path: [points[0]],
                         timeMs: points[0].timeMs,
+                        speedMps: 0,
+                        distanceM: 0,
+                        headingDeg: null,
                     };
                 }
 
-                const distances = [0];
-                let totalDistance = 0;
-                for (let index = 1; index < points.length; index += 1) {
-                    totalDistance += distanceMeters(points[index - 1], points[index]);
-                    distances.push(totalDistance);
+                const { distances, totalDistance } = cumulativeTrackDistances(points);
+                const startTime = Number(points[0].timeMs);
+                const endTime = Number(points[points.length - 1].timeMs);
+                const hasUsableTime = Number.isFinite(startTime)
+                    && Number.isFinite(endTime)
+                    && endTime > startTime;
+
+                if (hasUsableTime) {
+                    const targetTime = startTime + (endTime - startTime) * clampedProgress;
+                    let segmentIndex = 1;
+                    while (segmentIndex < points.length - 1 && Number(points[segmentIndex].timeMs) < targetTime) {
+                        segmentIndex += 1;
+                    }
+                    const previous = points[segmentIndex - 1];
+                    const next = points[segmentIndex];
+                    const previousTime = Number(previous.timeMs);
+                    const nextTime = Number(next.timeMs);
+                    const segmentTimeMs = Math.max(1, nextTime - previousTime);
+                    const ratio = Math.max(0, Math.min((targetTime - previousTime) / segmentTimeMs, 1));
+                    const position = interpolateLatLng(previous, next, ratio);
+                    const segmentDistanceM = distanceMeters(previous, next);
+                    const distanceM = (distances[segmentIndex - 1] || 0) + segmentDistanceM * ratio;
+                    return {
+                        position,
+                        path: [...points.slice(0, segmentIndex), position],
+                        timeMs: targetTime,
+                        speedMps: segmentDistanceM / (segmentTimeMs / 1000),
+                        distanceM,
+                        headingDeg: headingDegrees(previous, next),
+                    };
                 }
 
                 if (totalDistance <= 0) {
-                    const scaledIndex = Math.min(points.length - 1, Math.floor(progress * points.length));
+                    const scaledIndex = Math.min(points.length - 1, Math.floor(clampedProgress * points.length));
                     return {
                         position: points[scaledIndex],
                         path: points.slice(0, scaledIndex + 1),
                         timeMs: points[scaledIndex].timeMs,
+                        speedMps: 0,
+                        distanceM: 0,
+                        headingDeg: null,
                     };
                 }
 
-                const targetDistance = totalDistance * Math.max(0, Math.min(progress, 1));
+                const targetDistance = totalDistance * clampedProgress;
                 let segmentIndex = 1;
                 while (segmentIndex < distances.length && distances[segmentIndex] < targetDistance) {
                     segmentIndex += 1;
@@ -10189,6 +10282,9 @@ def dashboard_v4_clean():
                     position,
                     path: [...points.slice(0, segmentIndex), position],
                     timeMs,
+                    speedMps: null,
+                    distanceM: targetDistance,
+                    headingDeg: headingDegrees(points[segmentIndex - 1], points[segmentIndex]),
                 };
             }
 
@@ -10279,7 +10375,11 @@ def dashboard_v4_clean():
                 if (!track || !frame) return;
                 ensureHistoryTrackLine(frame.path);
                 ensureHistoryTrackMarkers(track, frame.path[0], frame.position);
-                renderHistoryTrackBadge(track, frame.position, frame.timeMs);
+                renderHistoryTrackBadge(track, frame.position, frame.timeMs, {
+                    speedMps: frame.speedMps,
+                    distanceM: frame.distanceM,
+                    headingDeg: frame.headingDeg,
+                });
             }
 
             function startHistoryTrackPlayback(track) {
@@ -10296,10 +10396,11 @@ def dashboard_v4_clean():
 
                 if (points.length === 1) return;
 
+                const playbackDurationMs = historyTrackPlaybackDuration(points);
                 const startedAt = performance.now();
                 const step = now => {
                     if (historyTrackPlaybackTrackId !== trackId(track)) return;
-                    const progress = Math.min((now - startedAt) / historyTrackPlaybackDurationMs, 1);
+                    const progress = Math.min((now - startedAt) / playbackDurationMs, 1);
                     updateHistoryTrackPlayback(track, playbackFrame(points, progress));
                     if (progress < 1) {
                         historyTrackAnimationFrame = requestAnimationFrame(step);
