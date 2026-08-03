@@ -47,6 +47,7 @@ from services.event_fusion import (
     recompute_active_regions_for_device as recompute_fusion_regions_for_device,
 )
 from services.localization import localize_observations
+from services.region_localization import estimate_region
 from services.tracking.tracking_service import (
     can_associate_track,
     update_track_from_measurement,
@@ -109,6 +110,10 @@ NODE_OFFLINE_TIMEOUT_SECONDS = float(
     os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
 )
 NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15)
+LIVE_ALERT_REGION_WINDOW_SECONDS = float(
+    os.getenv("LIVE_ALERT_REGION_WINDOW_SECONDS", str(NODE_ALERT_HOLD_SECONDS))
+    or NODE_ALERT_HOLD_SECONDS
+)
 COMMAND_WEBSOCKET_ENABLED = (
     os.getenv("COMMAND_WEBSOCKET_ENABLED", "true").lower() == "true"
 )
@@ -3522,6 +3527,125 @@ def process_tracking_for_event_group_region(event_group: dict) -> Optional[dict]
     return process_tracking_measurement(measurement)
 
 
+def tracking_lat_lng(latitude: Any, longitude: Any) -> Optional[tuple[float, float]]:
+    lat = parse_float_value(latitude)
+    lng = parse_float_value(longitude)
+    if lat is None or lng is None:
+        return None
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        return None
+    if abs(lat) < 0.000001 and abs(lng) < 0.000001:
+        return None
+    return lat, lng
+
+
+def event_backend_time(row: dict) -> Optional[datetime]:
+    return parse_datetime(row.get("created_at")) or parse_datetime(row.get("timestamp"))
+
+
+def build_active_alert_region_measurement(
+    recent_events: list[dict],
+    *,
+    reference_time: datetime,
+    window_seconds: Optional[float] = None,
+) -> Optional[dict]:
+    window = max(1.0, float(window_seconds or LIVE_ALERT_REGION_WINDOW_SECONDS))
+    start_time = reference_time - timedelta(seconds=window)
+    end_time = reference_time + timedelta(seconds=2)
+    selected_by_device: dict[str, dict] = {}
+
+    for row in recent_events:
+        if not is_alert_event_label(row.get("label")):
+            continue
+        event_time = event_backend_time(row)
+        if event_time is None or event_time < start_time or event_time > end_time:
+            continue
+        device_id = str(row.get("device_id") or "").strip()
+        if not device_id or DIAGNOSTIC_DEVICE_ID_PATTERN.search(device_id):
+            continue
+
+        lat_lng = tracking_lat_lng(
+            row.get("effective_latitude")
+            if row.get("effective_latitude") is not None
+            else row.get("latitude"),
+            row.get("effective_longitude")
+            if row.get("effective_longitude") is not None
+            else row.get("longitude"),
+        )
+        if lat_lng is None:
+            continue
+
+        lat, lng = lat_lng
+        probability = event_aircraft_probability(row)
+        candidate = {
+            "event_id": row.get("event_id"),
+            "device_id": device_id,
+            "latitude": lat,
+            "longitude": lng,
+            "rms_peak": parse_float_value(row.get("rms_peak")),
+            "aircraft_probability": probability,
+            "event_timestamp": event_time,
+            "weight": fusion_weight(row.get("rms_peak"), probability),
+            "label": row.get("label") or "aircraft",
+        }
+
+        existing = selected_by_device.get(device_id)
+        if existing is None or event_time > existing["event_timestamp"]:
+            selected_by_device[device_id] = candidate
+
+    observations = sorted(selected_by_device.values(), key=lambda item: item["device_id"])
+    if len(observations) < TRACK_MIN_REGION_NODES:
+        return None
+
+    region = estimate_region(observations)
+    region_type = str(region.get("region_type") or "").lower()
+    if region_type in {"", "unknown", "single_node"}:
+        return None
+
+    lat = parse_float_value(region.get("region_center_lat"))
+    lng = parse_float_value(region.get("region_center_lng"))
+    if lat is None or lng is None:
+        return None
+
+    labels = [str(item.get("label") or "").lower() for item in observations]
+    label = "drone" if "drone" in labels else "aircraft"
+    node_count = len({item["device_id"] for item in observations})
+    latest_event_time = max(item["event_timestamp"] for item in observations)
+
+    return {
+        "group_id": None,
+        "localization_result_id": None,
+        "label": label,
+        "estimated_lat": lat,
+        "estimated_lng": lng,
+        "confidence": fusion_confidence(node_count),
+        "uncertainty_radius_m": fusion_uncertainty_radius(node_count),
+        "event_time_ms": latest_event_time.timestamp() * 1000.0,
+        "source": "active_alert_region",
+        "region_type": region.get("region_type"),
+        "reporting_node_count": node_count,
+        "reporting_device_ids": region.get("reporting_device_ids"),
+        "region_geojson": region.get("region_geojson"),
+    }
+
+
+def process_tracking_for_active_alert_region(trigger_event_id: str) -> Optional[dict]:
+    if not TRACKING_ENABLED:
+        return None
+    trigger_event = get_event_by_event_id(trigger_event_id)
+    if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
+        return None
+    reference_time = event_backend_time(trigger_event) or datetime.now(timezone.utc)
+    measurement = build_active_alert_region_measurement(
+        list_recent_events(100),
+        reference_time=reference_time,
+        window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
+    )
+    if measurement is None:
+        return None
+    return process_tracking_measurement(measurement)
+
+
 def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> dict:
     now = current_time_iso()
     track_id = track.get("id") if track else str(uuid.uuid4())
@@ -6734,6 +6858,7 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
 def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_event: bool) -> dict:
     event_group = None
     region_track = None
+    active_alert_track = None
     localization_package = None
 
     try:
@@ -6751,6 +6876,12 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 event_group.get("id"),
             )
 
+    if is_alert and not is_existing_event:
+        try:
+            active_alert_track = process_tracking_for_active_alert_region(event_id)
+        except Exception:
+            logger.exception("Active alert region tracking failed for event_id=%s", event_id)
+
     if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
         try:
             localization_package = process_event_group_localization(event_group["id"])
@@ -6763,6 +6894,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     return {
         "event_group": event_group,
         "region_track": region_track,
+        "active_alert_track": active_alert_track,
         "localization_package": localization_package,
     }
 
@@ -6770,6 +6902,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 async def broadcast_event_post_ingest_result(result: dict) -> None:
     event_group = result.get("event_group")
     region_track = result.get("region_track")
+    active_alert_track = result.get("active_alert_track")
     localization_package = result.get("localization_package")
 
     if event_group:
@@ -6784,6 +6917,13 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
             {
                 "type": "track_update",
                 "track": region_track,
+            }
+        )
+    if active_alert_track:
+        await dashboard_manager.broadcast(
+            {
+                "type": "track_update",
+                "track": active_alert_track,
             }
         )
     if localization_package and localization_package.get("localization"):
