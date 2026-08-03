@@ -89,10 +89,10 @@ TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
 TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
 GCC_MIN_CORRELATION_SCORE = float(os.getenv("GCC_MIN_CORRELATION_SCORE", "0.04") or 0.04)
-TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "45") or 45)
+TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "180") or 180)
 TRACK_CLOSE_AFTER_SECONDS = float(
-    os.getenv("TRACK_CLOSE_AFTER_SECONDS", str(max(TRACK_MAX_GAP_SECONDS, 60.0)))
-    or max(TRACK_MAX_GAP_SECONDS, 60.0)
+    os.getenv("TRACK_CLOSE_AFTER_SECONDS", str(max(TRACK_MAX_GAP_SECONDS, 240.0)))
+    or max(TRACK_MAX_GAP_SECONDS, 240.0)
 )
 TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "80") or 80)
 TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "100") or 100)
@@ -4354,7 +4354,23 @@ def rebuild_tracks_from_history(
     hours: Optional[float] = 48.0,
     limit: int = 500,
     clear_existing: bool = True,
+    dry_run: bool = False,
 ) -> dict:
+    if dry_run:
+        source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
+        return {
+            "status": "success",
+            "dry_run": True,
+            "hours": hours,
+            "source_groups": len(source_groups),
+            "deleted_track_count": 0,
+            "rebuilt_track_count": 0,
+            "rebuilt_point_count": 0,
+            "closed_track_count": 0,
+            "skipped_group_count": 0,
+            "tracks": [],
+        }
+
     deleted_tracks = delete_target_tracks_for_rebuild(hours) if clear_existing else 0
     source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
     rebuilt_tracks: dict[str, dict] = {}
@@ -4371,6 +4387,7 @@ def rebuild_tracks_from_history(
     invalidate_tracks_cache()
     return {
         "status": "success",
+        "dry_run": False,
         "hours": hours,
         "source_groups": len(source_groups),
         "rebuilt_track_count": len(rebuilt_tracks),
@@ -7515,6 +7532,7 @@ async def rebuild_tracks_admin(
     hours: float = Query(default=48.0, ge=0, le=24 * 14),
     limit: int = Query(default=500, ge=1, le=2000),
     clear_existing: bool = Query(default=True),
+    dry_run: bool = Query(default=False),
     confirm: str = Query(default=""),
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
@@ -7528,8 +7546,10 @@ async def rebuild_tracks_admin(
         hours=hours,
         limit=limit,
         clear_existing=clear_existing,
+        dry_run=dry_run,
     )
-    await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    if not dry_run:
+        await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
     return result
 
 
