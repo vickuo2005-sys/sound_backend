@@ -89,13 +89,13 @@ TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
 TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
 GCC_MIN_CORRELATION_SCORE = float(os.getenv("GCC_MIN_CORRELATION_SCORE", "0.04") or 0.04)
-TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "15") or 15)
+TRACK_MAX_GAP_SECONDS = float(os.getenv("TRACK_MAX_GAP_SECONDS", "45") or 45)
 TRACK_CLOSE_AFTER_SECONDS = float(
-    os.getenv("TRACK_CLOSE_AFTER_SECONDS", str(max(TRACK_MAX_GAP_SECONDS, 15.0)))
-    or max(TRACK_MAX_GAP_SECONDS, 15.0)
+    os.getenv("TRACK_CLOSE_AFTER_SECONDS", str(max(TRACK_MAX_GAP_SECONDS, 60.0)))
+    or max(TRACK_MAX_GAP_SECONDS, 60.0)
 )
-TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "50") or 50)
-TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "30") or 30)
+TRACK_MAX_SPEED_MPS = float(os.getenv("TRACK_MAX_SPEED_MPS", "80") or 80)
+TRACK_BASE_GATE_METERS = float(os.getenv("TRACK_BASE_GATE_METERS", "100") or 100)
 TRACK_MIN_CONFIDENCE = float(os.getenv("TRACK_MIN_CONFIDENCE", "0.25") or 0.25)
 TRACK_MIN_REGION_NODES = int(os.getenv("TRACK_MIN_REGION_NODES", "2") or 2)
 TRACK_ALLOW_FALLBACK = os.getenv("TRACK_ALLOW_FALLBACK", "false").lower() == "true"
@@ -6876,7 +6876,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 event_group.get("id"),
             )
 
-    if is_alert and not is_existing_event:
+    if is_alert and not is_existing_event and region_track is None:
         try:
             active_alert_track = process_tracking_for_active_alert_region(event_id)
         except Exception:
