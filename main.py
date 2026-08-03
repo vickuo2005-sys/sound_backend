@@ -11356,7 +11356,7 @@ def dashboard_v4_clean():
                         const device = setDeviceState(liveNodeToDeviceState(data.node || data));
                         renderSummary();
                         renderNodes();
-                        refreshLiveAudioDeviceSelect();
+                        renderLiveAudioDeviceSelect();
                         updateDeviceMarker(device);
                     } else if (data.type === 'device_location_updated') {
                         if (data.device_id) {
