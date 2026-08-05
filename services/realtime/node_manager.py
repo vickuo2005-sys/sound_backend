@@ -178,11 +178,11 @@ class NodeManager:
         device_id: str,
         connection_id: str,
         reason: str,
-    ) -> None:
+    ) -> bool:
         async with self._lock:
             current = self._connections.get(device_id)
             if current is None or current.connection_id != connection_id:
-                return
+                return False
             current.last_disconnect_at = time.time()
             current.last_disconnect_reason = reason
             self._last_disconnects[device_id] = {
@@ -190,6 +190,7 @@ class NodeManager:
                 "reason": reason,
             }
             self._connections.pop(device_id, None)
+            return True
 
     def apply_status_payload(
         self,

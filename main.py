@@ -8227,12 +8227,13 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
         logger.exception("Node websocket failed for device_id=%s", device_id)
     finally:
         if state is not None:
-            await node_manager.unregister(
+            removed_current_connection = await node_manager.unregister(
                 device_id=device_id,
                 connection_id=state.connection_id,
                 reason=disconnect_reason,
             )
-            await broadcast_node_state(device_id, "node_disconnected")
+            if removed_current_connection:
+                await broadcast_node_state(device_id, "node_disconnected")
 
 
 @app.websocket("/ws/audio/{device_id}")
