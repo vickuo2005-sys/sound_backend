@@ -9,9 +9,10 @@ import csv
 import secrets
 import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from io import StringIO
-from time import monotonic
+from time import monotonic, sleep
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -126,6 +127,22 @@ DEVICE_STATUS_CACHE_TTL_SECONDS = float(
     os.getenv("DEVICE_STATUS_CACHE_TTL_SECONDS", "10") or 10
 )
 TRACKS_CACHE_TTL_SECONDS = float(os.getenv("TRACKS_CACHE_TTL_SECONDS", "10") or 10)
+DASHBOARD_BROADCAST_TIMEOUT_SECONDS = float(
+    os.getenv("DASHBOARD_BROADCAST_TIMEOUT_SECONDS", "1.5") or 1.5
+)
+POST_INGEST_WORKERS = max(1, int(os.getenv("POST_INGEST_WORKERS", "2") or 2))
+GCS_UPLOAD_RETRY_ATTEMPTS = max(
+    1,
+    int(os.getenv("GCS_UPLOAD_RETRY_ATTEMPTS", "3") or 3),
+)
+GCS_UPLOAD_RETRY_BACKOFF_SECONDS = max(
+    0.0,
+    float(os.getenv("GCS_UPLOAD_RETRY_BACKOFF_SECONDS", "0.5") or 0.5),
+)
+GCS_UPLOAD_TIMEOUT_SECONDS = max(
+    1.0,
+    float(os.getenv("GCS_UPLOAD_TIMEOUT_SECONDS", "60") or 60),
+)
 
 
 class DashboardConnectionManager:
@@ -144,7 +161,10 @@ class DashboardConnectionManager:
         disconnected = []
         for websocket in list(self.active_connections):
             try:
-                await websocket.send_json(message)
+                await asyncio.wait_for(
+                    websocket.send_json(message),
+                    timeout=DASHBOARD_BROADCAST_TIMEOUT_SECONDS,
+                )
             except Exception:
                 disconnected.append(websocket)
 
@@ -165,6 +185,35 @@ device_status_cache_lock = threading.Lock()
 device_status_cache: tuple[float, list[dict]] = (0.0, [])
 tracks_cache_lock = threading.Lock()
 tracks_cache: dict[str, tuple[float, dict]] = {}
+post_ingest_executor = ThreadPoolExecutor(
+    max_workers=POST_INGEST_WORKERS,
+    thread_name_prefix="post-ingest",
+)
+
+
+async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
+    try:
+        await dashboard_manager.broadcast(message)
+    except Exception:
+        logger.exception(
+            "Dashboard broadcast failed context=%s type=%s",
+            context,
+            message.get("type"),
+        )
+
+
+def schedule_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug(
+            "Dashboard broadcast skipped because no running event loop exists context=%s type=%s",
+            context,
+            message.get("type"),
+        )
+        return
+    loop.create_task(safe_dashboard_broadcast(message, context))
+
 
 
 class SoundEvent(BaseModel):
@@ -6914,6 +6963,41 @@ def read_upload_header(file: UploadFile, size: int = 16) -> bytes:
     return header
 
 
+def upload_file_to_blob_with_retries(
+    file: UploadFile,
+    blob: storage.Blob,
+    *,
+    content_type: str,
+    context: str,
+) -> None:
+    last_error: Optional[Exception] = None
+    for attempt in range(1, GCS_UPLOAD_RETRY_ATTEMPTS + 1):
+        try:
+            file.file.seek(0)
+            blob.upload_from_file(
+                file.file,
+                content_type=content_type,
+                timeout=GCS_UPLOAD_TIMEOUT_SECONDS,
+            )
+            return
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "GCS upload attempt failed context=%s attempt=%s/%s blob=%s",
+                context,
+                attempt,
+                GCS_UPLOAD_RETRY_ATTEMPTS,
+                getattr(blob, "name", None),
+                exc_info=attempt >= GCS_UPLOAD_RETRY_ATTEMPTS,
+            )
+            if attempt < GCS_UPLOAD_RETRY_ATTEMPTS and GCS_UPLOAD_RETRY_BACKOFF_SECONDS:
+                sleep(GCS_UPLOAD_RETRY_BACKOFF_SECONDS * attempt)
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("GCS upload failed without an exception")
+
+
 def header_audio_format(header: bytes) -> Optional[str]:
     if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE":
         return "wav"
@@ -7128,50 +7212,56 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
     localization_package = result.get("localization_package")
 
     if event_group:
-        await dashboard_manager.broadcast(
+        await safe_dashboard_broadcast(
             {
                 "type": "event_group",
                 "group": event_group,
-            }
+            },
+            "event_group",
         )
     if region_track:
-        await dashboard_manager.broadcast(
+        await safe_dashboard_broadcast(
             {
                 "type": "track_update",
                 "track": region_track,
-            }
+            },
+            "region_track",
         )
     if active_alert_track:
-        await dashboard_manager.broadcast(
+        await safe_dashboard_broadcast(
             {
                 "type": "track_update",
                 "track": active_alert_track,
-            }
+            },
+            "active_alert_track",
         )
     if localization_package and localization_package.get("localization"):
-        await dashboard_manager.broadcast(
+        await safe_dashboard_broadcast(
             {
                 "type": "localization_result",
                 "localization": localization_package.get("localization"),
-            }
+            },
+            "localization_result",
         )
         if localization_package.get("track"):
-            await dashboard_manager.broadcast(
+            await safe_dashboard_broadcast(
                 {
                     "type": "track_update",
                     "track": localization_package.get("track"),
-                }
+                },
+                "localization_track",
             )
 
 
 async def broadcast_device_status_update(row: Optional[dict]) -> None:
     if not row:
         return
-    await dashboard_manager.broadcast(
+    await safe_dashboard_broadcast(
         {
             "type": "location_update",
             **row,
-        }
+        },
+        "device_status_update",
     )
 
 
@@ -7197,17 +7287,18 @@ def run_device_event_status_worker(
             lambda: asyncio.create_task(broadcast_device_status_update(enriched_device_row))
         )
     except RuntimeError:
-        logger.exception("Event loop closed before device status broadcast for %s", event.event_id)
+        logger.warning("Event loop closed before device status broadcast for %s", event.event_id)
 
 
 def schedule_device_event_status_update(event: SoundEvent) -> None:
     loop = asyncio.get_running_loop()
-    worker = threading.Thread(
-        target=run_device_event_status_worker,
-        args=(loop, event),
-        daemon=True,
-    )
-    worker.start()
+    try:
+        post_ingest_executor.submit(run_device_event_status_worker, loop, event)
+    except Exception:
+        logger.exception(
+            "Failed to schedule device event status update for event_id=%s",
+            event.event_id,
+        )
 
 
 def run_event_post_ingest_worker(
@@ -7227,7 +7318,7 @@ def run_event_post_ingest_worker(
             lambda: asyncio.create_task(broadcast_event_post_ingest_result(result))
         )
     except RuntimeError:
-        logger.exception("Event loop closed before post-ingest broadcast for %s", event_id)
+        logger.warning("Event loop closed before post-ingest broadcast for %s", event_id)
 
 
 def schedule_event_post_ingest(
@@ -7236,12 +7327,16 @@ def schedule_event_post_ingest(
     is_existing_event: bool,
 ) -> None:
     loop = asyncio.get_running_loop()
-    worker = threading.Thread(
-        target=run_event_post_ingest_worker,
-        args=(loop, event_id, label, is_existing_event),
-        daemon=True,
-    )
-    worker.start()
+    try:
+        post_ingest_executor.submit(
+            run_event_post_ingest_worker,
+            loop,
+            event_id,
+            label,
+            is_existing_event,
+        )
+    except Exception:
+        logger.exception("Failed to schedule event post-ingest for event_id=%s", event_id)
 
 
 def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
@@ -7323,7 +7418,21 @@ async def create_event(
     sanitize_timing_metadata(event)
     sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
-    result = await asyncio.to_thread(process_event_initial_submission, event)
+    try:
+        result = await asyncio.to_thread(process_event_initial_submission, event)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Event initial submission failed event_id=%s device_id=%s",
+            event.event_id,
+            event.device_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="db_event_write_error",
+        ) from exc
+
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
@@ -7332,7 +7441,7 @@ async def create_event(
     if device_row:
         effective_latitude = saved_event.get("effective_latitude")
         effective_longitude = saved_event.get("effective_longitude")
-        await dashboard_manager.broadcast(
+        schedule_dashboard_broadcast(
             {
                 "type": "event_trigger",
                 **device_row,
@@ -7356,7 +7465,8 @@ async def create_event(
                     **device_row,
                     "status": "event",
                 },
-            }
+            },
+            "event_trigger",
         )
         schedule_device_event_status_update(event)
 
@@ -7368,14 +7478,15 @@ async def create_event(
         )
 
     if is_existing_event and has_audio_metadata(event):
-        await dashboard_manager.broadcast(
+        schedule_dashboard_broadcast(
             {
                 "type": "event_audio_update",
                 "event_id": event.event_id,
                 "audio_path": event.audio_path,
                 "audio_format": event.audio_format,
                 "tdoa_clip_path": event.tdoa_clip_path,
-            }
+            },
+            "event_audio_update",
         )
 
     return {
@@ -7594,16 +7705,26 @@ def delete_event(
 
 @app.post("/location-update")
 async def update_location(location: LocationUpdate):
-    device_row, enriched_device_row = await asyncio.to_thread(
-        process_location_update,
-        location,
-    )
+    try:
+        device_row, enriched_device_row = await asyncio.to_thread(
+            process_location_update,
+            location,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Location update failed device_id=%s", location.device_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="device_status_update_error",
+        ) from exc
 
-    await dashboard_manager.broadcast(
+    schedule_dashboard_broadcast(
         {
             "type": "location_update",
             **enriched_device_row,
-        }
+        },
+        "location_update",
     )
 
     return {
@@ -13732,11 +13853,25 @@ def upload_audio(
     blob = bucket.blob(audio_path)
 
     try:
-        file.file.seek(0)
-        blob.upload_from_file(
-            file.file,
+        upload_file_to_blob_with_retries(
+            file,
+            blob,
             content_type=audio_content_type(detected_format),
+            context="primary_audio",
         )
+    except Exception as exc:
+        logger.exception(
+            "GCS primary audio upload failed event_id=%s device_id=%s path=%s",
+            event_id,
+            device_id,
+            audio_path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="gcs_upload_error",
+        ) from exc
+
+    try:
         update_event_audio_path(
             event_id=event_id,
             audio_path=audio_path,
@@ -13750,9 +13885,15 @@ def upload_audio(
             device_id,
         )
     except Exception as exc:
+        logger.exception(
+            "Audio metadata update failed event_id=%s device_id=%s path=%s",
+            event_id,
+            device_id,
+            audio_path,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload audio file",
+            detail="audio_metadata_update_error",
         ) from exc
     finally:
         file.file.close()
@@ -13803,11 +13944,25 @@ def upload_tdoa_clip(
     blob = bucket.blob(clip_path)
 
     try:
-        file.file.seek(0)
-        blob.upload_from_file(
-            file.file,
+        upload_file_to_blob_with_retries(
+            file,
+            blob,
             content_type=audio_content_type(detected_format),
+            context="tdoa_clip",
         )
+    except Exception as exc:
+        logger.exception(
+            "GCS TDOA clip upload failed event_id=%s device_id=%s path=%s",
+            event_id,
+            device_id,
+            clip_path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="gcs_upload_error",
+        ) from exc
+
+    try:
         update_event_tdoa_clip(
             event_id=event_id,
             tdoa_clip_path=clip_path,
@@ -13821,9 +13976,15 @@ def upload_tdoa_clip(
             device_id,
         )
     except Exception as exc:
+        logger.exception(
+            "TDOA clip metadata update failed event_id=%s device_id=%s path=%s",
+            event_id,
+            device_id,
+            clip_path,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload TDOA clip",
+            detail="tdoa_clip_metadata_update_error",
         ) from exc
     finally:
         file.file.close()
