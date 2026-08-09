@@ -8622,8 +8622,6 @@ def dashboard_v4_clean():
             .node-card {
                 padding: 11px;
                 margin-bottom: 9px;
-                content-visibility: auto;
-                contain-intrinsic-size: 260px;
             }
             .node-card.online { border-color: #196646; }
             .node-title, .event-title {
@@ -8781,8 +8779,6 @@ def dashboard_v4_clean():
                 padding: 11px;
                 margin-bottom: 9px;
                 cursor: pointer;
-                content-visibility: auto;
-                contain-intrinsic-size: 88px;
             }
             .event-row.target { border-color: #a77716; }
             .event-row.selected { border-color: var(--accent); background: #132335; }
