@@ -3556,9 +3556,12 @@ def process_tracking_for_event_group_region(
         return None
 
     event_time = (
-        parse_datetime(event_group.get("region_updated_at"))
+        parse_datetime(event_group.get("last_event_time"))
+        or parse_datetime(event_group.get("end_time"))
+        or parse_datetime(event_group.get("first_event_time"))
+        or parse_datetime(event_group.get("start_time"))
+        or parse_datetime(event_group.get("region_updated_at"))
         or parse_datetime(event_group.get("updated_at"))
-        or parse_datetime(event_group.get("last_event_time"))
         or datetime.now(timezone.utc)
     )
     confidence = parse_float_value(event_group.get("confidence"))
@@ -3615,7 +3618,7 @@ def build_active_alert_region_measurement(
     for row in recent_events:
         if not is_alert_event_label(row.get("label")):
             continue
-        event_time = event_backend_time(row)
+        event_time = event_observed_time(row)
         if event_time is None or event_time < start_time or event_time > end_time:
             continue
         device_id = str(row.get("device_id") or "").strip()
@@ -3693,7 +3696,7 @@ def process_tracking_for_active_alert_region(trigger_event_id: str) -> Optional[
     trigger_event = get_event_by_event_id(trigger_event_id)
     if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
         return None
-    reference_time = event_backend_time(trigger_event) or datetime.now(timezone.utc)
+    reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
     measurement = build_active_alert_region_measurement(
         list_recent_events(100),
         reference_time=reference_time,
@@ -6066,6 +6069,27 @@ def event_timestamp_for_fusion(row: dict) -> Optional[datetime]:
     if corrected is not None:
         return datetime.fromtimestamp(corrected / 1000.0, tz=timezone.utc)
     return parse_datetime(row.get("timestamp")) or parse_datetime(row.get("created_at"))
+
+
+def epoch_ms_to_datetime(value: Any) -> Optional[datetime]:
+    milliseconds = parse_float_value(value)
+    if milliseconds is None:
+        return None
+    try:
+        return datetime.fromtimestamp(milliseconds / 1000.0, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def event_observed_time(row: dict) -> Optional[datetime]:
+    """Return the time the phone observed the sound, not when the backend received it."""
+
+    return (
+        epoch_ms_to_datetime(row.get("rms_peak_time_ms"))
+        or epoch_ms_to_datetime(row.get("device_event_time_ms"))
+        or parse_datetime(row.get("timestamp"))
+        or parse_datetime(row.get("created_at"))
+    )
 
 
 def fusion_weight(rms_peak: Any, aircraft_probability: Optional[float]) -> float:

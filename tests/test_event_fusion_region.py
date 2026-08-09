@@ -172,7 +172,7 @@ def test_events_from_different_labels_are_not_grouped() -> None:
     assert other["id"] != aircraft["id"]
 
 
-def test_fusion_groups_by_backend_created_at_for_live_episode() -> None:
+def test_fusion_groups_by_device_observed_time_for_live_episode() -> None:
     connection = make_connection()
     backend_time = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
     device_time = datetime(2026, 7, 27, 7, 59, tzinfo=timezone.utc)
@@ -191,7 +191,7 @@ def test_fusion_groups_by_backend_created_at_for_live_episode() -> None:
         is_postgres=False,
         window_seconds=3,
     )
-    second = process_event(
+    different_sound_time = process_event(
         connection,
         event_record(
             "evt_live_a02",
@@ -206,6 +206,22 @@ def test_fusion_groups_by_backend_created_at_for_live_episode() -> None:
         window_seconds=3,
     )
 
-    assert second["id"] == first["id"]
-    assert second["node_count"] == 2
-    assert second["region_type"] == "segment"
+    same_sound_episode = process_event(
+        connection,
+        event_record(
+            "evt_live_a03",
+            "node_A03",
+            "aircraft",
+            device_time + timedelta(seconds=1),
+            25.0,
+            121.3,
+            created_at=backend_time + timedelta(seconds=45),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+
+    assert different_sound_time["id"] != first["id"]
+    assert same_sound_episode["id"] == first["id"]
+    assert same_sound_episode["node_count"] == 2
+    assert same_sound_episode["region_type"] == "segment"
