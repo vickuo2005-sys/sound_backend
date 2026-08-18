@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "schema-tolerant-dashboard-v2",
+        "runtime_marker": "fixed-node-marker-pin-v1",
     }
 
 
@@ -9707,6 +9707,20 @@ def dashboard_v4_clean():
                 }
             }
 
+            function lockFixedMarkerPosition(merged) {
+                const fixedPosition = firstValidPosition(merged, [['fixed_latitude', 'fixed_longitude']]);
+                if (!fixedPosition) return;
+
+                merged.effective_latitude = fixedPosition.lat;
+                merged.effective_longitude = fixedPosition.lng;
+                merged.effective_location_source = 'fixed';
+                merged.marker_latitude = fixedPosition.lat;
+                merged.marker_longitude = fixedPosition.lng;
+                merged.marker_location_source = merged.fixed_location_source || 'fixed_location';
+                merged.marker_position_locked = true;
+                merged.marker_position_warning = '';
+            }
+
             function preserveStableNodePositionDuringEvent(merged, existing, incoming) {
                 if (!existing || !incoming || !isEventLikeDeviceUpdate(incoming)) return;
 
@@ -9763,6 +9777,7 @@ def dashboard_v4_clean():
                 );
                 preserveStableNodePositionDuringEvent(merged, existing, incoming);
                 preserveMarkerPositionDuringAlert(merged, existing, incoming);
+                lockFixedMarkerPosition(merged);
                 syncAlertFromDevice(merged);
                 if (isAlertActive(merged.device_id)) {
                     merged.status = 'event';
