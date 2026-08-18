@@ -330,6 +330,33 @@ def current_time_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def runtime_build_info() -> dict:
+    return {
+        "render_git_commit": os.getenv("RENDER_GIT_COMMIT"),
+        "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
+        "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
+        "render_service_id": os.getenv("RENDER_SERVICE_ID"),
+        "runtime_marker": "schema-tolerant-dashboard-v2",
+    }
+
+
+def degraded_read_payload(
+    *,
+    source: str,
+    exc: Exception,
+    collection_key: str,
+) -> dict:
+    logger.exception("%s read failed", source)
+    return {
+        "status": "degraded",
+        "source": f"{source}_unavailable",
+        "error": exc.__class__.__name__,
+        "detail": str(exc)[:300],
+        "count": 0,
+        collection_key: [],
+    }
+
+
 def current_date_yyyymmdd() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d")
 
@@ -7654,6 +7681,7 @@ async def runtime_status():
     return {
         "status": "success",
         "time": current_time_iso(),
+        "build": runtime_build_info(),
         "database": "postgres" if use_postgres() else "sqlite",
         "database_init_error": DATABASE_INIT_ERROR,
         "dashboard_websocket_connections": len(dashboard_manager.active_connections),
@@ -7676,6 +7704,87 @@ async def runtime_status():
         "upload_token_configured": bool(os.getenv("UPLOAD_TOKEN")),
         "diagnostic_device_filter": DIAGNOSTIC_DEVICE_ID_PATTERN.pattern,
     }
+
+
+@app.get("/database-status")
+def database_status():
+    tables = [
+        "events",
+        "device_status",
+        "device_locations",
+        "event_groups",
+        "event_group_observations",
+        "target_tracks",
+        "target_track_points",
+    ]
+
+    diagnostics = {
+        "status": "success",
+        "time": current_time_iso(),
+        "database": "postgres" if use_postgres() else "sqlite",
+        "build": runtime_build_info(),
+        "tables": {},
+    }
+
+    if use_postgres():
+        try:
+            connection = get_postgres_connection()
+            try:
+                with connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT now() AS database_time")
+                        row = cursor.fetchone()
+                        diagnostics["database_time"] = str(row.get("database_time")) if row else None
+                        for table_name in tables:
+                            table_info = {"exists": False, "columns": [], "row_count": None}
+                            cursor.execute(
+                                """
+                                SELECT column_name
+                                FROM information_schema.columns
+                                WHERE table_name = %s
+                                ORDER BY ordinal_position
+                                """,
+                                (table_name,),
+                            )
+                            columns = [str(item["column_name"]) for item in cursor.fetchall()]
+                            table_info["exists"] = bool(columns)
+                            table_info["columns"] = columns
+                            if columns:
+                                try:
+                                    cursor.execute(f"SELECT COUNT(*) AS count FROM {table_name}")
+                                    count_row = cursor.fetchone()
+                                    table_info["row_count"] = int(count_row["count"]) if count_row else None
+                                except Exception as exc:
+                                    table_info["count_error"] = str(exc)[:300]
+                                    connection.rollback()
+                            diagnostics["tables"][table_name] = table_info
+            finally:
+                connection.close()
+        except Exception as exc:
+            logger.exception("Database diagnostics failed")
+            diagnostics["status"] = "degraded"
+            diagnostics["error"] = exc.__class__.__name__
+            diagnostics["detail"] = str(exc)[:500]
+        return diagnostics
+
+    try:
+        with get_sqlite_connection() as connection:
+            for table_name in tables:
+                table_info = {"exists": False, "columns": [], "row_count": None}
+                rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+                columns = [str(row["name"]) for row in rows]
+                table_info["exists"] = bool(columns)
+                table_info["columns"] = columns
+                if columns:
+                    count_row = connection.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
+                    table_info["row_count"] = int(count_row["count"]) if count_row else None
+                diagnostics["tables"][table_name] = table_info
+    except Exception as exc:
+        logger.exception("SQLite diagnostics failed")
+        diagnostics["status"] = "degraded"
+        diagnostics["error"] = exc.__class__.__name__
+        diagnostics["detail"] = str(exc)[:500]
+    return diagnostics
 
 
 @app.get("/time-sync")
@@ -7884,23 +7993,32 @@ def tracks(
     limit: int = Query(default=20, ge=1, le=100),
     points_limit: int = Query(default=20, ge=0, le=100),
 ):
-    closed_tracks = close_stale_tracks()
-    cache_key = f"{status_filter or ''}|{label or ''}|{limit}|{points_limit}"
-    cached = get_tracks_cache(cache_key)
-    if cached is not None:
-        return cached
+    try:
+        closed_tracks = close_stale_tracks()
+        cache_key = f"{status_filter or ''}|{label or ''}|{limit}|{points_limit}"
+        cached = get_tracks_cache(cache_key)
+        if cached is not None:
+            return cached
 
-    rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
-    if points_limit:
-        rows = enrich_tracks_with_points(rows, limit=points_limit)
-    payload = {
-        "status": "success",
-        "count": len(rows),
-        "tracks": rows,
-        "closed_count": len(closed_tracks),
-    }
-    set_tracks_cache(cache_key, payload)
-    return payload
+        rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
+        if points_limit:
+            rows = enrich_tracks_with_points(rows, limit=points_limit)
+        payload = {
+            "status": "success",
+            "count": len(rows),
+            "tracks": rows,
+            "closed_count": len(closed_tracks),
+        }
+        set_tracks_cache(cache_key, payload)
+        return payload
+    except Exception as exc:
+        payload = degraded_read_payload(
+            source="tracks",
+            exc=exc,
+            collection_key="tracks",
+        )
+        payload["closed_count"] = 0
+        return payload
 
 
 @app.get("/tracks/{track_id}")
@@ -7970,7 +8088,14 @@ async def localization_result_track(result_id: str):
 
 @app.get("/events")
 def list_events(limit: int = Query(default=20, ge=1, le=100)):
-    events = list_recent_events(limit=limit)
+    try:
+        events = list_recent_events(limit=limit)
+    except Exception as exc:
+        return degraded_read_payload(
+            source="events",
+            exc=exc,
+            collection_key="events",
+        )
 
     return {
         "status": "success",
@@ -8028,13 +8153,15 @@ def device_status():
     source = "device_status"
     try:
         devices = list_device_status_rows()
-    except Exception:
-        logger.exception("Failed to read device_status")
-        source = "device_status_unavailable"
-        devices = []
-    devices = filter_diagnostic_device_rows(devices)
-    devices = merge_device_status_rows_with_live_nodes(devices)
-    devices = enrich_device_status_rows(devices)
+        devices = filter_diagnostic_device_rows(devices)
+        devices = merge_device_status_rows_with_live_nodes(devices)
+        devices = enrich_device_status_rows(devices)
+    except Exception as exc:
+        return degraded_read_payload(
+            source="device_status",
+            exc=exc,
+            collection_key="devices",
+        )
 
     return {
         "status": "success",
@@ -8062,7 +8189,14 @@ async def delete_device_status(
 
 @app.get("/device-locations")
 def device_locations():
-    locations = list_device_fixed_locations()
+    try:
+        locations = list_device_fixed_locations()
+    except Exception as exc:
+        return degraded_read_payload(
+            source="device_locations",
+            exc=exc,
+            collection_key="device_locations",
+        )
     return {
         "status": "success",
         "count": len(locations),
