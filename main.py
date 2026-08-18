@@ -2653,7 +2653,6 @@ def update_event_tdoa_clip(
 
 
 def list_recent_events(limit: int = 50) -> list[dict]:
-    columns = ", ".join(EVENT_COLUMNS)
     safe_limit = max(1, min(int(limit or 50), 100))
 
     if use_postgres():
@@ -2661,6 +2660,7 @@ def list_recent_events(limit: int = 50) -> list[dict]:
         try:
             with connection:
                 with connection.cursor() as cursor:
+                    columns = event_select_clause(cursor=cursor)
                     cursor.execute(
                         f"""
                         SELECT {columns}
@@ -2676,6 +2676,7 @@ def list_recent_events(limit: int = 50) -> list[dict]:
         return enrich_event_location_rows(rows)
 
     with get_sqlite_connection() as connection:
+        columns = event_select_clause(sqlite_connection=connection)
         rows = connection.execute(
             f"""
             SELECT {columns}
@@ -2690,13 +2691,12 @@ def list_recent_events(limit: int = 50) -> list[dict]:
 
 
 def get_event_by_event_id(event_id: str) -> Optional[dict]:
-    columns = ", ".join(EVENT_COLUMNS)
-
     if use_postgres():
         connection = get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
+                    columns = event_select_clause(cursor=cursor)
                     cursor.execute(
                         f"""
                         SELECT {columns}
@@ -2713,6 +2713,7 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
         return enrich_event_location_row(event_row) if event_row else None
 
     with get_sqlite_connection() as connection:
+        columns = event_select_clause(sqlite_connection=connection)
         row = connection.execute(
             f"""
             SELECT {columns}
@@ -3977,21 +3978,28 @@ def list_tracks(status_filter: Optional[str] = None, label: Optional[str] = None
                         tuple(params + [safe_limit]),
                     )
                     return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        except Exception as exc:
+            logger.warning("Target tracks unavailable: %s", exc)
+            return []
         finally:
             connection.close()
 
-    with get_sqlite_connection() as connection:
-        rows = connection.execute(
-            f"""
-            SELECT *
-            FROM target_tracks
-            {where_clause.replace("%s", "?")}
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            tuple(params + [safe_limit]),
-        ).fetchall()
-        return [serialize_db_row(dict(row)) for row in rows]
+    try:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT *
+                FROM target_tracks
+                {where_clause.replace("%s", "?")}
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                tuple(params + [safe_limit]),
+            ).fetchall()
+            return [serialize_db_row(dict(row)) for row in rows]
+    except Exception as exc:
+        logger.warning("Target tracks unavailable: %s", exc)
+        return []
 
 
 def get_track(track_id: str) -> Optional[dict]:
@@ -4003,12 +4011,19 @@ def get_track(track_id: str) -> Optional[dict]:
                     cursor.execute("SELECT * FROM target_tracks WHERE id = %s LIMIT 1", (track_id,))
                     row = cursor.fetchone()
                     return serialize_db_row(dict(row)) if row else None
+        except Exception as exc:
+            logger.warning("Target track unavailable for %s: %s", track_id, exc)
+            return None
         finally:
             connection.close()
 
-    with get_sqlite_connection() as connection:
-        row = connection.execute("SELECT * FROM target_tracks WHERE id = ? LIMIT 1", (track_id,)).fetchone()
-        return serialize_db_row(dict(row)) if row else None
+    try:
+        with get_sqlite_connection() as connection:
+            row = connection.execute("SELECT * FROM target_tracks WHERE id = ? LIMIT 1", (track_id,)).fetchone()
+            return serialize_db_row(dict(row)) if row else None
+    except Exception as exc:
+        logger.warning("Target track unavailable for %s: %s", track_id, exc)
+        return None
 
 
 def list_track_points(track_id: str, limit: int = 100) -> list[dict]:
@@ -4029,21 +4044,28 @@ def list_track_points(track_id: str, limit: int = 100) -> list[dict]:
                         (track_id, safe_limit),
                     )
                     return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        except Exception as exc:
+            logger.warning("Target track points unavailable for %s: %s", track_id, exc)
+            return []
         finally:
             connection.close()
 
-    with get_sqlite_connection() as connection:
-        rows = connection.execute(
-            """
-            SELECT *
-            FROM target_track_points
-            WHERE track_id = ?
-            ORDER BY measurement_time_ms ASC
-            LIMIT ?
-            """,
-            (track_id, safe_limit),
-        ).fetchall()
-        return [serialize_db_row(dict(row)) for row in rows]
+    try:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT *
+                FROM target_track_points
+                WHERE track_id = ?
+                ORDER BY measurement_time_ms ASC
+                LIMIT ?
+                """,
+                (track_id, safe_limit),
+            ).fetchall()
+            return [serialize_db_row(dict(row)) for row in rows]
+    except Exception as exc:
+        logger.warning("Target track points unavailable for %s: %s", track_id, exc)
+        return []
 
 
 def enrich_track_with_points(track: Optional[dict], limit: int = 20) -> Optional[dict]:
@@ -4414,7 +4436,6 @@ def tracking_rebuild_events(
 ) -> list[dict]:
     safe_limit = max(1, min(int(limit or 500), 5000))
     cutoff, _ = rebuild_cutoff(hours)
-    columns = ", ".join(EVENT_COLUMNS)
     params: list[Any] = ["aircraft", "drone"]
     cutoff_clause = ""
     if cutoff is not None:
@@ -4432,6 +4453,7 @@ def tracking_rebuild_events(
         try:
             with connection:
                 with connection.cursor() as cursor:
+                    columns = event_select_clause(cursor=cursor)
                     cursor.execute(
                         f"""
                         SELECT {columns}
@@ -4453,6 +4475,7 @@ def tracking_rebuild_events(
             sqlite_params.extend([cutoff.isoformat(), cutoff.isoformat()])
         sqlite_params.append(safe_limit)
         with get_sqlite_connection() as connection:
+            columns = event_select_clause(sqlite_connection=connection)
             fetched = connection.execute(
                 f"""
                 SELECT {columns}
@@ -5072,19 +5095,41 @@ def existing_table_columns(
 
 
 def device_status_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
-    existing_columns = existing_table_columns(
+    return select_existing_columns_clause(
         "device_status",
+        DEVICE_STATUS_COLUMNS,
         cursor=cursor,
         sqlite_connection=sqlite_connection,
     )
 
+
+def select_existing_columns_clause(
+    table_name: str,
+    desired_columns: list[str],
+    cursor: Any = None,
+    sqlite_connection: Any = None,
+) -> str:
+    existing_columns = existing_table_columns(
+        table_name,
+        cursor=cursor,
+        sqlite_connection=sqlite_connection,
+    )
     select_parts = []
-    for column in DEVICE_STATUS_COLUMNS:
+    for column in desired_columns:
         if column in existing_columns:
             select_parts.append(column)
         else:
             select_parts.append(f"NULL AS {column}")
     return ", ".join(select_parts)
+
+
+def event_select_clause(cursor: Any = None, sqlite_connection: Any = None) -> str:
+    return select_existing_columns_clause(
+        "events",
+        EVENT_COLUMNS,
+        cursor=cursor,
+        sqlite_connection=sqlite_connection,
+    )
 
 
 def list_device_status_rows() -> list[dict]:
@@ -5319,15 +5364,19 @@ def list_device_fixed_locations() -> list[dict]:
 
     columns = ", ".join(DEVICE_LOCATION_COLUMNS)
     if not use_postgres():
-        with get_sqlite_connection() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {columns}
-                FROM device_locations
-                ORDER BY device_id ASC
-                """
-            ).fetchall()
-            return normalized_rows(rows)
+        try:
+            with get_sqlite_connection() as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_locations
+                    ORDER BY device_id ASC
+                    """
+                ).fetchall()
+                return normalized_rows(rows)
+        except Exception as exc:
+            logger.warning("Device fixed locations unavailable: %s", exc)
+            return []
 
     connection = get_postgres_connection()
     try:
@@ -5341,6 +5390,9 @@ def list_device_fixed_locations() -> list[dict]:
                     """
                 )
                 return normalized_rows(cursor.fetchall())
+    except Exception as exc:
+        logger.warning("Device fixed locations unavailable: %s", exc)
+        return []
     finally:
         connection.close()
 
@@ -5348,17 +5400,21 @@ def list_device_fixed_locations() -> list[dict]:
 def get_device_fixed_location(device_id: str) -> Optional[dict]:
     columns = ", ".join(DEVICE_LOCATION_COLUMNS)
     if not use_postgres():
-        with get_sqlite_connection() as connection:
-            row = connection.execute(
-                f"""
-                SELECT {columns}
-                FROM device_locations
-                WHERE device_id = ?
-                LIMIT 1
-                """,
-                (device_id,),
-            ).fetchone()
-            return normalize_location_row(serialize_db_row(dict(row))) if row else None
+        try:
+            with get_sqlite_connection() as connection:
+                row = connection.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_locations
+                    WHERE device_id = ?
+                    LIMIT 1
+                    """,
+                    (device_id,),
+                ).fetchone()
+                return normalize_location_row(serialize_db_row(dict(row))) if row else None
+        except Exception as exc:
+            logger.warning("Device fixed location unavailable for %s: %s", device_id, exc)
+            return None
 
     connection = get_postgres_connection()
     try:
@@ -5375,6 +5431,9 @@ def get_device_fixed_location(device_id: str) -> Optional[dict]:
                 )
                 row = cursor.fetchone()
                 return normalize_location_row(serialize_db_row(dict(row))) if row else None
+    except Exception as exc:
+        logger.warning("Device fixed location unavailable for %s: %s", device_id, exc)
+        return None
     finally:
         connection.close()
 
@@ -6081,12 +6140,12 @@ def parse_note_field(note: Optional[str], key: str) -> Optional[str]:
 
 
 def list_events_for_export() -> list[dict]:
-    columns = ", ".join(EVENT_COLUMNS)
     if use_postgres():
         connection = get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
+                    columns = event_select_clause(cursor=cursor)
                     cursor.execute(
                         f"""
                         SELECT {columns}
@@ -6497,13 +6556,12 @@ def estimate_position_tdoa(observations: list[dict]) -> dict:
 
 
 def list_recent_target_events_for_fusion() -> list[dict]:
-    columns = ", ".join(EVENT_COLUMNS)
-
     if use_postgres():
         connection = get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
+                    columns = event_select_clause(cursor=cursor)
                     cursor.execute(
                         f"""
                         SELECT {columns}
@@ -6520,6 +6578,7 @@ def list_recent_target_events_for_fusion() -> list[dict]:
             connection.close()
 
     with get_sqlite_connection() as connection:
+        columns = event_select_clause(sqlite_connection=connection)
         rows = connection.execute(
             f"""
             SELECT {columns}
