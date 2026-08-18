@@ -68,6 +68,9 @@ DIAGNOSTIC_DEVICE_ID_PATTERN = re.compile(
 _postgres_pool: Any = None
 _postgres_pool_database_url = ""
 _postgres_pool_lock = threading.Lock()
+_gcs_bucket_cache: Any = None
+_gcs_bucket_cache_key = ""
+_gcs_bucket_lock = threading.Lock()
 DATABASE_INIT_ERROR: Optional[str] = None
 POSTGRES_SCHEMA_AUTO_INIT = (
     os.getenv("POSTGRES_SCHEMA_AUTO_INIT", "false").lower() == "true"
@@ -111,9 +114,12 @@ NODE_OFFLINE_TIMEOUT_SECONDS = float(
     os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
 )
 NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15)
+TRACK_REGION_MEMORY_SECONDS = float(
+    os.getenv("TRACK_REGION_MEMORY_SECONDS", "60") or 60
+)
 LIVE_ALERT_REGION_WINDOW_SECONDS = float(
-    os.getenv("LIVE_ALERT_REGION_WINDOW_SECONDS", str(NODE_ALERT_HOLD_SECONDS))
-    or NODE_ALERT_HOLD_SECONDS
+    os.getenv("LIVE_ALERT_REGION_WINDOW_SECONDS", str(TRACK_REGION_MEMORY_SECONDS))
+    or TRACK_REGION_MEMORY_SECONDS
 )
 COMMAND_WEBSOCKET_ENABLED = (
     os.getenv("COMMAND_WEBSOCKET_ENABLED", "true").lower() == "true"
@@ -4401,6 +4407,128 @@ def tracking_rebuild_event_groups(
     return [serialize_db_row(dict(row)) for row in rows]
 
 
+def tracking_rebuild_events(
+    *,
+    hours: Optional[float],
+    limit: int,
+) -> list[dict]:
+    safe_limit = max(1, min(int(limit or 500), 5000))
+    cutoff, _ = rebuild_cutoff(hours)
+    columns = ", ".join(EVENT_COLUMNS)
+    params: list[Any] = ["aircraft", "drone"]
+    cutoff_clause = ""
+    if cutoff is not None:
+        cutoff_clause = """
+          AND (
+              created_at >= %s
+              OR timestamp >= %s
+          )
+        """
+        params.extend([cutoff, cutoff.isoformat()])
+    params.append(safe_limit)
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT {columns}
+                        FROM events
+                        WHERE LOWER(COALESCE(label, '')) IN (%s, %s)
+                          {cutoff_clause}
+                        ORDER BY id DESC
+                        LIMIT %s
+                        """,
+                        tuple(params),
+                    )
+                    rows = [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+    else:
+        sqlite_cutoff_clause = cutoff_clause.replace("%s", "?")
+        sqlite_params: list[Any] = ["aircraft", "drone"]
+        if cutoff is not None:
+            sqlite_params.extend([cutoff.isoformat(), cutoff.isoformat()])
+        sqlite_params.append(safe_limit)
+        with get_sqlite_connection() as connection:
+            fetched = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM events
+                WHERE LOWER(COALESCE(label, '')) IN (?, ?)
+                  {sqlite_cutoff_clause}
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                tuple(sqlite_params),
+            ).fetchall()
+            rows = [serialize_db_row(dict(row)) for row in fetched]
+
+    enriched = enrich_event_location_rows(rows)
+    usable = [
+        row
+        for row in enriched
+        if is_alert_event_label(row.get("label"))
+        and row.get("effective_latitude") is not None
+        and row.get("effective_longitude") is not None
+        and not is_diagnostic_device_id(row.get("device_id"))
+    ]
+    return sorted(
+        usable,
+        key=lambda row: event_observed_time(row)
+        or parse_datetime(row.get("created_at"))
+        or datetime.min.replace(tzinfo=timezone.utc),
+    )
+
+
+def tracking_measurement_key(measurement: dict) -> tuple:
+    event_time_ms = parse_float_value(measurement.get("event_time_ms")) or 0.0
+    devices = tuple(sorted(str(item) for item in measurement.get("reporting_device_ids") or []))
+    return (
+        round(event_time_ms / 1000.0, 1),
+        devices,
+        round(float(measurement.get("estimated_lat") or 0.0), 6),
+        round(float(measurement.get("estimated_lng") or 0.0), 6),
+    )
+
+
+def tracking_rebuild_measurements_from_events(
+    events: list[dict],
+    *,
+    window_seconds: Optional[float] = None,
+) -> list[dict]:
+    if not events:
+        return []
+
+    window = max(1.0, float(window_seconds or LIVE_ALERT_REGION_WINDOW_SECONDS))
+    measurements: list[dict] = []
+    seen: set[tuple] = set()
+    for row in events:
+        reference_time = event_observed_time(row)
+        if reference_time is None:
+            continue
+        measurement = build_active_alert_region_measurement(
+            events,
+            reference_time=reference_time,
+            window_seconds=window,
+        )
+        if measurement is None:
+            continue
+        measurement["source"] = "historical_event_window"
+        key = tracking_measurement_key(measurement)
+        if key in seen:
+            continue
+        seen.add(key)
+        measurements.append(measurement)
+
+    return sorted(
+        measurements,
+        key=lambda item: parse_float_value(item.get("event_time_ms")) or 0.0,
+    )
+
+
 def rebuild_tracks_from_history(
     *,
     hours: Optional[float] = 48.0,
@@ -4408,12 +4536,18 @@ def rebuild_tracks_from_history(
     clear_existing: bool = True,
     dry_run: bool = False,
 ) -> dict:
+    source_events = tracking_rebuild_events(hours=hours, limit=limit)
+    source_measurements = tracking_rebuild_measurements_from_events(source_events)
+    source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
+
     if dry_run:
-        source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
         return {
             "status": "success",
             "dry_run": True,
             "hours": hours,
+            "rebuild_source": "raw_events" if source_measurements else "event_groups",
+            "source_events": len(source_events),
+            "source_measurements": len(source_measurements),
             "source_groups": len(source_groups),
             "deleted_track_count": 0,
             "rebuilt_track_count": 0,
@@ -4424,16 +4558,23 @@ def rebuild_tracks_from_history(
         }
 
     deleted_tracks = delete_target_tracks_for_rebuild(hours) if clear_existing else 0
-    source_groups = tracking_rebuild_event_groups(hours=hours, limit=limit)
     rebuilt_tracks: dict[str, dict] = {}
     skipped = 0
 
-    for group in source_groups:
-        track = process_tracking_for_event_group_region(group, close_stale=False)
-        if track and track.get("id"):
-            rebuilt_tracks[str(track["id"])] = track
-        else:
-            skipped += 1
+    if source_measurements:
+        for measurement in source_measurements:
+            track = process_tracking_measurement(measurement, close_stale=False)
+            if track and track.get("id"):
+                rebuilt_tracks[str(track["id"])] = track
+            else:
+                skipped += 1
+    else:
+        for group in source_groups:
+            track = process_tracking_for_event_group_region(group, close_stale=False)
+            if track and track.get("id"):
+                rebuilt_tracks[str(track["id"])] = track
+            else:
+                skipped += 1
 
     closed_tracks = close_stale_tracks()
     invalidate_tracks_cache()
@@ -4441,6 +4582,9 @@ def rebuild_tracks_from_history(
         "status": "success",
         "dry_run": False,
         "hours": hours,
+        "rebuild_source": "raw_events" if source_measurements else "event_groups",
+        "source_events": len(source_events),
+        "source_measurements": len(source_measurements),
         "source_groups": len(source_groups),
         "rebuilt_track_count": len(rebuilt_tracks),
         "rebuilt_point_count": sum(
@@ -4556,8 +4700,8 @@ def upsert_device_location(
                 )
                 VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(device_id) DO UPDATE SET
-                    latitude = excluded.latitude,
-                    longitude = excluded.longitude,
+                    latitude = COALESCE(excluded.latitude, device_status.latitude),
+                    longitude = COALESCE(excluded.longitude, device_status.longitude),
                     last_seen = excluded.last_seen,
                     status = CASE
                         WHEN device_status.last_event_at IS NOT NULL
@@ -4713,8 +4857,20 @@ def upsert_device_location(
 
 
 def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
-    if not event.device_id or event.latitude is None or event.longitude is None:
+    device_id = str(event.device_id or "").strip()
+    if not device_id:
         return None
+
+    effective_location = resolve_effective_location(
+        device_id=device_id,
+        event_latitude=event.latitude,
+        event_longitude=event.longitude,
+        fixed_locations=location_map(list_device_fixed_locations()),
+    )
+    if not effective_location:
+        return None
+    status_latitude = effective_location["latitude"]
+    status_longitude = effective_location["longitude"]
 
     has_event_time_sync = (
         event.time_sync_offset_ms is not None or event.time_sync_rtt_ms is not None
@@ -4775,9 +4931,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     updated_at = excluded.updated_at
                 """,
                 (
-                    event.device_id,
-                    event.latitude,
-                    event.longitude,
+                    device_id,
+                    status_latitude,
+                    status_longitude,
                     now,
                     event.event_id,
                     now,
@@ -4800,7 +4956,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                 FROM device_status
                 WHERE device_id = ?
                 """,
-                (event.device_id,),
+                (device_id,),
             ).fetchone()
             return serialize_db_row(dict(row))
 
@@ -4859,9 +5015,9 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                         {columns}
                     """,
                     (
-                        event.device_id,
-                        event.latitude,
-                        event.longitude,
+                        device_id,
+                        status_latitude,
+                        status_longitude,
                         event.event_id,
                         event.label,
                         event.gps_speed_mps,
@@ -6899,6 +7055,8 @@ def safe_path_part(value: str) -> str:
 
 
 def get_gcs_bucket() -> storage.Bucket:
+    global _gcs_bucket_cache, _gcs_bucket_cache_key
+
     bucket_name = os.getenv("GCS_BUCKET_NAME")
     credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 
@@ -6914,16 +7072,26 @@ def get_gcs_bucket() -> storage.Bucket:
             detail="GOOGLE_APPLICATION_CREDENTIALS_JSON is not configured",
         )
 
+    cache_key = f"{bucket_name}:{len(credentials_json)}:{hash(credentials_json)}"
+    if _gcs_bucket_cache is not None and _gcs_bucket_cache_key == cache_key:
+        return _gcs_bucket_cache
+
     try:
-        credentials_info = json.loads(credentials_json)
-        credentials = service_account.Credentials.from_service_account_info(
-            credentials_info
-        )
-        client = storage.Client(
-            credentials=credentials,
-            project=credentials_info.get("project_id"),
-        )
-        return client.bucket(bucket_name)
+        with _gcs_bucket_lock:
+            if _gcs_bucket_cache is not None and _gcs_bucket_cache_key == cache_key:
+                return _gcs_bucket_cache
+
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_info
+            )
+            client = storage.Client(
+                credentials=credentials,
+                project=credentials_info.get("project_id"),
+            )
+            _gcs_bucket_cache = client.bucket(bucket_name)
+            _gcs_bucket_cache_key = cache_key
+            return _gcs_bucket_cache
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -7170,11 +7338,15 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
     created_at = current_time_iso()
     db_id, inserted = save_event_with_inserted(event, created_at)
     is_existing_event = not inserted
-    saved_event = fast_saved_event_payload(event, db_id, created_at)
+    saved_event = enrich_event_location_row(
+        fast_saved_event_payload(event, db_id, created_at)
+    )
 
     device_row = None
     if is_alert_event_label(event.label) and not is_existing_event:
-        device_row = fallback_device_event_status_row(event, saved_event, created_at)
+        raw_device_row = fallback_device_event_status_row(event, saved_event, created_at)
+        enriched_rows = enrich_device_status_rows([raw_device_row]) if raw_device_row else []
+        device_row = enriched_rows[0] if enriched_rows else raw_device_row
 
     return {
         "db_id": db_id,
@@ -7414,6 +7586,36 @@ async def health():
         "time": current_time_iso(),
         "database_init": database_init_status,
         "database_init_error": DATABASE_INIT_ERROR,
+    }
+
+
+@app.get("/runtime-status")
+async def runtime_status():
+    live_nodes = node_manager.live_states()
+    return {
+        "status": "success",
+        "time": current_time_iso(),
+        "database": "postgres" if use_postgres() else "sqlite",
+        "database_init_error": DATABASE_INIT_ERROR,
+        "dashboard_websocket_connections": len(dashboard_manager.active_connections),
+        "node_websocket_connections": len(live_nodes),
+        "live_node_ids": [
+            node.get("device_id")
+            for node in live_nodes
+            if node.get("device_id") and not is_diagnostic_device_id(node.get("device_id"))
+        ],
+        "post_ingest_workers": POST_INGEST_WORKERS,
+        "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
+        "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
+        "tracking_enabled": TRACKING_ENABLED,
+        "localization_enabled": LOCALIZATION_ENABLED,
+        "gcs_configured": bool(
+            os.getenv("GCS_BUCKET_NAME")
+            and os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+        ),
+        "gcs_bucket_cached": _gcs_bucket_cache is not None,
+        "upload_token_configured": bool(os.getenv("UPLOAD_TOKEN")),
+        "diagnostic_device_filter": DIAGNOSTIC_DEVICE_ID_PATTERN.pattern,
     }
 
 
@@ -9264,9 +9466,14 @@ def dashboard_v4_clean():
             function isEventLikeDeviceUpdate(incoming) {
                 const type = String(incoming?.type || '').toLowerCase();
                 const status = String(incoming?.status || '').toLowerCase();
-                return type === 'event_trigger'
-                    || status === 'event'
-                    || Boolean(incoming?.last_event_id && incoming?.last_event_at);
+                if (type === 'event_trigger' || status === 'event') return true;
+
+                const eventTime = parseTime(incoming?.last_event_at);
+                return Boolean(
+                    incoming?.last_event_id
+                    && Number.isFinite(eventTime)
+                    && eventTime + alertDurationMs > Date.now()
+                );
             }
 
             function preserveMarkerPositionDuringAlert(merged, existing, incoming) {
@@ -9307,6 +9514,39 @@ def dashboard_v4_clean():
                 }
             }
 
+            function preserveStableNodePositionDuringEvent(merged, existing, incoming) {
+                if (!existing || !incoming || !isEventLikeDeviceUpdate(incoming)) return;
+
+                const fixedPosition = firstValidPosition(merged, [['fixed_latitude', 'fixed_longitude']]);
+                if (fixedPosition) {
+                    merged.marker_latitude = fixedPosition.lat;
+                    merged.marker_longitude = fixedPosition.lng;
+                    merged.effective_latitude = fixedPosition.lat;
+                    merged.effective_longitude = fixedPosition.lng;
+                    merged.effective_location_source = merged.fixed_location_source || 'fixed_location';
+                    merged.marker_location_source = merged.effective_location_source;
+                    return;
+                }
+
+                [
+                    ['latitude', 'longitude'],
+                    ['effective_latitude', 'effective_longitude'],
+                    ['marker_latitude', 'marker_longitude'],
+                ].forEach(([latKey, lngKey]) => {
+                    if (isValidCoordinatePair(existing?.[latKey], existing?.[lngKey])) {
+                        merged[latKey] = existing[latKey];
+                        merged[lngKey] = existing[lngKey];
+                    }
+                });
+
+                if (existing.effective_location_source && !incoming.effective_location_source) {
+                    merged.effective_location_source = existing.effective_location_source;
+                }
+                if (existing.marker_location_source && !incoming.marker_location_source) {
+                    merged.marker_location_source = existing.marker_location_source;
+                }
+            }
+
             function mergeDeviceState(existing, incoming) {
                 const merged = { ...(existing || {}), ...(incoming || {}) };
                 preserveCoordinatePair(merged, existing, incoming, 'latitude', 'longitude');
@@ -9328,6 +9568,7 @@ def dashboard_v4_clean():
                     'fixed_longitude',
                     ['fixed_location_source', 'fixed_location_accuracy_m', 'fixed_location_updated_at'],
                 );
+                preserveStableNodePositionDuringEvent(merged, existing, incoming);
                 preserveMarkerPositionDuringAlert(merged, existing, incoming);
                 syncAlertFromDevice(merged);
                 if (isAlertActive(merged.device_id)) {
@@ -9428,8 +9669,8 @@ def dashboard_v4_clean():
 
             function deviceEffectivePosition(device) {
                 const candidates = [
-                    [device?.marker_latitude, device?.marker_longitude],
                     [device?.fixed_latitude, device?.fixed_longitude],
+                    [device?.marker_latitude, device?.marker_longitude],
                     [device?.effective_latitude, device?.effective_longitude],
                     [device?.latitude, device?.longitude],
                     [device?.raw_latitude, device?.raw_longitude],

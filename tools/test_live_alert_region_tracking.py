@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from main import build_active_alert_region_measurement  # noqa: E402
+from main import (  # noqa: E402
+    build_active_alert_region_measurement,
+    tracking_rebuild_measurements_from_events,
+)
 
 
 def event(
@@ -133,6 +136,52 @@ def main() -> None:
     assert delayed_backend_arrival["reporting_node_count"] == 3
 
     print("Live alert region tracking tests passed")
+
+
+def test_tracking_rebuild_measurements_from_events_uses_long_memory_window() -> None:
+    rows = [
+        event(
+            "node_A01",
+            seconds_ago=50,
+            latitude=25.0471,
+            longitude=121.5383,
+        ),
+        event(
+            "node_A02",
+            seconds_ago=35,
+            latitude=25.0478,
+            longitude=121.5402,
+        ),
+        event(
+            "node_A03",
+            seconds_ago=20,
+            latitude=25.0465,
+            longitude=121.5391,
+        ),
+    ]
+
+    short_window = tracking_rebuild_measurements_from_events(rows, window_seconds=10)
+    assert not any(
+        int(item.get("reporting_node_count") or 0) >= 3 for item in short_window
+    )
+
+    long_window = tracking_rebuild_measurements_from_events(rows, window_seconds=60)
+    polygon = next(
+        (
+            item
+            for item in long_window
+            if int(item.get("reporting_node_count") or 0) >= 3
+        ),
+        None,
+    )
+    assert polygon is not None
+    assert polygon["source"] == "historical_event_window"
+    assert polygon["region_type"] == "polygon"
+    assert set(polygon["reporting_device_ids"]) == {
+        "node_A01",
+        "node_A02",
+        "node_A03",
+    }
 
 
 if __name__ == "__main__":
