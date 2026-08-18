@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-node-location-editor-v1",
+        "runtime_marker": "fixed-alert-coordinate-chain-v1",
     }
 
 
@@ -7835,16 +7835,52 @@ async def create_event(
     if device_row:
         effective_latitude = saved_event.get("effective_latitude")
         effective_longitude = saved_event.get("effective_longitude")
+        display_latitude = (
+            effective_latitude
+            if effective_latitude is not None
+            else saved_event.get("latitude", event.latitude)
+        )
+        display_longitude = (
+            effective_longitude
+            if effective_longitude is not None
+            else saved_event.get("longitude", event.longitude)
+        )
+        raw_latitude = saved_event.get("raw_latitude", event.latitude)
+        raw_longitude = saved_event.get("raw_longitude", event.longitude)
+        dashboard_event = {
+            **saved_event,
+            "latitude": display_latitude,
+            "longitude": display_longitude,
+            "raw_latitude": raw_latitude,
+            "raw_longitude": raw_longitude,
+            "effective_latitude": effective_latitude,
+            "effective_longitude": effective_longitude,
+            "effective_location_source": saved_event.get("effective_location_source"),
+        }
+        dashboard_device = {
+            **device_row,
+            "latitude": display_latitude,
+            "longitude": display_longitude,
+            "raw_latitude": raw_latitude,
+            "raw_longitude": raw_longitude,
+            "effective_latitude": effective_latitude,
+            "effective_longitude": effective_longitude,
+            "marker_latitude": display_latitude,
+            "marker_longitude": display_longitude,
+            "effective_location_source": saved_event.get("effective_location_source"),
+            "marker_location_source": saved_event.get("effective_location_source"),
+            "status": "event",
+        }
         schedule_dashboard_broadcast(
             {
                 "type": "event_trigger",
-                **device_row,
+                **dashboard_device,
                 "device_id": event.device_id,
                 "event_id": event.event_id,
-                "latitude": effective_latitude,
-                "longitude": effective_longitude,
-                "raw_latitude": saved_event.get("raw_latitude", event.latitude),
-                "raw_longitude": saved_event.get("raw_longitude", event.longitude),
+                "latitude": display_latitude,
+                "longitude": display_longitude,
+                "raw_latitude": raw_latitude,
+                "raw_longitude": raw_longitude,
                 "effective_latitude": effective_latitude,
                 "effective_longitude": effective_longitude,
                 "effective_location_source": saved_event.get("effective_location_source"),
@@ -7854,11 +7890,8 @@ async def create_event(
                 "status": "event",
                 "is_listening": device_row.get("is_listening"),
                 "rms_peak": saved_event.get("rms_peak", event.rms_peak),
-                "event": saved_event,
-                "device": {
-                    **device_row,
-                    "status": "event",
-                },
+                "event": dashboard_event,
+                "device": dashboard_device,
             },
             "event_trigger",
         )
@@ -9930,16 +9963,39 @@ def dashboard_v4_clean():
                 return { lat: latitude, lng: longitude };
             }
 
+            function normalizeEventForDashboard(incoming) {
+                if (!incoming) return incoming;
+                const normalized = { ...incoming };
+                const originalLatitude = finiteNumber(normalized.latitude);
+                const originalLongitude = finiteNumber(normalized.longitude);
+                if (
+                    !isValidCoordinatePair(normalized.raw_latitude, normalized.raw_longitude)
+                    && isValidCoordinatePair(originalLatitude, originalLongitude)
+                ) {
+                    normalized.raw_latitude = originalLatitude;
+                    normalized.raw_longitude = originalLongitude;
+                }
+                const position = eventEffectivePosition(normalized);
+                if (position) {
+                    normalized.display_latitude = position.lat;
+                    normalized.display_longitude = position.lng;
+                    normalized.latitude = position.lat;
+                    normalized.longitude = position.lng;
+                }
+                return normalized;
+            }
+
             function upsertEventState(incoming) {
                 if (!incoming?.event_id) return null;
+                const normalized = normalizeEventForDashboard(incoming);
                 const index = events.findIndex(item => item.event_id === incoming.event_id);
                 if (index >= 0) {
-                    events[index] = { ...events[index], ...incoming };
+                    events[index] = normalizeEventForDashboard({ ...events[index], ...normalized });
                     return events[index];
                 }
-                events.unshift(incoming);
+                events.unshift(normalized);
                 if (events.length > 80) events.splice(80);
-                return incoming;
+                return normalized;
             }
 
             function displayLocationSource(source) {
@@ -10072,7 +10128,11 @@ def dashboard_v4_clean():
                     }
 
                     if (Array.isArray(eventsData?.events)) {
-                        events.splice(0, events.length, ...eventsData.events);
+                        events.splice(
+                            0,
+                            events.length,
+                            ...eventsData.events.map(normalizeEventForDashboard)
+                        );
                     }
 
                     if (Array.isArray(groupsData?.event_groups)) {

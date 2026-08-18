@@ -172,6 +172,20 @@ def ai_probability_from_event(event_record: dict) -> Optional[float]:
     return None
 
 
+def effective_event_coordinates(event_record: dict) -> tuple[Optional[float], Optional[float]]:
+    """Return the coordinate pair that should be used for fusion snapshots."""
+    for latitude_key, longitude_key in (
+        ("effective_latitude", "effective_longitude"),
+        ("fixed_latitude", "fixed_longitude"),
+        ("latitude", "longitude"),
+    ):
+        latitude = parse_float(event_record.get(latitude_key))
+        longitude = parse_float(event_record.get(longitude_key))
+        if latitude is not None and longitude is not None:
+            return latitude, longitude
+    return None, None
+
+
 def event_timestamp(event_record: dict) -> datetime:
     parsed = (
         epoch_ms_to_datetime(event_record.get("corrected_arrival_time_ms"))
@@ -543,6 +557,9 @@ def insert_observation(
     now = datetime.now(timezone.utc)
     observation_id = str(uuid.uuid4())
     ai_probability = ai_probability_from_event(event_record)
+    observation_latitude, observation_longitude = effective_event_coordinates(
+        event_record
+    )
     sql = """
         INSERT INTO event_group_observations (
             id,
@@ -606,8 +623,8 @@ def insert_observation(
         event_record.get("device_id"),
         label,
         db_time(event_time, is_postgres),
-        event_record.get("latitude"),
-        event_record.get("longitude"),
+        observation_latitude,
+        observation_longitude,
         event_record.get("rms_peak"),
         event_record.get("avg_db"),
         event_record.get("peak_db"),
@@ -1076,12 +1093,17 @@ def update_existing_observation_snapshot(
     if not event_id:
         return
 
+    observation_latitude, observation_longitude = effective_event_coordinates(
+        event_record
+    )
     execute(
         cursor,
         is_postgres,
         """
         UPDATE event_group_observations
-        SET audio_path = %s,
+        SET latitude = COALESCE(%s, latitude),
+            longitude = COALESCE(%s, longitude),
+            audio_path = %s,
             avg_db = %s,
             peak_db = %s,
             estimated_avg_db = %s,
@@ -1121,6 +1143,8 @@ def update_existing_observation_snapshot(
           AND COALESCE(observation_kind, 'target_estimate') = %s
         """,
         (
+            observation_latitude,
+            observation_longitude,
             event_record.get("audio_path"),
             event_record.get("avg_db"),
             event_record.get("peak_db"),
