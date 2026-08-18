@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-node-marker-pin-v1",
+        "runtime_marker": "fixed-node-location-editor-v1",
     }
 
 
@@ -8239,11 +8239,20 @@ async def put_device_location(
         location = upsert_device_fixed_location(device_id, payload)
     except DeviceLocationValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    groups = recompute_active_regions_for_device(device_id)
-    await broadcast_device_location_change(device_id, groups)
+    try:
+        groups = recompute_active_regions_for_device(device_id)
+    except Exception:
+        logger.exception("Failed to recompute regions after device location update device_id=%s", device_id)
+        groups = []
+    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    try:
+        await broadcast_device_location_change(device_id, groups)
+    except Exception:
+        logger.exception("Failed to broadcast device location update device_id=%s", device_id)
     return {
         "status": "success",
         "device_location": location,
+        "device": status_rows[0] if status_rows else None,
         "recomputed_group_count": len(groups),
     }
 
@@ -8255,12 +8264,21 @@ async def clear_device_location(
 ):
     verify_dashboard_write_token(upload_token)
     deleted = delete_device_fixed_location(device_id)
-    groups = recompute_active_regions_for_device(device_id)
-    await broadcast_device_location_change(device_id, groups)
+    try:
+        groups = recompute_active_regions_for_device(device_id)
+    except Exception:
+        logger.exception("Failed to recompute regions after device location clear device_id=%s", device_id)
+        groups = []
+    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    try:
+        await broadcast_device_location_change(device_id, groups)
+    except Exception:
+        logger.exception("Failed to broadcast device location clear device_id=%s", device_id)
     return {
         "status": "success",
         "device_id": device_id,
         "deleted": deleted,
+        "device": status_rows[0] if status_rows else None,
         "recomputed_group_count": len(groups),
     }
 
@@ -11699,7 +11717,7 @@ def dashboard_v4_clean():
                     return false;
                 }
                 try {
-                    await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, {
+                    const body = await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, {
                         method: 'PUT',
                         body: JSON.stringify({
                             latitude: Number(lat),
@@ -11708,8 +11726,23 @@ def dashboard_v4_clean():
                             accuracy_m: null,
                         }),
                     });
+                    const location = body.device_location || {};
+                    const device = setDeviceState(body.device || {
+                        device_id: deviceId,
+                        fixed_latitude: location.latitude,
+                        fixed_longitude: location.longitude,
+                        fixed_location_source: location.location_source || locationSource,
+                        fixed_location_accuracy_m: location.accuracy_m,
+                        fixed_location_updated_at: location.updated_at,
+                        effective_latitude: location.latitude,
+                        effective_longitude: location.longitude,
+                        effective_location_source: 'fixed',
+                    });
+                    if (device) updateDeviceMarker(device);
                     document.getElementById('systemStatus').textContent = `固定位置已更新：${deviceId}`;
-                    await refreshAll();
+                    renderSummary();
+                    renderNodes();
+                    renderMap();
                     return true;
                 } catch (error) {
                     document.getElementById('systemStatus').textContent = '固定位置更新失敗';
@@ -11753,13 +11786,19 @@ def dashboard_v4_clean():
                 const confirmed = window.confirm(`確定清除 ${deviceId} 的固定位置嗎？清除後會回到使用事件 / 即時 GPS。`);
                 if (!confirmed) return;
                 try {
-                    await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+                    const body = await authorizedJson(`/device-locations/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
                     if (locationEdit?.deviceId === deviceId) {
                         clearLocationEditObjects();
                         locationEdit = null;
                     }
+                    if (body.device) {
+                        devices.set(deviceId, body.device);
+                        updateDeviceMarker(body.device);
+                    }
                     document.getElementById('systemStatus').textContent = `固定位置已清除：${deviceId}`;
-                    await refreshAll();
+                    renderSummary();
+                    renderNodes();
+                    renderMap();
                 } catch (error) {
                     document.getElementById('systemStatus').textContent = '固定位置清除失敗';
                     alert(`固定位置清除失敗：${error}`);
@@ -12067,13 +12106,16 @@ def dashboard_v4_clean():
                         renderLiveAudioDeviceSelect();
                         updateDeviceMarker(device);
                     } else if (data.type === 'device_location_updated') {
-                        if (data.device_id) {
-                            const marker = markers.get(data.device_id);
-                            if (marker) marker.setMap(null);
-                            markers.delete(data.device_id);
-                            devices.delete(data.device_id);
+                        if (data.device) {
+                            const device = setDeviceState(data.device);
+                            renderSummary();
+                            renderNodes();
+                            renderLiveAudioDeviceSelect();
+                            updateDeviceMarker(device);
+                            renderMap();
+                        } else if (data.device_id) {
+                            refreshAll();
                         }
-                        refreshAll();
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.last_event_at || new Date().toISOString();
                         const previousDevice = devices.get(data.device_id);
