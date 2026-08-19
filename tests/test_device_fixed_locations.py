@@ -251,11 +251,14 @@ def test_location_update_enrichment_does_not_select_first_fixed_node(monkeypatch
 
 
 def test_event_trigger_enrichment_does_not_select_first_fixed_node(monkeypatch) -> None:
-    monkeypatch.setattr(
-        main,
-        "list_device_fixed_locations",
-        fixed_location_rows,
-    )
+    fixed_location_loads = 0
+
+    def load_fixed_locations() -> list[dict]:
+        nonlocal fixed_location_loads
+        fixed_location_loads += 1
+        return fixed_location_rows()
+
+    monkeypatch.setattr(main, "list_device_fixed_locations", load_fixed_locations)
     monkeypatch.setattr(main, "save_event_with_inserted", lambda event, created_at: (101, True))
 
     result = main.process_event_initial_submission(
@@ -274,6 +277,66 @@ def test_event_trigger_enrichment_does_not_select_first_fixed_node(monkeypatch) 
     assert result["device_row"]["device_id"] == "node_A10"
     assert result["device_row"]["fixed_latitude"] == 25.10
     assert result["device_row"]["fixed_longitude"] == 121.10
+    assert fixed_location_loads == 1
+
+
+def test_postgres_fixed_location_cache_reuses_and_invalidates_loader(monkeypatch) -> None:
+    loads = 0
+
+    def load_rows() -> list[dict]:
+        nonlocal loads
+        loads += 1
+        return fixed_location_rows()
+
+    monkeypatch.setattr(main, "use_postgres", lambda: True)
+    monkeypatch.setattr(main, "DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS", 60.0)
+    monkeypatch.setattr(main, "_load_device_fixed_locations", load_rows)
+    main.invalidate_device_fixed_location_cache()
+
+    try:
+        first = main.list_device_fixed_locations()
+        first[0]["latitude"] = 0
+        second = main.list_device_fixed_locations()
+
+        assert loads == 1
+        assert second[0]["latitude"] == 25.01
+
+        main.invalidate_device_fixed_location_cache()
+        main.list_device_fixed_locations()
+        assert loads == 2
+    finally:
+        main.invalidate_device_fixed_location_cache()
+
+
+def test_postgres_schema_columns_are_cached(monkeypatch) -> None:
+    class FakeCursor:
+        def __init__(self) -> None:
+            self.execute_count = 0
+
+        def execute(self, query, params) -> None:
+            self.execute_count += 1
+
+        def fetchall(self) -> list[dict]:
+            return [{"column_name": "id"}, {"column_name": "event_id"}]
+
+    cursor = FakeCursor()
+    monkeypatch.setattr(main, "use_postgres", lambda: True)
+    monkeypatch.setattr(main, "get_database_url", lambda: "postgresql://cache-test")
+    monkeypatch.setattr(main, "POSTGRES_SCHEMA_CACHE_TTL_SECONDS", 300.0)
+    main.invalidate_postgres_schema_cache()
+
+    try:
+        assert main.existing_table_columns("events", cursor=cursor) == {
+            "id",
+            "event_id",
+        }
+        assert main.existing_table_columns("events", cursor=cursor) == {
+            "id",
+            "event_id",
+        }
+        assert cursor.execute_count == 1
+    finally:
+        main.invalidate_postgres_schema_cache()
 
 
 def test_event_status_worker_does_not_broadcast_first_fixed_node(monkeypatch) -> None:

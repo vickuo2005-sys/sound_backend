@@ -133,6 +133,12 @@ DEVICE_STATUS_CACHE_TTL_SECONDS = float(
     os.getenv("DEVICE_STATUS_CACHE_TTL_SECONDS", "10") or 10
 )
 TRACKS_CACHE_TTL_SECONDS = float(os.getenv("TRACKS_CACHE_TTL_SECONDS", "10") or 10)
+DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS = float(
+    os.getenv("DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS", "60") or 60
+)
+POSTGRES_SCHEMA_CACHE_TTL_SECONDS = float(
+    os.getenv("POSTGRES_SCHEMA_CACHE_TTL_SECONDS", "300") or 300
+)
 DASHBOARD_BROADCAST_TIMEOUT_SECONDS = float(
     os.getenv("DASHBOARD_BROADCAST_TIMEOUT_SECONDS", "1.5") or 1.5
 )
@@ -191,6 +197,10 @@ device_status_cache_lock = threading.Lock()
 device_status_cache: tuple[float, list[dict]] = (0.0, [])
 tracks_cache_lock = threading.Lock()
 tracks_cache: dict[str, tuple[float, dict]] = {}
+device_fixed_location_cache_lock = threading.Lock()
+device_fixed_location_cache: tuple[float, list[dict]] = (0.0, [])
+postgres_schema_cache_lock = threading.Lock()
+postgres_schema_cache: dict[tuple[str, str], tuple[float, set[str]]] = {}
 post_ingest_executor = ThreadPoolExecutor(
     max_workers=POST_INGEST_WORKERS,
     thread_name_prefix="post-ingest",
@@ -3154,6 +3164,18 @@ def clone_rows(rows: list[dict]) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def invalidate_device_fixed_location_cache() -> None:
+    global device_fixed_location_cache
+
+    with device_fixed_location_cache_lock:
+        device_fixed_location_cache = (0.0, [])
+
+
+def invalidate_postgres_schema_cache() -> None:
+    with postgres_schema_cache_lock:
+        postgres_schema_cache.clear()
+
+
 def is_diagnostic_device_id(device_id: Any) -> bool:
     value = str(device_id or "")
     if not value:
@@ -5094,6 +5116,16 @@ def existing_table_columns(
     if use_postgres():
         if cursor is None:
             return set()
+        cache_key = (get_database_url(), table_name)
+        stale_columns: set[str] = set()
+        if POSTGRES_SCHEMA_CACHE_TTL_SECONDS > 0:
+            with postgres_schema_cache_lock:
+                cached = postgres_schema_cache.get(cache_key)
+                if cached:
+                    cached_at, cached_columns = cached
+                    stale_columns = set(cached_columns)
+                    if monotonic() - cached_at <= POSTGRES_SCHEMA_CACHE_TTL_SECONDS:
+                        return stale_columns
         try:
             cursor.execute(
                 """
@@ -5103,13 +5135,17 @@ def existing_table_columns(
                 """,
                 (table_name,),
             )
-            return {
+            columns = {
                 str(row["column_name"] if isinstance(row, dict) else row[0])
                 for row in cursor.fetchall()
             }
+            if POSTGRES_SCHEMA_CACHE_TTL_SECONDS > 0:
+                with postgres_schema_cache_lock:
+                    postgres_schema_cache[cache_key] = (monotonic(), set(columns))
+            return columns
         except Exception:
             logger.exception("Failed to inspect %s columns", table_name)
-            return set()
+            return stale_columns
 
     existing_columns = set()
     try:
@@ -5380,7 +5416,7 @@ def merge_device_status_rows_with_live_nodes(rows: list[dict]) -> list[dict]:
     )
 
 
-def list_device_fixed_locations() -> list[dict]:
+def _load_device_fixed_locations() -> list[dict]:
     def normalized_rows(rows) -> list[dict]:
         output = []
         for row in rows:
@@ -5391,19 +5427,15 @@ def list_device_fixed_locations() -> list[dict]:
 
     columns = ", ".join(DEVICE_LOCATION_COLUMNS)
     if not use_postgres():
-        try:
-            with get_sqlite_connection() as connection:
-                rows = connection.execute(
-                    f"""
-                    SELECT {columns}
-                    FROM device_locations
-                    ORDER BY device_id ASC
-                    """
-                ).fetchall()
-                return normalized_rows(rows)
-        except Exception as exc:
-            logger.warning("Device fixed locations unavailable: %s", exc)
-            return []
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM device_locations
+                ORDER BY device_id ASC
+                """
+            ).fetchall()
+            return normalized_rows(rows)
 
     connection = get_postgres_connection()
     try:
@@ -5417,11 +5449,36 @@ def list_device_fixed_locations() -> list[dict]:
                     """
                 )
                 return normalized_rows(cursor.fetchall())
-    except Exception as exc:
-        logger.warning("Device fixed locations unavailable: %s", exc)
-        return []
     finally:
         connection.close()
+
+
+def list_device_fixed_locations() -> list[dict]:
+    global device_fixed_location_cache
+
+    if not use_postgres() or DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS <= 0:
+        try:
+            return _load_device_fixed_locations()
+        except Exception as exc:
+            logger.warning("Device fixed locations unavailable: %s", exc)
+            return []
+
+    with device_fixed_location_cache_lock:
+        cached_at, cached_rows = device_fixed_location_cache
+        if (
+            cached_at > 0
+            and monotonic() - cached_at <= DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS
+        ):
+            return clone_rows(cached_rows)
+
+        try:
+            loaded_rows = _load_device_fixed_locations()
+        except Exception as exc:
+            logger.warning("Device fixed locations unavailable: %s", exc)
+            return clone_rows(cached_rows)
+
+        device_fixed_location_cache = (monotonic(), clone_rows(loaded_rows))
+        return clone_rows(loaded_rows)
 
 
 def get_device_fixed_location(device_id: str) -> Optional[dict]:
@@ -5620,6 +5677,7 @@ def upsert_device_fixed_location(
                 ),
             )
             connection.commit()
+        invalidate_device_fixed_location_cache()
         return get_device_fixed_location(values["device_id"]) or values
 
     connection = get_postgres_connection()
@@ -5651,9 +5709,11 @@ def upsert_device_fixed_location(
                     ),
                 )
                 row = cursor.fetchone()
-                return normalize_location_row(serialize_db_row(dict(row))) or values
+                result = normalize_location_row(serialize_db_row(dict(row))) or values
     finally:
         connection.close()
+    invalidate_device_fixed_location_cache()
+    return result
 
 
 def delete_device_fixed_location(device_id: str) -> bool:
@@ -5664,7 +5724,9 @@ def delete_device_fixed_location(device_id: str) -> bool:
                 (device_id,),
             )
             connection.commit()
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+        invalidate_device_fixed_location_cache()
+        return deleted
 
     connection = get_postgres_connection()
     try:
@@ -5674,9 +5736,11 @@ def delete_device_fixed_location(device_id: str) -> bool:
                     "DELETE FROM device_locations WHERE device_id = %s",
                     (device_id,),
                 )
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
     finally:
         connection.close()
+    invalidate_device_fixed_location_cache()
+    return deleted
 
 
 def recompute_active_regions_for_device(device_id: str) -> list[dict]:
@@ -7488,15 +7552,17 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
     created_at = current_time_iso()
     db_id, inserted = save_event_with_inserted(event, created_at)
     is_existing_event = not inserted
+    fixed_locations = location_map(list_device_fixed_locations())
     saved_event = enrich_event_location_row(
-        fast_saved_event_payload(event, db_id, created_at)
+        fast_saved_event_payload(event, db_id, created_at),
+        fixed_locations=fixed_locations,
     )
 
     device_row = None
     if is_alert_event_label(event.label) and not is_existing_event:
         raw_device_row = fallback_device_event_status_row(event, saved_event, created_at)
         device_row = (
-            enrich_device_status_row(raw_device_row)
+            enrich_device_status_row(raw_device_row, fixed_locations=fixed_locations)
             if raw_device_row
             else None
         )
@@ -7765,6 +7831,8 @@ async def runtime_status():
         "post_ingest_workers": POST_INGEST_WORKERS,
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
+        "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
+        "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
         "tracking_enabled": TRACKING_ENABLED,
         "localization_enabled": LOCALIZATION_ENABLED,
         "gcs_configured": bool(
