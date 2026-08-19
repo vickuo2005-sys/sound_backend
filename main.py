@@ -68,6 +68,7 @@ DIAGNOSTIC_DEVICE_ID_PATTERN = re.compile(
 _postgres_pool: Any = None
 _postgres_pool_database_url = ""
 _postgres_pool_lock = threading.Lock()
+_postgres_pool_gate: Optional[threading.BoundedSemaphore] = None
 _gcs_bucket_cache: Any = None
 _gcs_bucket_cache_key = ""
 _gcs_bucket_lock = threading.Lock()
@@ -138,6 +139,10 @@ DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS = float(
 )
 POSTGRES_SCHEMA_CACHE_TTL_SECONDS = float(
     os.getenv("POSTGRES_SCHEMA_CACHE_TTL_SECONDS", "300") or 300
+)
+POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS = max(
+    0.1,
+    float(os.getenv("POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS", "5") or 5),
 )
 DASHBOARD_BROADCAST_TIMEOUT_SECONDS = float(
     os.getenv("DASHBOARD_BROADCAST_TIMEOUT_SECONDS", "1.5") or 1.5
@@ -742,9 +747,15 @@ def require_postgres() -> None:
 
 
 class PooledPostgresConnection:
-    def __init__(self, pool: Any, connection: Any) -> None:
+    def __init__(
+        self,
+        pool: Any,
+        connection: Any,
+        gate: Optional[threading.BoundedSemaphore] = None,
+    ) -> None:
         self._pool = pool
         self._connection = connection
+        self._gate = gate
         self._returned = False
 
     def __getattr__(self, name: str) -> Any:
@@ -774,11 +785,15 @@ class PooledPostgresConnection:
                 self._connection.rollback()
             except Exception:
                 should_close = True
-        self._pool.putconn(self._connection, close=should_close)
+        try:
+            self._pool.putconn(self._connection, close=should_close)
+        finally:
+            if self._gate is not None:
+                self._gate.release()
 
 
 def get_postgres_pool() -> Any:
-    global _postgres_pool, _postgres_pool_database_url
+    global _postgres_pool, _postgres_pool_database_url, _postgres_pool_gate
 
     database_url = get_database_url()
     minconn = max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1))
@@ -801,6 +816,7 @@ def get_postgres_pool() -> Any:
                 connect_timeout=connect_timeout,
             )
             _postgres_pool_database_url = database_url
+            _postgres_pool_gate = threading.BoundedSemaphore(maxconn)
 
         return _postgres_pool
 
@@ -808,26 +824,43 @@ def get_postgres_pool() -> Any:
 def get_postgres_connection() -> PooledPostgresConnection:
     pool = get_postgres_pool()
     last_error: Optional[Exception] = None
+    with _postgres_pool_lock:
+        gate = _postgres_pool_gate if pool is _postgres_pool else None
 
-    for _ in range(2):
-        connection = pool.getconn()
-        if getattr(connection, "closed", 0):
-            pool.putconn(connection, close=True)
-            continue
+    if gate is None or not gate.acquire(timeout=POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection pool is temporarily busy",
+        )
 
-        try:
-            connection.rollback()
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1")
-                cursor.fetchone()
-            connection.rollback()
-            return PooledPostgresConnection(pool, connection)
-        except Exception as exc:
-            last_error = exc
+    try:
+        for _ in range(2):
+            connection = None
             try:
-                pool.putconn(connection, close=True)
-            except Exception:
-                pass
+                connection = pool.getconn()
+                if getattr(connection, "closed", 0):
+                    pool.putconn(connection, close=True)
+                    connection = None
+                    continue
+
+                connection.rollback()
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    cursor.fetchone()
+                connection.rollback()
+                wrapped = PooledPostgresConnection(pool, connection, gate)
+                gate = None
+                return wrapped
+            except Exception as exc:
+                last_error = exc
+                if connection is not None:
+                    try:
+                        pool.putconn(connection, close=True)
+                    except Exception:
+                        pass
+    finally:
+        if gate is not None:
+            gate.release()
 
     if last_error:
         logger.error(
@@ -8222,12 +8255,12 @@ def tracks(
     points_limit: int = Query(default=20, ge=0, le=100),
 ):
     try:
-        closed_tracks = close_stale_tracks()
         cache_key = f"{status_filter or ''}|{label or ''}|{limit}|{points_limit}"
         cached = get_tracks_cache(cache_key)
         if cached is not None:
             return cached
 
+        closed_tracks = close_stale_tracks()
         rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
         if points_limit:
             rows = enrich_tracks_with_points(rows, limit=points_limit)

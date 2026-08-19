@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from services.event_fusion import process_event
+from services.event_fusion import list_event_groups, process_event
 from tools.test_event_fusion import make_connection
 
 
@@ -225,3 +225,57 @@ def test_fusion_groups_by_device_observed_time_for_live_episode() -> None:
     assert same_sound_episode["id"] == first["id"]
     assert same_sound_episode["node_count"] == 2
     assert same_sound_episode["region_type"] == "segment"
+
+
+def test_list_event_groups_batches_observation_summaries() -> None:
+    connection = make_connection()
+    base = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+
+    process_event(
+        connection,
+        event_record("evt_batch_a01", "node_A01", "aircraft", base),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    process_event(
+        connection,
+        event_record(
+            "evt_batch_a02",
+            "node_A02",
+            "aircraft",
+            base + timedelta(seconds=1),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    process_event(
+        connection,
+        event_record(
+            "evt_batch_drone",
+            "node_A03",
+            "drone",
+            base + timedelta(seconds=45),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+
+    statements = []
+    connection.set_trace_callback(statements.append)
+    groups = list_event_groups(connection, is_postgres=False, limit=20)
+    connection.set_trace_callback(None)
+
+    assert len(groups) == 2
+    aircraft = next(group for group in groups if group["label"] == "aircraft")
+    assert aircraft["devices"] == ["node_A01", "node_A02"]
+    assert [item["relative_time_s"] for item in aircraft["device_relative_times"]] == [
+        0.0,
+        1.0,
+    ]
+    observation_selects = [
+        statement
+        for statement in statements
+        if statement.lstrip().upper().startswith("SELECT")
+        and "FROM event_group_observations" in statement
+    ]
+    assert len(observation_selects) == 1

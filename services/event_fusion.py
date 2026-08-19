@@ -1296,6 +1296,69 @@ def group_device_relative_times(
     return result
 
 
+def group_observation_summaries(
+    cursor: Any,
+    group_ids: list[str],
+    is_postgres: bool,
+) -> tuple[dict[str, list[str]], dict[str, list[dict]]]:
+    if not group_ids:
+        return {}, {}
+
+    placeholders = ", ".join(["%s"] * len(group_ids))
+    execute(
+        cursor,
+        is_postgres,
+        f"""
+        SELECT group_id, device_id, MIN(event_timestamp) AS event_timestamp
+        FROM event_group_observations
+        WHERE group_id IN ({placeholders})
+          AND COALESCE(observation_kind, 'target_estimate') = %s
+          AND device_id IS NOT NULL
+        GROUP BY group_id, device_id
+        ORDER BY group_id ASC, device_id ASC
+        """,
+        tuple(group_ids + [FUSION_KIND]),
+    )
+
+    devices_by_group: dict[str, list[str]] = {}
+    timed_rows_by_group: dict[str, list[tuple[datetime, str]]] = {}
+    for row in fetchall_dict(cursor):
+        group_id = str(row.get("group_id") or "")
+        device_id = str(row.get("device_id") or "")
+        if not group_id or not device_id:
+            continue
+        devices_by_group.setdefault(group_id, []).append(device_id)
+        event_time = parse_datetime(row.get("event_timestamp"))
+        if event_time is not None:
+            timed_rows_by_group.setdefault(group_id, []).append(
+                (event_time, device_id)
+            )
+
+    relative_times_by_group: dict[str, list[dict]] = {}
+    for group_id, timed_rows in timed_rows_by_group.items():
+        base_time = min(item[0] for item in timed_rows)
+        relative_times_by_group[group_id] = [
+            {
+                "device_id": device_id,
+                "event_timestamp": event_time.isoformat(),
+                "relative_time_ms": round(
+                    (event_time - base_time).total_seconds() * 1000.0,
+                    1,
+                ),
+                "relative_time_s": round(
+                    (event_time - base_time).total_seconds(),
+                    2,
+                ),
+            }
+            for event_time, device_id in sorted(
+                timed_rows,
+                key=lambda item: (item[0], item[1]),
+            )
+        ]
+
+    return devices_by_group, relative_times_by_group
+
+
 def annotate_relative_times(observations: list[dict]) -> list[dict]:
     parsed = []
     for item in observations:
@@ -1323,12 +1386,28 @@ def annotate_relative_times(observations: list[dict]) -> list[dict]:
     return annotated
 
 
-def group_payload(cursor: Any, row: dict, is_postgres: bool) -> dict:
+def group_payload(
+    cursor: Any,
+    row: dict,
+    is_postgres: bool,
+    devices_override: Optional[list[str]] = None,
+    device_relative_times_override: Optional[list[dict]] = None,
+) -> dict:
     serialized = serialize_row(row) or {}
     group_id = serialized.get("id")
-    devices = group_devices(cursor, group_id, is_postgres) if group_id else []
+    devices = (
+        devices_override
+        if devices_override is not None
+        else (group_devices(cursor, group_id, is_postgres) if group_id else [])
+    )
     device_relative_times = (
-        group_device_relative_times(cursor, group_id, is_postgres) if group_id else []
+        device_relative_times_override
+        if device_relative_times_override is not None
+        else (
+            group_device_relative_times(cursor, group_id, is_postgres)
+            if group_id
+            else []
+        )
     )
     reporting_device_ids = parse_json_field(serialized.get("reporting_device_ids"))
     if not isinstance(reporting_device_ids, list):
@@ -1491,7 +1570,25 @@ def list_event_groups(
             tuple(params),
         )
         rows = fetchall_dict(cursor)
-        return [group_payload(cursor, row, is_postgres) for row in rows]
+        group_ids = [str(row.get("id") or "") for row in rows if row.get("id")]
+        devices_by_group, relative_times_by_group = group_observation_summaries(
+            cursor,
+            group_ids,
+            is_postgres,
+        )
+        return [
+            group_payload(
+                cursor,
+                row,
+                is_postgres,
+                devices_override=devices_by_group.get(str(row.get("id") or ""), []),
+                device_relative_times_override=relative_times_by_group.get(
+                    str(row.get("id") or ""),
+                    [],
+                ),
+            )
+            for row in rows
+        ]
 
 
 def get_event_group_detail(
