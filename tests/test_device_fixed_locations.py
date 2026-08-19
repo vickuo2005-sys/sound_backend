@@ -60,6 +60,23 @@ def insert_fixed_location(
     connection.commit()
 
 
+def fixed_location_rows() -> list[dict]:
+    return [
+        {
+            "device_id": "node_A01",
+            "latitude": 25.01,
+            "longitude": 121.01,
+            "location_source": "manual_map",
+        },
+        {
+            "device_id": "node_A10",
+            "latitude": 25.10,
+            "longitude": 121.10,
+            "location_source": "manual_map",
+        },
+    ]
+
+
 def test_validate_fixed_location_accepts_valid_manual_and_zero_coordinates() -> None:
     values = validate_device_location(
         device_id="node_A00",
@@ -134,6 +151,170 @@ def test_resolver_falls_back_to_event_gps_and_excludes_missing() -> None:
     assert fallback["effective_location_source"] == "event_gps"
     assert fallback["latitude"] == 25.04
     assert missing is None
+
+
+def test_single_device_status_enrichment_keeps_requested_device_identity(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "list_device_fixed_locations",
+        fixed_location_rows,
+    )
+
+    enriched = main.enrich_device_status_row(
+        {
+            "device_id": "node_A10",
+            "latitude": 24.99,
+            "longitude": 120.99,
+            "status": "event",
+        }
+    )
+
+    assert enriched["device_id"] == "node_A10"
+    assert enriched["raw_latitude"] == 24.99
+    assert enriched["raw_longitude"] == 120.99
+    assert enriched["fixed_latitude"] == 25.10
+    assert enriched["fixed_longitude"] == 121.10
+    assert enriched["effective_latitude"] == 25.10
+    assert enriched["effective_longitude"] == 121.10
+    assert enriched["effective_location_source"] == "fixed"
+
+
+def test_dashboard_device_payload_selects_matching_status_row(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "list_device_fixed_locations",
+        fixed_location_rows,
+    )
+    monkeypatch.setattr(
+        main,
+        "list_device_status_rows",
+        lambda: [
+            {
+                "device_id": "node_A01",
+                "latitude": 24.01,
+                "longitude": 120.01,
+                "status": "online",
+            },
+            {
+                "device_id": "node_A10",
+                "latitude": 24.10,
+                "longitude": 120.10,
+                "status": "online",
+            },
+        ],
+    )
+
+    payload = main.dashboard_device_payload_for_id("node_A10")
+
+    assert payload["device_id"] == "node_A10"
+    assert payload["latitude"] == 24.10
+    assert payload["longitude"] == 120.10
+    assert payload["raw_latitude"] == 24.10
+    assert payload["raw_longitude"] == 120.10
+    assert payload["fixed_latitude"] == 25.10
+    assert payload["fixed_longitude"] == 121.10
+    assert payload["marker_latitude"] == 25.10
+    assert payload["marker_longitude"] == 121.10
+    assert payload["marker_position_locked"] is True
+
+
+def test_location_update_enrichment_does_not_select_first_fixed_node(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "list_device_fixed_locations",
+        fixed_location_rows,
+    )
+    monkeypatch.setattr(
+        main,
+        "upsert_device_location",
+        lambda **kwargs: {
+            "device_id": kwargs["device_id"],
+            "latitude": kwargs["latitude"],
+            "longitude": kwargs["longitude"],
+            "status": "online",
+        },
+    )
+    monkeypatch.setattr(main, "update_device_status_cache_row", lambda row: None)
+
+    _, enriched = main.process_location_update(
+        main.LocationUpdate(
+            device_id="node_A10",
+            latitude=24.99,
+            longitude=120.99,
+        )
+    )
+
+    assert enriched["device_id"] == "node_A10"
+    assert enriched["fixed_latitude"] == 25.10
+    assert enriched["fixed_longitude"] == 121.10
+    assert enriched["effective_location_source"] == "fixed"
+
+
+def test_event_trigger_enrichment_does_not_select_first_fixed_node(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "list_device_fixed_locations",
+        fixed_location_rows,
+    )
+    monkeypatch.setattr(main, "save_event_with_inserted", lambda event, created_at: (101, True))
+
+    result = main.process_event_initial_submission(
+        main.SoundEvent(
+            event_id="evt_a10",
+            device_id="node_A10",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            latitude=24.99,
+            longitude=120.99,
+            label="aircraft",
+        )
+    )
+
+    assert result["saved_event"]["device_id"] == "node_A10"
+    assert result["saved_event"]["effective_latitude"] == 25.10
+    assert result["device_row"]["device_id"] == "node_A10"
+    assert result["device_row"]["fixed_latitude"] == 25.10
+    assert result["device_row"]["fixed_longitude"] == 121.10
+
+
+def test_event_status_worker_does_not_broadcast_first_fixed_node(monkeypatch) -> None:
+    monkeypatch.setattr(
+        main,
+        "list_device_fixed_locations",
+        fixed_location_rows,
+    )
+    monkeypatch.setattr(
+        main,
+        "upsert_device_event_status",
+        lambda event: {
+            "device_id": event.device_id,
+            "latitude": event.latitude,
+            "longitude": event.longitude,
+            "status": "event",
+        },
+    )
+    cached_rows = []
+    monkeypatch.setattr(main, "update_device_status_cache_row", cached_rows.append)
+
+    class StubLoop:
+        def call_soon_threadsafe(self, callback) -> None:
+            return None
+
+    main.run_device_event_status_worker(
+        StubLoop(),
+        main.SoundEvent(
+            event_id="evt_a10_worker",
+            device_id="node_A10",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            latitude=24.99,
+            longitude=120.99,
+            label="aircraft",
+        ),
+    )
+
+    assert len(cached_rows) == 1
+    assert cached_rows[0]["device_id"] == "node_A10"
+    assert cached_rows[0]["fixed_latitude"] == 25.10
+    assert cached_rows[0]["fixed_longitude"] == 121.10
 
 
 def test_event_fusion_fixed_location_overrides_without_mutating_raw_observation() -> None:
@@ -260,6 +441,13 @@ def test_device_location_api_crud_allows_internal_dashboard_without_token(tmp_pa
     )
     assert created.status_code == 200
     assert created.json()["device_location"]["latitude"] == 25.041234
+    created_device = created.json()["device"]
+    assert created_device["device_id"] == "node_A01"
+    assert created_device["latitude"] is None
+    assert created_device["longitude"] is None
+    assert created_device["effective_latitude"] == 25.041234
+    assert created_device["effective_longitude"] == 121.531567
+    assert created_device["marker_position_locked"] is True
 
     listed = client.get("/device-locations")
     assert listed.status_code == 200

@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-dashboard-coordinate-contract-v3",
+        "runtime_marker": "fixed-dashboard-coordinate-contract-v4",
     }
 
 
@@ -5465,6 +5465,55 @@ def get_device_fixed_location(device_id: str) -> Optional[dict]:
         connection.close()
 
 
+def enrich_device_status_row(
+    row: dict,
+    fixed_locations: Optional[dict[str, dict]] = None,
+) -> dict:
+    """Enrich one device without introducing rows for other device IDs."""
+    enriched = dict(row)
+    device_id = str(enriched.get("device_id") or "").strip()
+    fixed_map = fixed_locations if fixed_locations is not None else location_map(
+        list_device_fixed_locations()
+    )
+
+    if enriched.get("raw_latitude") is None:
+        enriched["raw_latitude"] = enriched.get("latitude")
+    if enriched.get("raw_longitude") is None:
+        enriched["raw_longitude"] = enriched.get("longitude")
+
+    fixed = fixed_map.get(device_id)
+    effective = resolve_effective_location(
+        device_id=device_id,
+        event_latitude=enriched.get("latitude"),
+        event_longitude=enriched.get("longitude"),
+        fixed_locations=fixed_map,
+    )
+    if fixed:
+        enriched["fixed_latitude"] = fixed.get("latitude")
+        enriched["fixed_longitude"] = fixed.get("longitude")
+        enriched["fixed_location_source"] = fixed.get("location_source")
+        enriched["fixed_location_accuracy_m"] = fixed.get("accuracy_m")
+        enriched["fixed_location_updated_at"] = fixed.get("updated_at")
+    else:
+        enriched["fixed_latitude"] = None
+        enriched["fixed_longitude"] = None
+        enriched["fixed_location_source"] = None
+        enriched["fixed_location_accuracy_m"] = None
+        enriched["fixed_location_updated_at"] = None
+
+    if effective:
+        enriched["effective_latitude"] = effective["latitude"]
+        enriched["effective_longitude"] = effective["longitude"]
+        enriched["effective_location_source"] = effective[
+            "effective_location_source"
+        ]
+    else:
+        enriched["effective_latitude"] = None
+        enriched["effective_longitude"] = None
+        enriched["effective_location_source"] = "none"
+    return enriched
+
+
 def enrich_device_status_rows(rows: list[dict]) -> list[dict]:
     fixed_locations = location_map(list_device_fixed_locations())
     by_device = {str(row.get("device_id") or ""): dict(row) for row in rows}
@@ -5482,43 +5531,10 @@ def enrich_device_status_rows(rows: list[dict]) -> list[dict]:
             },
         )
 
-    enriched = []
-    for device_id in sorted(by_device):
-        row = by_device[device_id]
-        if row.get("raw_latitude") is None:
-            row["raw_latitude"] = row.get("latitude")
-        if row.get("raw_longitude") is None:
-            row["raw_longitude"] = row.get("longitude")
-        fixed = fixed_locations.get(device_id)
-        effective = resolve_effective_location(
-            device_id=device_id,
-            event_latitude=row.get("latitude"),
-            event_longitude=row.get("longitude"),
-            fixed_locations=fixed_locations,
-        )
-        if fixed:
-            row["fixed_latitude"] = fixed.get("latitude")
-            row["fixed_longitude"] = fixed.get("longitude")
-            row["fixed_location_source"] = fixed.get("location_source")
-            row["fixed_location_accuracy_m"] = fixed.get("accuracy_m")
-            row["fixed_location_updated_at"] = fixed.get("updated_at")
-        else:
-            row["fixed_latitude"] = None
-            row["fixed_longitude"] = None
-            row["fixed_location_source"] = None
-            row["fixed_location_accuracy_m"] = None
-            row["fixed_location_updated_at"] = None
-
-        if effective:
-            row["effective_latitude"] = effective["latitude"]
-            row["effective_longitude"] = effective["longitude"]
-            row["effective_location_source"] = effective["effective_location_source"]
-        else:
-            row["effective_latitude"] = None
-            row["effective_longitude"] = None
-            row["effective_location_source"] = "none"
-        enriched.append(row)
-    return enriched
+    return [
+        enrich_device_status_row(by_device[device_id], fixed_locations=fixed_locations)
+        for device_id in sorted(by_device)
+    ]
 
 
 def dashboard_device_location_payload(row: Optional[dict]) -> Optional[dict]:
@@ -5544,8 +5560,6 @@ def dashboard_device_location_payload(row: Optional[dict]) -> Optional[dict]:
 
     payload["raw_latitude"] = raw_latitude
     payload["raw_longitude"] = raw_longitude
-    payload["latitude"] = display_latitude
-    payload["longitude"] = display_longitude
     payload["marker_latitude"] = display_latitude
     payload["marker_longitude"] = display_longitude
     if payload.get("fixed_latitude") is not None and payload.get("fixed_longitude") is not None:
@@ -7481,8 +7495,11 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
     device_row = None
     if is_alert_event_label(event.label) and not is_existing_event:
         raw_device_row = fallback_device_event_status_row(event, saved_event, created_at)
-        enriched_rows = enrich_device_status_rows([raw_device_row]) if raw_device_row else []
-        device_row = enriched_rows[0] if enriched_rows else raw_device_row
+        device_row = (
+            enrich_device_status_row(raw_device_row)
+            if raw_device_row
+            else None
+        )
 
     return {
         "db_id": db_id,
@@ -7604,8 +7621,11 @@ def run_device_event_status_worker(
 ) -> None:
     try:
         device_row = upsert_device_event_status(event)
-        enriched_rows = enrich_device_status_rows([device_row]) if device_row else []
-        enriched_device_row = enriched_rows[0] if enriched_rows else None
+        enriched_device_row = (
+            enrich_device_status_row(device_row)
+            if device_row
+            else None
+        )
         update_device_status_cache_row(enriched_device_row)
     except Exception:
         logger.exception(
@@ -7700,7 +7720,7 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         time_sync_at=location.time_sync_at,
         last_time_sync_at=location.last_time_sync_at,
     )
-    enriched_device_row = enrich_device_status_rows([device_row])[0]
+    enriched_device_row = enrich_device_status_row(device_row)
     update_device_status_cache_row(enriched_device_row)
     return device_row, enriched_device_row
 
@@ -8300,9 +8320,42 @@ def device_location_detail(device_id: str):
     }
 
 
+def dashboard_device_payload_for_id(device_id: str) -> Optional[dict]:
+    normalized_device_id = str(device_id or "").strip()
+    if not normalized_device_id:
+        return None
+
+    status_row = next(
+        (
+            row
+            for row in list_device_status_rows()
+            if str(row.get("device_id") or "").strip() == normalized_device_id
+        ),
+        None,
+    )
+    fixed_locations = location_map(list_device_fixed_locations())
+    if status_row is None:
+        fixed = fixed_locations.get(normalized_device_id)
+        if fixed is None:
+            return None
+        status_row = {
+            "device_id": normalized_device_id,
+            "latitude": None,
+            "longitude": None,
+            "last_seen": None,
+            "status": "offline",
+            "updated_at": fixed.get("updated_at"),
+        }
+
+    enriched = enrich_device_status_row(
+        status_row,
+        fixed_locations=fixed_locations,
+    )
+    return dashboard_device_location_payload(enriched)
+
+
 async def broadcast_device_location_change(device_id: str, groups: list[dict]) -> None:
-    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
-    device_payload = dashboard_device_location_payload(status_rows[0]) if status_rows else None
+    device_payload = dashboard_device_payload_for_id(device_id)
     await dashboard_manager.broadcast(
         {
             "type": "device_location_updated",
@@ -8330,7 +8383,7 @@ async def put_device_location(
     except Exception:
         logger.exception("Failed to recompute regions after device location update device_id=%s", device_id)
         groups = []
-    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    device_payload = dashboard_device_payload_for_id(device_id)
     try:
         await broadcast_device_location_change(device_id, groups)
     except Exception:
@@ -8338,7 +8391,7 @@ async def put_device_location(
     return {
         "status": "success",
         "device_location": location,
-        "device": dashboard_device_location_payload(status_rows[0]) if status_rows else None,
+        "device": device_payload,
         "recomputed_group_count": len(groups),
     }
 
@@ -8355,7 +8408,7 @@ async def clear_device_location(
     except Exception:
         logger.exception("Failed to recompute regions after device location clear device_id=%s", device_id)
         groups = []
-    status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    device_payload = dashboard_device_payload_for_id(device_id)
     try:
         await broadcast_device_location_change(device_id, groups)
     except Exception:
@@ -8364,7 +8417,7 @@ async def clear_device_location(
         "status": "success",
         "device_id": device_id,
         "deleted": deleted,
-        "device": dashboard_device_location_payload(status_rows[0]) if status_rows else None,
+        "device": device_payload,
         "recomputed_group_count": len(groups),
     }
 
