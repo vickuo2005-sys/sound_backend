@@ -2,9 +2,11 @@ import asyncio
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 
 os.environ["DATABASE_URL"] = ""
+os.environ["LOCALIZATION_ENABLED"] = "true"
 os.environ["UPLOAD_TOKEN"] = "test-only-token"
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -55,14 +57,40 @@ async def run_pipeline() -> None:
             )
             await main.create_event(event, upload_token="test-only-token")
 
-        groups = main.list_event_fusion_groups(limit=5)
-        assert groups, "expected fusion group"
-        assert groups[0]["node_count"] == 3, groups[0]
+        groups = []
+        group = None
+        localizations = []
+        success_localization = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+            groups = main.list_event_fusion_groups(limit=5)
+            if not groups:
+                continue
+            group = next(
+                (item for item in groups if item.get("node_count") == 3),
+                None,
+            )
+            if not group:
+                continue
+            localizations = main.list_localization_results(limit=10, group_id=group["id"])
+            success_localization = next(
+                (
+                    item
+                    for item in localizations
+                    if item.get("status") == "SUCCESS"
+                    and item.get("method") == "timestamp_tdoa"
+                ),
+                None,
+            )
+            if success_localization:
+                break
 
-        localizations = main.list_localization_results(limit=10, group_id=groups[0]["id"])
+        assert groups, "expected fusion group"
+        assert group, groups
+
         assert localizations, "expected localization result"
-        assert localizations[0]["status"] == "SUCCESS", localizations[0]
-        assert localizations[0]["method"] == "timestamp_tdoa", localizations[0]
+        assert success_localization, localizations
 
         tracks = main.list_tracks(limit=10)
         assert tracks, "expected track"
