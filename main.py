@@ -4317,6 +4317,62 @@ def close_track(track_id: str) -> dict:
         return saved
 
 
+def delete_closed_single_point_target_tracks() -> dict:
+    labels = ("aircraft", "drone")
+    deleted_track_ids: list[str] = []
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        DELETE FROM target_tracks
+                        WHERE status = 'CLOSED'
+                          AND point_count = 1
+                          AND LOWER(COALESCE(label, '')) IN %s
+                        RETURNING id
+                        """,
+                        (labels,),
+                    )
+                    deleted_track_ids = [str(row["id"]) for row in cursor.fetchall()]
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT id
+                FROM target_tracks
+                WHERE status = 'CLOSED'
+                  AND point_count = 1
+                  AND LOWER(COALESCE(label, '')) IN (?, ?)
+                """,
+                labels,
+            ).fetchall()
+            deleted_track_ids = [str(row["id"]) for row in rows]
+            if deleted_track_ids:
+                placeholders = ", ".join(["?"] * len(deleted_track_ids))
+                connection.execute(
+                    f"DELETE FROM target_track_points WHERE track_id IN ({placeholders})",
+                    tuple(deleted_track_ids),
+                )
+                connection.execute(
+                    f"DELETE FROM target_tracks WHERE id IN ({placeholders})",
+                    tuple(deleted_track_ids),
+                )
+                connection.commit()
+
+    if deleted_track_ids:
+        invalidate_tracks_cache()
+    return {
+        "status": "success",
+        "deleted_count": len(deleted_track_ids),
+        "deleted_track_ids": deleted_track_ids,
+    }
+
+
 def rebuild_cutoff(hours: Optional[float]) -> tuple[Optional[datetime], Optional[float]]:
     if hours is None or float(hours) <= 0:
         return None, None
@@ -8239,6 +8295,22 @@ async def rebuild_tracks_admin(
     return result
 
 
+@app.delete("/admin/tracks/single-point")
+async def delete_single_point_tracks_admin(
+    confirm: str = Query(default=""),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    if confirm != "delete_single_point_tracks":
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=delete_single_point_tracks is required",
+        )
+    result = await asyncio.to_thread(delete_closed_single_point_target_tracks)
+    await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    return result
+
+
 @app.post("/tracks/{track_id}/close")
 async def close_track_endpoint(track_id: str):
     track = close_track(track_id)
@@ -11734,7 +11806,11 @@ def dashboard_v4_clean():
                 const list = document.getElementById('historyTrackList');
                 if (!list) return;
                 const values = Array.from(tracks.values())
-                    .filter(track => isTarget(track.label) && trackPath(track).length > 0)
+                    .filter(track => {
+                        const points = trackPath(track);
+                        const pointCount = Number(track?.point_count || points.length || 0);
+                        return isTarget(track.label) && pointCount >= 2 && points.length >= 2;
+                    })
                     .sort((a, b) => (trackEndTime(b) || 0) - (trackEndTime(a) || 0))
                     .slice(0, 12);
                 if (!values.length) {
