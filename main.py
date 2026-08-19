@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-alert-coordinate-chain-v2",
+        "runtime_marker": "fixed-dashboard-coordinate-contract-v3",
     }
 
 
@@ -5559,6 +5559,14 @@ def dashboard_device_location_payload(row: Optional[dict]) -> Optional[dict]:
     return payload
 
 
+def dashboard_device_location_payloads(rows: list[dict]) -> list[dict]:
+    return [
+        payload
+        for row in rows
+        if (payload := dashboard_device_location_payload(row)) is not None
+    ]
+
+
 def upsert_device_fixed_location(
     device_id: str,
     payload: DeviceFixedLocationUpsert,
@@ -8232,6 +8240,7 @@ def device_status():
         devices = filter_diagnostic_device_rows(devices)
         devices = merge_device_status_rows_with_live_nodes(devices)
         devices = enrich_device_status_rows(devices)
+        devices = dashboard_device_location_payloads(devices)
     except Exception as exc:
         return degraded_read_payload(
             source="device_status",
@@ -10143,10 +10152,10 @@ def dashboard_v4_clean():
                 startDashboard();
             };
 
-            function startDashboard() {
+            async function startDashboard() {
                 if (dashboardStarted) return;
                 dashboardStarted = true;
-                refreshAll();
+                await refreshAll();
                 connectDashboardSocket();
                 setInterval(refreshAll, 30000);
                 setInterval(renderLiveEffects, 500);
