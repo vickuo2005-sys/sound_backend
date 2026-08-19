@@ -336,7 +336,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-alert-coordinate-chain-v1",
+        "runtime_marker": "fixed-alert-coordinate-chain-v2",
     }
 
 
@@ -5485,6 +5485,10 @@ def enrich_device_status_rows(rows: list[dict]) -> list[dict]:
     enriched = []
     for device_id in sorted(by_device):
         row = by_device[device_id]
+        if row.get("raw_latitude") is None:
+            row["raw_latitude"] = row.get("latitude")
+        if row.get("raw_longitude") is None:
+            row["raw_longitude"] = row.get("longitude")
         fixed = fixed_locations.get(device_id)
         effective = resolve_effective_location(
             device_id=device_id,
@@ -5515,6 +5519,44 @@ def enrich_device_status_rows(rows: list[dict]) -> list[dict]:
             row["effective_location_source"] = "none"
         enriched.append(row)
     return enriched
+
+
+def dashboard_device_location_payload(row: Optional[dict]) -> Optional[dict]:
+    if not row:
+        return None
+
+    payload = serialize_db_row(dict(row))
+    raw_latitude = payload.get("raw_latitude")
+    raw_longitude = payload.get("raw_longitude")
+    if raw_latitude is None:
+        raw_latitude = payload.get("latitude")
+    if raw_longitude is None:
+        raw_longitude = payload.get("longitude")
+
+    display_latitude = payload.get("effective_latitude")
+    display_longitude = payload.get("effective_longitude")
+    if display_latitude is None or display_longitude is None:
+        display_latitude = payload.get("fixed_latitude")
+        display_longitude = payload.get("fixed_longitude")
+    if display_latitude is None or display_longitude is None:
+        display_latitude = payload.get("latitude")
+        display_longitude = payload.get("longitude")
+
+    payload["raw_latitude"] = raw_latitude
+    payload["raw_longitude"] = raw_longitude
+    payload["latitude"] = display_latitude
+    payload["longitude"] = display_longitude
+    payload["marker_latitude"] = display_latitude
+    payload["marker_longitude"] = display_longitude
+    if payload.get("fixed_latitude") is not None and payload.get("fixed_longitude") is not None:
+        payload["effective_latitude"] = payload.get("fixed_latitude")
+        payload["effective_longitude"] = payload.get("fixed_longitude")
+        payload["effective_location_source"] = "fixed"
+        payload["marker_location_source"] = payload.get("fixed_location_source") or "fixed_location"
+        payload["marker_position_locked"] = True
+    elif payload.get("effective_location_source") is not None:
+        payload["marker_location_source"] = payload.get("effective_location_source")
+    return payload
 
 
 def upsert_device_fixed_location(
@@ -7536,12 +7578,13 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
 
 
 async def broadcast_device_status_update(row: Optional[dict]) -> None:
-    if not row:
+    payload = dashboard_device_location_payload(row)
+    if not payload:
         return
     await safe_dashboard_broadcast(
         {
             "type": "location_update",
-            **row,
+            **payload,
         },
         "device_status_update",
     )
@@ -8165,7 +8208,7 @@ async def update_location(location: LocationUpdate):
     schedule_dashboard_broadcast(
         {
             "type": "location_update",
-            **enriched_device_row,
+            **(dashboard_device_location_payload(enriched_device_row) or enriched_device_row),
         },
         "location_update",
     )
@@ -8250,11 +8293,12 @@ def device_location_detail(device_id: str):
 
 async def broadcast_device_location_change(device_id: str, groups: list[dict]) -> None:
     status_rows = [row for row in list_device_status_rows() if row.get("device_id") == device_id]
+    device_payload = dashboard_device_location_payload(status_rows[0]) if status_rows else None
     await dashboard_manager.broadcast(
         {
             "type": "device_location_updated",
             "device_id": device_id,
-            "device": status_rows[0] if status_rows else None,
+            "device": device_payload,
         }
     )
     for group in groups:
@@ -8285,7 +8329,7 @@ async def put_device_location(
     return {
         "status": "success",
         "device_location": location,
-        "device": status_rows[0] if status_rows else None,
+        "device": dashboard_device_location_payload(status_rows[0]) if status_rows else None,
         "recomputed_group_count": len(groups),
     }
 
@@ -8311,7 +8355,7 @@ async def clear_device_location(
         "status": "success",
         "device_id": device_id,
         "deleted": deleted,
-        "device": status_rows[0] if status_rows else None,
+        "device": dashboard_device_location_payload(status_rows[0]) if status_rows else None,
         "recomputed_group_count": len(groups),
     }
 
@@ -9762,6 +9806,16 @@ def dashboard_v4_clean():
                 const fixedPosition = firstValidPosition(merged, [['fixed_latitude', 'fixed_longitude']]);
                 if (!fixedPosition) return;
 
+                const currentPosition = firstValidPosition(merged, [['latitude', 'longitude']]);
+                if (currentPosition) {
+                    const currentDistance = distanceMeters(currentPosition, fixedPosition);
+                    if (currentDistance !== null && currentDistance > 1) {
+                        merged.raw_latitude = currentPosition.lat;
+                        merged.raw_longitude = currentPosition.lng;
+                    }
+                }
+                merged.latitude = fixedPosition.lat;
+                merged.longitude = fixedPosition.lng;
                 merged.effective_latitude = fixedPosition.lat;
                 merged.effective_longitude = fixedPosition.lng;
                 merged.effective_location_source = 'fixed';
@@ -9777,6 +9831,8 @@ def dashboard_v4_clean():
 
                 const fixedPosition = firstValidPosition(merged, [['fixed_latitude', 'fixed_longitude']]);
                 if (fixedPosition) {
+                    merged.latitude = fixedPosition.lat;
+                    merged.longitude = fixedPosition.lng;
                     merged.marker_latitude = fixedPosition.lat;
                     merged.marker_longitude = fixedPosition.lng;
                     merged.effective_latitude = fixedPosition.lat;
@@ -9920,8 +9976,8 @@ def dashboard_v4_clean():
             }
 
             function deviceRawGpsPosition(device) {
-                const latitude = finiteNumber(device?.latitude);
-                const longitude = finiteNumber(device?.longitude);
+                const latitude = finiteNumber(device?.raw_latitude ?? device?.latitude);
+                const longitude = finiteNumber(device?.raw_longitude ?? device?.longitude);
                 if (!isValidCoordinatePair(latitude, longitude)) return null;
                 return { lat: latitude, lng: longitude };
             }
@@ -10160,6 +10216,8 @@ def dashboard_v4_clean():
                         const latest = latestEstimate();
                         if (latest && estimateIsFresh(latest)) {
                             autoEstimateId = estimateId(latest);
+                        } else {
+                            autoEstimateId = null;
                         }
                     }
 
@@ -10458,6 +10516,7 @@ def dashboard_v4_clean():
             function latestEstimate() {
                 const live = liveAlertEstimate();
                 if (live) return live;
+                if (activeAlertDevicesForEstimate().length > 0) return null;
                 return Array.from(estimates.values())
                     .filter(isDisplayableEstimate)
                     .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))[0];
@@ -11275,10 +11334,13 @@ def dashboard_v4_clean():
                 if (!map || !window.google) return;
                 const selected = selectedEstimateId ? estimates.get(selectedEstimateId) : null;
                 const auto = autoEstimateId ? estimates.get(autoEstimateId) : null;
-                const latest = latestEstimate();
+                const activeEstimateDevices = activeAlertDevicesForEstimate();
+                const live = liveAlertEstimate();
+                const latest = live || latestEstimate();
                 const item = selected
-                    || (auto && estimateIsFresh(auto) ? auto : null)
-                    || (latest && estimateIsFresh(latest) ? latest : null);
+                    || live
+                    || (!activeEstimateDevices.length && auto && estimateIsFresh(auto) ? auto : null)
+                    || (!activeEstimateDevices.length && latest && estimateIsFresh(latest) ? latest : null);
                 if (!item) {
                     clearEstimateObjects(false);
                     return;

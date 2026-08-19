@@ -935,6 +935,52 @@ def group_region_observations(cursor: Any, group_id: str, is_postgres: bool) -> 
     return resolved_rows
 
 
+def resolve_observation_location_rows(
+    cursor: Any,
+    rows: list[dict],
+    is_postgres: bool,
+) -> list[dict]:
+    device_ids = [str(row.get("device_id") or "") for row in rows if row.get("device_id")]
+    fixed_locations = fixed_locations_for_devices(cursor, device_ids, is_postgres)
+    resolved_rows = []
+    for row in rows:
+        effective = resolve_effective_location(
+            device_id=row.get("device_id"),
+            event_latitude=row.get("latitude"),
+            event_longitude=row.get("longitude"),
+            fixed_locations=fixed_locations,
+        )
+        if effective:
+            resolved_rows.append(
+                {
+                    **row,
+                    "raw_latitude": row.get("latitude"),
+                    "raw_longitude": row.get("longitude"),
+                    "latitude": effective["latitude"],
+                    "longitude": effective["longitude"],
+                    "effective_latitude": effective["latitude"],
+                    "effective_longitude": effective["longitude"],
+                    "effective_location_source": effective[
+                        "effective_location_source"
+                    ],
+                }
+            )
+        else:
+            resolved_rows.append(
+                {
+                    **row,
+                    "raw_latitude": row.get("latitude"),
+                    "raw_longitude": row.get("longitude"),
+                    "latitude": None,
+                    "longitude": None,
+                    "effective_latitude": None,
+                    "effective_longitude": None,
+                    "effective_location_source": "none",
+                }
+            )
+    return resolved_rows
+
+
 def fixed_locations_for_devices(
     cursor: Any,
     device_ids: list[str],
@@ -1525,8 +1571,9 @@ def get_event_group_detail(
             """,
             (group_id, FUSION_KIND),
         )
+        observation_rows = [serialize_row(row) for row in fetchall_dict(cursor)]
         observations = annotate_relative_times(
-            [serialize_row(row) for row in fetchall_dict(cursor)]
+            resolve_observation_location_rows(cursor, observation_rows, is_postgres)
         )
         payload["observations"] = observations
         return payload
