@@ -4409,6 +4409,300 @@ def close_track(track_id: str) -> dict:
         return saved
 
 
+def _validate_closed_track_merge(target: dict, source: dict) -> float:
+    if str(target.get("id")) == str(source.get("id")):
+        raise HTTPException(status_code=400, detail="Target and source tracks must differ")
+    if str(target.get("status") or "").upper() != "CLOSED":
+        raise HTTPException(status_code=409, detail="Target track must be CLOSED")
+    if str(source.get("status") or "").upper() != "CLOSED":
+        raise HTTPException(status_code=409, detail="Source track must be CLOSED")
+    if str(target.get("label") or "").lower() != str(source.get("label") or "").lower():
+        raise HTTPException(status_code=409, detail="Track labels do not match")
+
+    target_last = float(target.get("last_event_time_ms") or 0)
+    source_first = float(source.get("first_event_time_ms") or 0)
+    if target_last <= 0 or source_first <= 0:
+        raise HTTPException(status_code=409, detail="Tracks are missing event timing")
+    gap_ms = source_first - target_last
+    if gap_ms < -1000:
+        raise HTTPException(
+            status_code=409,
+            detail="Source track starts before the target ends; reverse or review the merge order",
+        )
+    if gap_ms > TRACK_MAX_GAP_SECONDS * 1000:
+        raise HTTPException(status_code=409, detail="Tracks are too far apart in time")
+    return gap_ms
+
+
+def _present_min(*values: Any) -> Any:
+    present = [value for value in values if value is not None and value != ""]
+    return min(present) if present else None
+
+
+def _present_max(*values: Any) -> Any:
+    present = [value for value in values if value is not None and value != ""]
+    return max(present) if present else None
+
+
+def merge_closed_target_tracks(
+    target_track_id: str,
+    source_track_id: str,
+    *,
+    dry_run: bool = False,
+) -> dict:
+    """Merge a later closed track into an earlier one without losing provenance."""
+
+    if not target_track_id or not source_track_id:
+        raise HTTPException(status_code=400, detail="Both track IDs are required")
+
+    moved_point_count = 0
+    gap_ms = 0.0
+    target_saved: Optional[dict] = None
+    source_saved: Optional[dict] = None
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM target_tracks
+                        WHERE id IN (%s, %s)
+                        FOR UPDATE
+                        """,
+                        (target_track_id, source_track_id),
+                    )
+                    rows = {str(row["id"]): dict(row) for row in cursor.fetchall()}
+                    target = rows.get(str(target_track_id))
+                    source = rows.get(str(source_track_id))
+                    if not target or not source:
+                        raise HTTPException(status_code=404, detail="One or both tracks were not found")
+                    gap_ms = _validate_closed_track_merge(target, source)
+
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM target_track_points WHERE track_id = %s",
+                        (source_track_id,),
+                    )
+                    source_point_count = int(cursor.fetchone()["count"] or 0)
+                    if source_point_count <= 0:
+                        raise HTTPException(status_code=409, detail="Source track has no points")
+                    if dry_run:
+                        return {
+                            "status": "success",
+                            "dry_run": True,
+                            "target_track_id": target_track_id,
+                            "source_track_id": source_track_id,
+                            "source_point_count": source_point_count,
+                            "time_gap_ms": gap_ms,
+                        }
+
+                    cursor.execute(
+                        """
+                        UPDATE target_track_points
+                        SET track_id = %s,
+                            diagnostics_json = COALESCE(diagnostics_json, '{}'::jsonb)
+                                || jsonb_build_object('merged_from_track_id', %s::text)
+                        WHERE track_id = %s
+                        RETURNING id
+                        """,
+                        (target_track_id, source_track_id, source_track_id),
+                    )
+                    moved_point_count = len(cursor.fetchall())
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM target_track_points
+                        WHERE track_id = %s
+                        """,
+                        (target_track_id,),
+                    )
+                    merged_point_count = int(cursor.fetchone()["count"] or 0)
+                    cursor.execute(
+                        """
+                        SELECT *
+                        FROM target_track_points
+                        WHERE track_id = %s
+                        ORDER BY measurement_time_ms DESC NULLS LAST, created_at DESC
+                        LIMIT 1
+                        """,
+                        (target_track_id,),
+                    )
+                    last_point = dict(cursor.fetchone())
+                    cursor.execute(
+                        """
+                        UPDATE target_tracks
+                        SET status = 'CLOSED',
+                            created_at = %s,
+                            updated_at = now(),
+                            first_event_time_ms = %s,
+                            last_event_time_ms = %s,
+                            point_count = %s,
+                            last_lat = %s,
+                            last_lng = %s,
+                            last_speed_mps = %s,
+                            last_heading_deg = %s,
+                            last_confidence = %s,
+                            velocity_east_mps = %s,
+                            velocity_north_mps = %s,
+                            closed_at = %s
+                        WHERE id = %s
+                        RETURNING *
+                        """,
+                        (
+                            _present_min(target.get("created_at"), source.get("created_at")),
+                            _present_min(target.get("first_event_time_ms"), source.get("first_event_time_ms")),
+                            _present_max(target.get("last_event_time_ms"), source.get("last_event_time_ms")),
+                            merged_point_count,
+                            last_point.get("filtered_lat"),
+                            last_point.get("filtered_lng"),
+                            last_point.get("speed_mps"),
+                            last_point.get("heading_deg"),
+                            last_point.get("confidence"),
+                            last_point.get("velocity_east_mps"),
+                            last_point.get("velocity_north_mps"),
+                            _present_max(target.get("closed_at"), source.get("closed_at")),
+                            target_track_id,
+                        ),
+                    )
+                    target_saved = serialize_db_row(dict(cursor.fetchone()))
+                    cursor.execute(
+                        """
+                        UPDATE target_tracks
+                        SET status = 'MERGED', point_count = 0, updated_at = now()
+                        WHERE id = %s
+                        RETURNING *
+                        """,
+                        (source_track_id,),
+                    )
+                    source_saved = serialize_db_row(dict(cursor.fetchone()))
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM target_tracks WHERE id IN (?, ?)",
+                (target_track_id, source_track_id),
+            ).fetchall()
+            row_map = {str(row["id"]): dict(row) for row in rows}
+            target = row_map.get(str(target_track_id))
+            source = row_map.get(str(source_track_id))
+            if not target or not source:
+                raise HTTPException(status_code=404, detail="One or both tracks were not found")
+            gap_ms = _validate_closed_track_merge(target, source)
+            source_points = connection.execute(
+                "SELECT * FROM target_track_points WHERE track_id = ?",
+                (source_track_id,),
+            ).fetchall()
+            if not source_points:
+                raise HTTPException(status_code=409, detail="Source track has no points")
+            if dry_run:
+                return {
+                    "status": "success",
+                    "dry_run": True,
+                    "target_track_id": target_track_id,
+                    "source_track_id": source_track_id,
+                    "source_point_count": len(source_points),
+                    "time_gap_ms": gap_ms,
+                }
+
+            for point in source_points:
+                diagnostics_raw = point["diagnostics_json"]
+                if isinstance(diagnostics_raw, str) and diagnostics_raw:
+                    try:
+                        diagnostics = json.loads(diagnostics_raw)
+                    except json.JSONDecodeError:
+                        diagnostics = {"original_diagnostics": diagnostics_raw}
+                else:
+                    diagnostics = diagnostics_raw or {}
+                if not isinstance(diagnostics, dict):
+                    diagnostics = {"original_diagnostics": diagnostics}
+                diagnostics["merged_from_track_id"] = source_track_id
+                connection.execute(
+                    """
+                    UPDATE target_track_points
+                    SET track_id = ?, diagnostics_json = ?
+                    WHERE id = ?
+                    """,
+                    (target_track_id, json.dumps(diagnostics), point["id"]),
+                )
+            moved_point_count = len(source_points)
+            merged_point_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM target_track_points WHERE track_id = ?",
+                    (target_track_id,),
+                ).fetchone()[0]
+                or 0
+            )
+            last_point = dict(
+                connection.execute(
+                    """
+                    SELECT * FROM target_track_points
+                    WHERE track_id = ?
+                    ORDER BY measurement_time_ms DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (target_track_id,),
+                ).fetchone()
+            )
+            now = current_time_iso()
+            connection.execute(
+                """
+                UPDATE target_tracks
+                SET status = 'CLOSED', created_at = ?, updated_at = ?,
+                    first_event_time_ms = ?, last_event_time_ms = ?, point_count = ?,
+                    last_lat = ?, last_lng = ?, last_speed_mps = ?,
+                    last_heading_deg = ?, last_confidence = ?, velocity_east_mps = ?,
+                    velocity_north_mps = ?, closed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    _present_min(target.get("created_at"), source.get("created_at")),
+                    now,
+                    _present_min(target.get("first_event_time_ms"), source.get("first_event_time_ms")),
+                    _present_max(target.get("last_event_time_ms"), source.get("last_event_time_ms")),
+                    merged_point_count,
+                    last_point.get("filtered_lat"),
+                    last_point.get("filtered_lng"),
+                    last_point.get("speed_mps"),
+                    last_point.get("heading_deg"),
+                    last_point.get("confidence"),
+                    last_point.get("velocity_east_mps"),
+                    last_point.get("velocity_north_mps"),
+                    _present_max(target.get("closed_at"), source.get("closed_at")),
+                    target_track_id,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE target_tracks
+                SET status = 'MERGED', point_count = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, source_track_id),
+            )
+            connection.commit()
+            target_saved = serialize_db_row(
+                dict(connection.execute("SELECT * FROM target_tracks WHERE id = ?", (target_track_id,)).fetchone())
+            )
+            source_saved = serialize_db_row(
+                dict(connection.execute("SELECT * FROM target_tracks WHERE id = ?", (source_track_id,)).fetchone())
+            )
+
+    invalidate_tracks_cache()
+    return {
+        "status": "success",
+        "dry_run": False,
+        "target_track_id": target_track_id,
+        "source_track_id": source_track_id,
+        "moved_point_count": moved_point_count,
+        "time_gap_ms": gap_ms,
+        "track": enrich_track_with_points(target_saved, limit=100),
+        "merged_source": source_saved,
+    }
+
+
 def delete_closed_single_point_target_tracks() -> dict:
     labels = ("aircraft", "drone")
     deleted_track_ids: list[str] = []
@@ -8601,6 +8895,28 @@ async def delete_implausible_tracks_admin(
         )
     result = await asyncio.to_thread(delete_implausible_target_tracks)
     await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    return result
+
+
+@app.post("/admin/tracks/merge")
+async def merge_tracks_admin(
+    target_track_id: str = Query(...),
+    source_track_id: str = Query(...),
+    dry_run: bool = Query(default=True),
+    confirm: str = Query(default=""),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    if confirm != "merge_tracks":
+        raise HTTPException(status_code=400, detail="confirm=merge_tracks is required")
+    result = await asyncio.to_thread(
+        merge_closed_target_tracks,
+        target_track_id,
+        source_track_id,
+        dry_run=dry_run,
+    )
+    if not dry_run:
+        await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
     return result
 
 
