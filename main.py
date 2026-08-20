@@ -9201,26 +9201,6 @@ async def delete_implausible_tracks_admin(
     return result
 
 
-@app.post("/admin/tracks/smooth-linear")
-async def smooth_track_linear_admin(
-    track_id: str = Query(...),
-    dry_run: bool = Query(default=True),
-    confirm: str = Query(default=""),
-    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
-):
-    verify_dashboard_write_token(upload_token)
-    if confirm != "smooth_track_linear":
-        raise HTTPException(status_code=400, detail="confirm=smooth_track_linear is required")
-    result = await asyncio.to_thread(
-        smooth_closed_target_track_linear,
-        track_id,
-        dry_run=dry_run,
-    )
-    if not dry_run:
-        await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
-    return result
-
-
 @app.post("/tracks/{track_id}/close")
 async def close_track_endpoint(track_id: str):
     track = close_track(track_id)
