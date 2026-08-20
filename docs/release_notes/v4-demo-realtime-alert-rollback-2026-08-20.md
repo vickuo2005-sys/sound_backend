@@ -4,7 +4,7 @@
 
 Dashboard 的即時節點警示回退為歸檔版的「事件抵達即顯示」模式，並加上一項安全邊界：只有 WebSocket `event_trigger` 可以啟動節點警示。融合群組與 REST 定時更新只能更新資料和估測，不得重新啟動或提前清除警示。
 
-回退前版本已保留在 Git 提交 `d700dfe`，runtime marker 為 `archive-stable-ordered-alerts-v10`。本次 DEMO 基線 marker 為 `archived-dashboard-alert-flow-v11`。
+回退前版本已保留在 Git 提交 `d700dfe`，runtime marker 為 `archive-stable-ordered-alerts-v10`。本次 DEMO 基線 marker 為 `archived-dashboard-alerts-15s-v12`。
 
 ## 已確認的現象
 
@@ -26,7 +26,7 @@ Dashboard 的即時節點警示回退為歸檔版的「事件抵達即顯示」�
 2. 偵測事件以 HTTP 上傳至 FastAPI，包含裝置事件時間、RMS peak 時間、節點 ID 與定位資料。
 3. FastAPI 寫入事件；固定節點顯示位置使用後端的 effective/fixed location。
 4. 事件在 30 秒准入範圍內時，後端送出 WebSocket `event_trigger`。
-5. Dashboard 收到 `event_trigger` 後，從「瀏覽器實際收到的時間」開始顯示完整 8 秒。
+5. Dashboard 收到 `event_trigger` 後，從「瀏覽器實際收到的時間」開始顯示完整 15 秒，與歸檔版一致。
 6. heartbeat、REST refresh 與融合群組不重啟警示；它們只更新節點資訊、歷史事件、估測與追蹤。
 
 ## 保留項目
@@ -34,7 +34,7 @@ Dashboard 的即時節點警示回退為歸檔版的「事件抵達即顯示」�
 - 固定節點位置與事件 marker 鎖定。
 - 原始手機 GPS 留存。
 - 30 秒後端舊事件准入判定。
-- 8 秒 Dashboard 警示顯示。
+- 15 秒 Dashboard 警示顯示（歸檔版設定）。
 - Flutter 1.5 秒重疊推論設定。
 - 追蹤同時間去重、速度上限與異常座標過濾。
 - 事件資料庫、融合、定位與歷史追蹤資料。
@@ -51,10 +51,10 @@ Dashboard 的即時節點警示回退為歸檔版的「事件抵達即顯示」�
 
 1. 開啟 Dashboard 並強制重新整理。
 2. 啟動指定節點監聽，觸發至少三輪事件。
-3. 每一輪後端接受的事件都應讓對應固定節點顯示 8 秒。
-4. 關閉監聽不應讓已開始的 8 秒警示提前消失。
+3. 每一輪後端接受的事件都應讓對應固定節點顯示 15 秒。
+4. 關閉監聽不應讓已開始的 15 秒警示提前消失。
 5. 融合或 REST 更新不應讓已結束的舊節點警示重新出現。
-6. `/runtime-status` 應回報 `archived-dashboard-alert-flow-v11`，且六個展示節點保持 WebSocket 連線。
+6. `/runtime-status` 應回報 `archived-dashboard-alerts-15s-v12`，且六個展示節點保持 WebSocket 連線。
 
 ## 後續改善邊界
 

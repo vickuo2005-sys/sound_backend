@@ -142,7 +142,7 @@ def test_dashboard_restores_archived_event_trigger_alert_flow() -> None:
     response = main.dashboard_v4_clean()
     html = response.body.decode("utf-8")
 
-    assert "const alertDurationMs = 8000;" in html
+    assert "const alertDurationMs = 15000;" in html
     assert "alertUntil.set(data.device_id, Date.now() + alertDurationMs)" in html
     assert "activateAlertsForGroup" not in html
     assert "latestLiveAlertOccurredAt" not in html
