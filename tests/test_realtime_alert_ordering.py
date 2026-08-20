@@ -80,6 +80,28 @@ def test_fusion_group_expiry_uses_last_sound_not_late_backend_update() -> None:
     assert timing["is_live_alert"] is False
 
 
+def test_fusion_group_display_uses_latest_backend_update_time() -> None:
+    now = datetime(2026, 8, 20, 4, 0, 0, tzinfo=timezone.utc)
+    sound_time = now - timedelta(seconds=5)
+    created_at = now - timedelta(seconds=12)
+
+    timing = main.realtime_alert_timing(
+        {
+            "last_event_time": sound_time.isoformat(),
+            "created_at": created_at.isoformat(),
+            "updated_at": now.isoformat(),
+        },
+        now=now,
+    )
+
+    assert timing["alert_received_at"] == now.isoformat()
+    assert timing["alert_expires_at"] == (
+        now + timedelta(seconds=main.NODE_ALERT_HOLD_SECONDS)
+    ).isoformat()
+    assert timing["alert_accepted_in_time"] is True
+    assert timing["is_live_alert"] is True
+
+
 def test_duplicate_event_metadata_keeps_first_receipt_time(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "event_receipt_time.db"
     monkeypatch.setattr(main, "DB_NAME", str(db_path))
@@ -124,6 +146,18 @@ def test_dashboard_never_restarts_expired_websocket_alerts() -> None:
     assert "function acceptLiveAlert" in html
     assert "activateAlertsForGroup(group, true)" not in html
     assert "alertUntil.set(data.device_id, Date.now() + alertDurationMs)" not in html
+
+
+def test_dashboard_enforces_listening_and_latest_alert_batch_order() -> None:
+    html = main.dashboard_v4_clean().body.decode("utf-8")
+
+    assert "device?.is_listening === true" in html
+    assert "const alertOccurredAt = new Map();" in html
+    assert "function advanceLiveAlertWatermark" in html
+    assert "const alertOrderingToleranceMs = 1500;" in html
+    assert "function latestGroupDeviceIds" in html
+    assert "item.relativeMs + alertOrderingToleranceMs >= latestRelativeMs" in html
+    assert "acceptLiveAlert(data, true)" not in html
 
 
 def test_events_api_includes_realtime_alert_contract(monkeypatch) -> None:

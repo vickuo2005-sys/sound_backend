@@ -355,7 +355,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "bounded-deduplicated-tracking-v8",
+        "runtime_marker": "strict-listening-alert-order-v9",
     }
 
 
@@ -6724,9 +6724,9 @@ def realtime_alert_timing(
 ) -> dict:
     """Reject stale events, then give accepted events a full display interval.
 
-    Occurrence time remains the ordering watermark. The immutable first backend
-    receipt time controls the display interval, matching the archived dashboard's
-    stable full-duration alert without allowing delayed history to revive.
+    Occurrence time remains the ordering watermark. An event uses its immutable
+    first backend receipt, while a fusion group uses its latest backend update;
+    this gives accepted alerts a full display interval without reviving history.
     """
 
     occurred_at = realtime_alert_occurrence_time(payload)
@@ -6743,9 +6743,21 @@ def realtime_alert_timing(
             "is_live_alert": False,
         }
 
+    payload_data = payload or {}
+    explicit_received_at = parse_datetime(payload_data.get("alert_received_at"))
+    group_update_times = [
+        parse_datetime(payload_data.get(key))
+        for key in ("region_updated_at", "updated_at", "created_at")
+    ]
+    group_update_times = [value for value in group_update_times if value is not None]
+    is_group_payload = any(
+        payload_data.get(key) is not None
+        for key in ("last_event_time", "end_time", "first_event_time", "start_time")
+    )
     received_at = (
-        parse_datetime((payload or {}).get("alert_received_at"))
-        or parse_datetime((payload or {}).get("created_at"))
+        explicit_received_at
+        or (max(group_update_times) if is_group_payload and group_update_times else None)
+        or parse_datetime(payload_data.get("created_at"))
         or occurred_at
     )
     accept_expires_at = occurred_at + timedelta(
@@ -9980,8 +9992,9 @@ def dashboard_v4_clean():
             const historyTrackPlaybackMaxDurationMs = 22000;
             const historyTrackPlaybackCompression = 8;
             const alertUntil = new Map();
+            const alertOccurredAt = new Map();
             const alertDurationMs = 8000;
-            const alertOrderingToleranceMs = 1000;
+            const alertOrderingToleranceMs = 1500;
             let latestLiveAlertOccurredAt = 0;
             const estimateVisibleMs = alertDurationMs;
             const trackVisibleMs = 20000;
@@ -10093,8 +10106,12 @@ def dashboard_v4_clean():
                     && isOnline(device);
             }
 
+            function deviceStateAllowsAlert(device) {
+                return deviceCanAlert(device) && device?.is_listening === true;
+            }
+
             function deviceAllowsAlert(deviceId) {
-                return deviceCanAlert(devices.get(deviceId));
+                return deviceStateAllowsAlert(devices.get(deviceId));
             }
 
             function mapDevices() {
@@ -10115,6 +10132,7 @@ def dashboard_v4_clean():
                 alertUntil.forEach((until, deviceId) => {
                     if (!until || until <= now || !deviceAllowsAlert(deviceId)) {
                         alertUntil.delete(deviceId);
+                        alertOccurredAt.delete(deviceId);
                     }
                 });
             }
@@ -10129,8 +10147,29 @@ def dashboard_v4_clean():
                 ));
             }
 
+            function latestGroupDeviceIds(group) {
+                const entries = Array.isArray(group?.device_relative_times)
+                    ? group.device_relative_times
+                    : [];
+                const timed = entries
+                    .map(item => ({
+                        deviceId: String(item?.device_id || '').trim(),
+                        relativeMs: Number(item?.relative_time_ms),
+                    }))
+                    .filter(item => item.deviceId
+                        && !isDiagnosticDevice(item.deviceId)
+                        && Number.isFinite(item.relativeMs));
+                if (!timed.length) return groupDeviceIds(group);
+                const latestRelativeMs = Math.max(...timed.map(item => item.relativeMs));
+                return Array.from(new Set(
+                    timed
+                        .filter(item => item.relativeMs + alertOrderingToleranceMs >= latestRelativeMs)
+                        .map(item => item.deviceId)
+                ));
+            }
+
             function activeGroupDeviceIds(group) {
-                return groupDeviceIds(group).filter(deviceAllowsAlert);
+                return latestGroupDeviceIds(group).filter(deviceAllowsAlert);
             }
 
             function activeAlertGroupDeviceIds(group) {
@@ -10151,25 +10190,54 @@ def dashboard_v4_clean():
                     .join(' / ');
             }
 
-            function activateAlertForDevice(deviceId, until, respectListening = true) {
-                if (!deviceId || isDiagnosticDevice(deviceId)) return;
-                if (respectListening && !deviceAllowsAlert(deviceId)) return;
+            function activateAlertForDevice(
+                deviceId,
+                until,
+                respectListening = true,
+                occurredAt = latestLiveAlertOccurredAt,
+            ) {
+                if (!deviceId || isDiagnosticDevice(deviceId)) return false;
+                if (respectListening && !deviceAllowsAlert(deviceId)) return false;
                 const currentUntil = alertUntil.get(deviceId) || 0;
                 if (until > currentUntil) alertUntil.set(deviceId, until);
+                if (Number.isFinite(occurredAt)) alertOccurredAt.set(deviceId, occurredAt);
                 const existing = devices.get(deviceId);
                 if (existing) devices.set(deviceId, { ...existing, status: 'event' });
+                return true;
+            }
+
+            function advanceLiveAlertWatermark(occurredAt) {
+                if (!Number.isFinite(occurredAt)) return;
+                if (occurredAt > latestLiveAlertOccurredAt + alertOrderingToleranceMs) {
+                    alertOccurredAt.forEach((activeOccurredAt, deviceId) => {
+                        if (activeOccurredAt + alertOrderingToleranceMs < occurredAt) {
+                            alertUntil.delete(deviceId);
+                            alertOccurredAt.delete(deviceId);
+                        }
+                    });
+                }
+                latestLiveAlertOccurredAt = Math.max(latestLiveAlertOccurredAt, occurredAt);
             }
 
             function activateAlertsForGroup(group, acceptedTiming) {
                 if (!group || !isTarget(group.label)) return false;
                 const timing = acceptedTiming === undefined
-                    ? acceptLiveAlert(group, true)
+                    ? acceptLiveAlert(group, false)
                     : acceptedTiming;
                 if (!timing || !canTriggerEstimate(group)) return false;
                 const ids = activeGroupDeviceIds(group);
                 if (!ids.length) return false;
-                ids.forEach(deviceId => activateAlertForDevice(deviceId, timing.expiresAt, true));
-                return true;
+                advanceLiveAlertWatermark(timing.occurredAt);
+                let activated = false;
+                ids.forEach(deviceId => {
+                    activated = activateAlertForDevice(
+                        deviceId,
+                        timing.expiresAt,
+                        true,
+                        timing.occurredAt,
+                    ) || activated;
+                });
+                return activated;
             }
 
             function parseTime(value) {
@@ -10205,14 +10273,14 @@ def dashboard_v4_clean():
                 return Number.isFinite(occurredAt) ? occurredAt + alertDurationMs : NaN;
             }
 
-            function acceptLiveAlert(item, advanceWatermark = true) {
+            function acceptLiveAlert(item, advanceWatermark = false) {
                 const occurredAt = alertSequenceTimeMs(item);
                 const expiresAt = alertExpiryTimeMs(item, occurredAt);
                 if (!Number.isFinite(occurredAt) || !Number.isFinite(expiresAt)) return null;
                 if (item?.is_live_alert === false || expiresAt <= Date.now()) return null;
                 if (occurredAt + alertOrderingToleranceMs < latestLiveAlertOccurredAt) return null;
                 if (advanceWatermark) {
-                    latestLiveAlertOccurredAt = Math.max(latestLiveAlertOccurredAt, occurredAt);
+                    advanceLiveAlertWatermark(occurredAt);
                 }
                 return { occurredAt, expiresAt };
             }
@@ -10220,8 +10288,9 @@ def dashboard_v4_clean():
             function syncAlertFromDevice(device) {
                 const deviceId = device?.device_id;
                 if (!deviceId) return;
-                if (!deviceCanAlert(device)) {
+                if (!deviceStateAllowsAlert(device)) {
                     alertUntil.delete(deviceId);
+                    alertOccurredAt.delete(deviceId);
                     return;
                 }
                 const explicitSequence = Number(device?.alert_sequence_ms);
@@ -10230,6 +10299,7 @@ def dashboard_v4_clean():
                 if (!hasExplicitTiming) {
                     if ((alertUntil.get(deviceId) || 0) <= Date.now()) {
                         alertUntil.delete(deviceId);
+                        alertOccurredAt.delete(deviceId);
                     }
                     return;
                 }
@@ -10237,8 +10307,10 @@ def dashboard_v4_clean():
                 if (timing) {
                     const currentUntil = alertUntil.get(deviceId) || 0;
                     if (timing.expiresAt > currentUntil) alertUntil.set(deviceId, timing.expiresAt);
+                    alertOccurredAt.set(deviceId, timing.occurredAt);
                 } else if ((alertUntil.get(deviceId) || 0) <= Date.now()) {
                     alertUntil.delete(deviceId);
+                    alertOccurredAt.delete(deviceId);
                 }
             }
 
@@ -10724,9 +10796,14 @@ def dashboard_v4_clean():
                             .filter(event => event?.device_id && isTarget(event?.label))
                             .sort((a, b) => (alertSequenceTimeMs(b) || 0) - (alertSequenceTimeMs(a) || 0))
                             .forEach(event => {
-                                const timing = acceptLiveAlert(event, true);
-                                if (timing) {
-                                    activateAlertForDevice(event.device_id, timing.expiresAt, true);
+                                const timing = acceptLiveAlert(event, false);
+                                if (timing && activateAlertForDevice(
+                                    event.device_id,
+                                    timing.expiresAt,
+                                    true,
+                                    timing.occurredAt,
+                                )) {
+                                    advanceLiveAlertWatermark(timing.occurredAt);
                                 }
                             });
                     }
@@ -11078,7 +11155,7 @@ def dashboard_v4_clean():
                 if (String(item?.region_type || '').toLowerCase() === 'single_node') {
                     return false;
                 }
-                const ids = groupDeviceIds(item);
+                const ids = latestGroupDeviceIds(item);
                 return ids.length >= 2 && ids.every(deviceAllowsAlert);
             }
 
@@ -11089,7 +11166,7 @@ def dashboard_v4_clean():
                 if (String(item?.region_type || '').toLowerCase() === 'single_node') {
                     return false;
                 }
-                const ids = groupDeviceIds(item);
+                const ids = latestGroupDeviceIds(item);
                 return ids.length >= 2 && ids.every(deviceId => deviceAllowsAlert(deviceId) && isAlertActive(deviceId));
             }
 
@@ -12796,16 +12873,29 @@ def dashboard_v4_clean():
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.alert_occurred_at || data.last_event_at || data.timestamp;
                         const previousDevice = devices.get(data.device_id);
-                        const timing = acceptLiveAlert(data, true);
-                        const canAlert = !isDiagnosticDevice(data.device_id) && Boolean(timing);
+                        const timing = acceptLiveAlert(data, false);
                         const incomingDevice = data.device || {};
+                        const eventListening = previousDevice?.is_listening
+                            ?? incomingDevice.is_listening
+                            ?? data.is_listening
+                            ?? false;
+                        const canAlert = Boolean(timing) && deviceStateAllowsAlert({
+                            ...(previousDevice || {}),
+                            ...incomingDevice,
+                            ...data,
+                            device_id: data.device_id,
+                            status: 'event',
+                            is_listening: eventListening,
+                        });
                         const incomingTime = alertSequenceTimeMs(data);
                         const previousTime = alertSequenceTimeMs(previousDevice);
                         const advancesDeviceEvent = !Number.isFinite(previousTime)
                             || (Number.isFinite(incomingTime) && incomingTime + alertOrderingToleranceMs >= previousTime);
                         if (canAlert) {
+                            advanceLiveAlertWatermark(timing.occurredAt);
                             const currentUntil = alertUntil.get(data.device_id) || 0;
                             if (timing.expiresAt > currentUntil) alertUntil.set(data.device_id, timing.expiresAt);
+                            alertOccurredAt.set(data.device_id, timing.occurredAt);
                         }
                         const previousStatus = String(previousDevice?.status || '').toLowerCase() === 'event'
                             ? 'online'
@@ -12820,7 +12910,7 @@ def dashboard_v4_clean():
                             ...incomingDevice,
                             ...data,
                             status: canAlert ? 'event' : previousStatus,
-                            is_listening: previousDevice?.is_listening ?? incomingDevice.is_listening ?? data.is_listening ?? false,
+                            is_listening: eventListening,
                             last_event_id: advancesDeviceEvent ? data.event_id : previousDevice?.last_event_id,
                             last_event_at: advancesDeviceEvent ? triggerTime : previousDevice?.last_event_at,
                             alert_occurred_at: advancesDeviceEvent ? data.alert_occurred_at : preservedOccurredAt,
@@ -12853,7 +12943,7 @@ def dashboard_v4_clean():
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
                         const timing = isTarget(group?.label)
-                            ? acceptLiveAlert(group, true)
+                            ? acceptLiveAlert(group, false)
                             : null;
                         if (timing) {
                             (group.merged_group_ids || []).forEach(groupId => {
