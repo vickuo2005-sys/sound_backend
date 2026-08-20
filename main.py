@@ -355,7 +355,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "strict-listening-alert-order-v9",
+        "runtime_marker": "archive-stable-ordered-alerts-v10",
     }
 
 
@@ -9994,7 +9994,9 @@ def dashboard_v4_clean():
             const alertUntil = new Map();
             const alertOccurredAt = new Map();
             const alertDurationMs = 8000;
-            const alertOrderingToleranceMs = 1500;
+            // Dashboard grouping tolerance is one complete audio window. This is
+            // independent of the phone's 1.5 s overlapping inference interval.
+            const alertOrderingToleranceMs = 3000;
             let latestLiveAlertOccurredAt = 0;
             const estimateVisibleMs = alertDurationMs;
             const trackVisibleMs = 20000;
@@ -10107,7 +10109,10 @@ def dashboard_v4_clean():
             }
 
             function deviceStateAllowsAlert(device) {
-                return deviceCanAlert(device) && device?.is_listening === true;
+                // Match the stable archived behavior: receipt of a validated event
+                // proves this node was listening when the sound was captured. The
+                // current listening flag may already be false by upload time.
+                return deviceCanAlert(device);
             }
 
             function deviceAllowsAlert(deviceId) {

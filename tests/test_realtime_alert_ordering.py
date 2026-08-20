@@ -148,13 +148,14 @@ def test_dashboard_never_restarts_expired_websocket_alerts() -> None:
     assert "alertUntil.set(data.device_id, Date.now() + alertDurationMs)" not in html
 
 
-def test_dashboard_enforces_listening_and_latest_alert_batch_order() -> None:
+def test_dashboard_keeps_archived_alert_eligibility_and_latest_batch_order() -> None:
     html = main.dashboard_v4_clean().body.decode("utf-8")
 
-    assert "device?.is_listening === true" in html
+    assert "device?.is_listening === true" not in html
+    assert "return deviceCanAlert(device);" in html
     assert "const alertOccurredAt = new Map();" in html
     assert "function advanceLiveAlertWatermark" in html
-    assert "const alertOrderingToleranceMs = 1500;" in html
+    assert "const alertOrderingToleranceMs = 3000;" in html
     assert "function latestGroupDeviceIds" in html
     assert "item.relativeMs + alertOrderingToleranceMs >= latestRelativeMs" in html
     assert "acceptLiveAlert(data, true)" not in html
