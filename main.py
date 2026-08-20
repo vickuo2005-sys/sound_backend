@@ -115,6 +115,9 @@ NODE_OFFLINE_TIMEOUT_SECONDS = float(
     os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
 )
 NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15)
+NODE_ALERT_MAX_LATENESS_SECONDS = float(
+    os.getenv("NODE_ALERT_MAX_LATENESS_SECONDS", "30") or 30
+)
 TRACK_REGION_MEMORY_SECONDS = float(
     os.getenv("TRACK_REGION_MEMORY_SECONDS", "60") or 60
 )
@@ -351,7 +354,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "ordered-expiring-realtime-alerts-v5",
+        "runtime_marker": "full-hold-ordered-alerts-v6",
     }
 
 
@@ -2552,7 +2555,13 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
 def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
     columns = ", ".join(EVENT_WRITE_COLUMNS)
     placeholders = ", ".join(["%s"] * len(EVENT_WRITE_COLUMNS))
-    update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
+    # created_at is the immutable backend receipt time. Audio metadata may be
+    # uploaded later for the same event_id and must not make an old event look new.
+    update_columns = [
+        column
+        for column in EVENT_WRITE_COLUMNS
+        if column not in {"event_id", "created_at"}
+    ]
     update_clause = ",\n                        ".join(
         f"{column} = EXCLUDED.{column}" for column in update_columns
     )
@@ -2589,7 +2598,12 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
 def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
     columns = ", ".join(EVENT_WRITE_COLUMNS)
     placeholders = ", ".join(["?"] * len(EVENT_WRITE_COLUMNS))
-    update_columns = [column for column in EVENT_WRITE_COLUMNS if column != "event_id"]
+    # Preserve the first backend receipt time when audio metadata refreshes an event.
+    update_columns = [
+        column
+        for column in EVENT_WRITE_COLUMNS
+        if column not in {"event_id", "created_at"}
+    ]
     update_clause = ",\n                    ".join(
         f"{column} = ?" for column in update_columns
     )
@@ -2609,7 +2623,11 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
                     {update_clause}
                 WHERE id = ?
                 """,
-                values[1:] + (db_id,),
+                tuple(
+                    values[EVENT_WRITE_COLUMNS.index(column)]
+                    for column in update_columns
+                )
+                + (db_id,),
             )
             inserted = False
         else:
@@ -6576,26 +6594,46 @@ def realtime_alert_timing(
     *,
     now: Optional[datetime] = None,
 ) -> dict:
-    """Build a stable realtime alert contract from occurrence time, not receipt time."""
+    """Reject stale events, then give accepted events a full display interval.
+
+    Occurrence time remains the ordering watermark. The immutable first backend
+    receipt time controls the display interval, matching the archived dashboard's
+    stable full-duration alert without allowing delayed history to revive.
+    """
 
     occurred_at = realtime_alert_occurrence_time(payload)
     reference_time = now or datetime.now(timezone.utc)
     if occurred_at is None:
         return {
             "alert_occurred_at": None,
+            "alert_received_at": None,
+            "alert_accept_expires_at": None,
             "alert_expires_at": None,
             "alert_sequence_ms": None,
             "alert_age_ms": None,
+            "alert_accepted_in_time": False,
             "is_live_alert": False,
         }
 
-    expires_at = occurred_at + timedelta(seconds=max(0.0, NODE_ALERT_HOLD_SECONDS))
+    received_at = (
+        parse_datetime((payload or {}).get("alert_received_at"))
+        or parse_datetime((payload or {}).get("created_at"))
+        or occurred_at
+    )
+    accept_expires_at = occurred_at + timedelta(
+        seconds=max(0.0, NODE_ALERT_MAX_LATENESS_SECONDS)
+    )
+    accepted_in_time = received_at <= accept_expires_at
+    expires_at = received_at + timedelta(seconds=max(0.0, NODE_ALERT_HOLD_SECONDS))
     return {
         "alert_occurred_at": occurred_at.isoformat(),
+        "alert_received_at": received_at.isoformat(),
+        "alert_accept_expires_at": accept_expires_at.isoformat(),
         "alert_expires_at": expires_at.isoformat(),
         "alert_sequence_ms": int(round(occurred_at.timestamp() * 1000.0)),
         "alert_age_ms": max(0, int(round((reference_time - occurred_at).total_seconds() * 1000.0))),
-        "is_live_alert": expires_at > reference_time,
+        "alert_accepted_in_time": accepted_in_time,
+        "is_live_alert": accepted_in_time and expires_at > reference_time,
     }
 
 
