@@ -8898,28 +8898,6 @@ async def delete_implausible_tracks_admin(
     return result
 
 
-@app.post("/admin/tracks/merge")
-async def merge_tracks_admin(
-    target_track_id: str = Query(...),
-    source_track_id: str = Query(...),
-    dry_run: bool = Query(default=True),
-    confirm: str = Query(default=""),
-    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
-):
-    verify_dashboard_write_token(upload_token)
-    if confirm != "merge_tracks":
-        raise HTTPException(status_code=400, detail="confirm=merge_tracks is required")
-    result = await asyncio.to_thread(
-        merge_closed_target_tracks,
-        target_track_id,
-        source_track_id,
-        dry_run=dry_run,
-    )
-    if not dry_run:
-        await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
-    return result
-
-
 @app.post("/tracks/{track_id}/close")
 async def close_track_endpoint(track_id: str):
     track = close_track(track_id)
