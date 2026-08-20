@@ -4703,6 +4703,309 @@ def merge_closed_target_tracks(
     }
 
 
+def _json_object(value: Any) -> dict:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value:
+        try:
+            decoded = json.loads(value)
+            if isinstance(decoded, dict):
+                return decoded
+        except json.JSONDecodeError:
+            return {"original_value": value}
+    return {}
+
+
+def linear_track_smoothing_plan(points: list[dict]) -> dict:
+    ordered = sorted(points, key=lambda item: float(item.get("measurement_time_ms") or 0))
+    if len(ordered) < 2:
+        raise HTTPException(status_code=409, detail="Track needs at least two points")
+
+    first = ordered[0]
+    last = ordered[-1]
+    first_time = float(first.get("measurement_time_ms") or 0)
+    last_time = float(last.get("measurement_time_ms") or 0)
+    duration_s = (last_time - first_time) / 1000.0
+    if first_time <= 0 or duration_s <= 0:
+        raise HTTPException(status_code=409, detail="Track has an invalid time range")
+
+    start_lat = float(first.get("filtered_lat"))
+    start_lng = float(first.get("filtered_lng"))
+    end_lat = float(last.get("filtered_lat"))
+    end_lng = float(last.get("filtered_lng"))
+    total_distance_m = haversine_m(start_lat, start_lng, end_lat, end_lng)
+    speed_mps = total_distance_m / duration_s
+    middle_lat = (start_lat + end_lat) / 2.0
+    velocity_east_mps = (
+        (end_lng - start_lng)
+        * 111_320.0
+        * math.cos(math.radians(middle_lat))
+        / duration_s
+    )
+    velocity_north_mps = (end_lat - start_lat) * 111_320.0 / duration_s
+    heading_deg = (
+        math.degrees(math.atan2(velocity_east_mps, velocity_north_mps)) + 360.0
+    ) % 360.0
+    adjusted_at = current_time_iso()
+    adjustments: list[dict] = []
+
+    for point in ordered:
+        time_ms = float(point.get("measurement_time_ms") or first_time)
+        ratio = max(0.0, min((time_ms - first_time) / (last_time - first_time), 1.0))
+        filtered_lat = start_lat + (end_lat - start_lat) * ratio
+        filtered_lng = start_lng + (end_lng - start_lng) * ratio
+        measured_lat = float(point.get("measured_lat") or filtered_lat)
+        measured_lng = float(point.get("measured_lng") or filtered_lng)
+        diagnostics = _json_object(point.get("diagnostics_json"))
+        if "demo_smoothing_original" not in diagnostics:
+            diagnostics["demo_smoothing_original"] = {
+                "filtered_lat": point.get("filtered_lat"),
+                "filtered_lng": point.get("filtered_lng"),
+                "predicted_lat": point.get("predicted_lat"),
+                "predicted_lng": point.get("predicted_lng"),
+                "speed_mps": point.get("speed_mps"),
+                "heading_deg": point.get("heading_deg"),
+                "velocity_east_mps": point.get("velocity_east_mps"),
+                "velocity_north_mps": point.get("velocity_north_mps"),
+            }
+        diagnostics["track_adjustment"] = "linear_time_interpolation"
+        diagnostics["track_adjusted_at"] = adjusted_at
+        state = _json_object(point.get("state_json"))
+        state.update(
+            {
+                "x": (filtered_lng - start_lng)
+                * 111_320.0
+                * math.cos(math.radians(start_lat)),
+                "y": (filtered_lat - start_lat) * 111_320.0,
+                "vx": velocity_east_mps,
+                "vy": velocity_north_mps,
+            }
+        )
+        adjustments.append(
+            {
+                "id": point.get("id"),
+                "filtered_lat": filtered_lat,
+                "filtered_lng": filtered_lng,
+                "predicted_lat": filtered_lat,
+                "predicted_lng": filtered_lng,
+                "velocity_east_mps": velocity_east_mps,
+                "velocity_north_mps": velocity_north_mps,
+                "speed_mps": speed_mps,
+                "heading_deg": heading_deg,
+                "innovation_m": haversine_m(
+                    measured_lat,
+                    measured_lng,
+                    filtered_lat,
+                    filtered_lng,
+                ),
+                "state_json": state,
+                "diagnostics_json": diagnostics,
+            }
+        )
+
+    return {
+        "point_count": len(adjustments),
+        "duration_s": duration_s,
+        "total_distance_m": total_distance_m,
+        "speed_mps": speed_mps,
+        "heading_deg": heading_deg,
+        "velocity_east_mps": velocity_east_mps,
+        "velocity_north_mps": velocity_north_mps,
+        "start_lat": start_lat,
+        "start_lng": start_lng,
+        "end_lat": end_lat,
+        "end_lng": end_lng,
+        "adjustments": adjustments,
+    }
+
+
+def smooth_closed_target_track_linear(track_id: str, *, dry_run: bool = False) -> dict:
+    """Rebuild only filtered display coordinates; measured observations stay intact."""
+
+    if not track_id:
+        raise HTTPException(status_code=400, detail="Track ID is required")
+    track_saved: Optional[dict] = None
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT * FROM target_tracks WHERE id = %s FOR UPDATE",
+                        (track_id,),
+                    )
+                    row = cursor.fetchone()
+                    if not row:
+                        raise HTTPException(status_code=404, detail="Track not found")
+                    track = dict(row)
+                    if str(track.get("status") or "").upper() != "CLOSED":
+                        raise HTTPException(status_code=409, detail="Track must be CLOSED")
+                    cursor.execute(
+                        """
+                        SELECT * FROM target_track_points
+                        WHERE track_id = %s
+                        ORDER BY measurement_time_ms ASC, created_at ASC
+                        FOR UPDATE
+                        """,
+                        (track_id,),
+                    )
+                    points = [serialize_db_row(dict(item)) for item in cursor.fetchall()]
+                    plan = linear_track_smoothing_plan(points)
+                    if plan["speed_mps"] > TRACK_MAX_SPEED_MPS:
+                        raise HTTPException(status_code=409, detail="Smoothed speed exceeds track limit")
+                    if dry_run:
+                        return {key: value for key, value in plan.items() if key != "adjustments"} | {
+                            "status": "success",
+                            "dry_run": True,
+                            "track_id": track_id,
+                        }
+
+                    for adjustment in plan["adjustments"]:
+                        cursor.execute(
+                            """
+                            UPDATE target_track_points
+                            SET filtered_lat = %s, filtered_lng = %s,
+                                predicted_lat = %s, predicted_lng = %s,
+                                velocity_east_mps = %s, velocity_north_mps = %s,
+                                speed_mps = %s, heading_deg = %s, innovation_m = %s,
+                                state_json = CAST(%s AS JSONB),
+                                diagnostics_json = CAST(%s AS JSONB)
+                            WHERE id = %s
+                            """,
+                            (
+                                adjustment["filtered_lat"],
+                                adjustment["filtered_lng"],
+                                adjustment["predicted_lat"],
+                                adjustment["predicted_lng"],
+                                adjustment["velocity_east_mps"],
+                                adjustment["velocity_north_mps"],
+                                adjustment["speed_mps"],
+                                adjustment["heading_deg"],
+                                adjustment["innovation_m"],
+                                json_dumps(adjustment["state_json"]),
+                                json_dumps(adjustment["diagnostics_json"]),
+                                adjustment["id"],
+                            ),
+                        )
+                    last_adjustment = plan["adjustments"][-1]
+                    cursor.execute(
+                        """
+                        UPDATE target_tracks
+                        SET updated_at = now(), point_count = %s,
+                            last_lat = %s, last_lng = %s, last_speed_mps = %s,
+                            last_heading_deg = %s, velocity_east_mps = %s,
+                            velocity_north_mps = %s
+                        WHERE id = %s
+                        RETURNING *
+                        """,
+                        (
+                            plan["point_count"],
+                            last_adjustment["filtered_lat"],
+                            last_adjustment["filtered_lng"],
+                            plan["speed_mps"],
+                            plan["heading_deg"],
+                            plan["velocity_east_mps"],
+                            plan["velocity_north_mps"],
+                            track_id,
+                        ),
+                    )
+                    track_saved = serialize_db_row(dict(cursor.fetchone()))
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM target_tracks WHERE id = ?",
+                (track_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Track not found")
+            track = dict(row)
+            if str(track.get("status") or "").upper() != "CLOSED":
+                raise HTTPException(status_code=409, detail="Track must be CLOSED")
+            points = [
+                serialize_db_row(dict(item))
+                for item in connection.execute(
+                    """
+                    SELECT * FROM target_track_points
+                    WHERE track_id = ?
+                    ORDER BY measurement_time_ms ASC, created_at ASC
+                    """,
+                    (track_id,),
+                ).fetchall()
+            ]
+            plan = linear_track_smoothing_plan(points)
+            if plan["speed_mps"] > TRACK_MAX_SPEED_MPS:
+                raise HTTPException(status_code=409, detail="Smoothed speed exceeds track limit")
+            if dry_run:
+                return {key: value for key, value in plan.items() if key != "adjustments"} | {
+                    "status": "success",
+                    "dry_run": True,
+                    "track_id": track_id,
+                }
+
+            for adjustment in plan["adjustments"]:
+                connection.execute(
+                    """
+                    UPDATE target_track_points
+                    SET filtered_lat = ?, filtered_lng = ?, predicted_lat = ?,
+                        predicted_lng = ?, velocity_east_mps = ?,
+                        velocity_north_mps = ?, speed_mps = ?, heading_deg = ?,
+                        innovation_m = ?, state_json = ?, diagnostics_json = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        adjustment["filtered_lat"],
+                        adjustment["filtered_lng"],
+                        adjustment["predicted_lat"],
+                        adjustment["predicted_lng"],
+                        adjustment["velocity_east_mps"],
+                        adjustment["velocity_north_mps"],
+                        adjustment["speed_mps"],
+                        adjustment["heading_deg"],
+                        adjustment["innovation_m"],
+                        json_dumps(adjustment["state_json"]),
+                        json_dumps(adjustment["diagnostics_json"]),
+                        adjustment["id"],
+                    ),
+                )
+            last_adjustment = plan["adjustments"][-1]
+            connection.execute(
+                """
+                UPDATE target_tracks
+                SET updated_at = ?, point_count = ?, last_lat = ?, last_lng = ?,
+                    last_speed_mps = ?, last_heading_deg = ?, velocity_east_mps = ?,
+                    velocity_north_mps = ?
+                WHERE id = ?
+                """,
+                (
+                    current_time_iso(),
+                    plan["point_count"],
+                    last_adjustment["filtered_lat"],
+                    last_adjustment["filtered_lng"],
+                    plan["speed_mps"],
+                    plan["heading_deg"],
+                    plan["velocity_east_mps"],
+                    plan["velocity_north_mps"],
+                    track_id,
+                ),
+            )
+            connection.commit()
+            track_saved = serialize_db_row(
+                dict(connection.execute("SELECT * FROM target_tracks WHERE id = ?", (track_id,)).fetchone())
+            )
+
+    invalidate_tracks_cache()
+    return {
+        "status": "success",
+        "dry_run": False,
+        "track_id": track_id,
+        **{key: value for key, value in plan.items() if key != "adjustments"},
+        "track": enrich_track_with_points(track_saved, limit=100),
+    }
+
+
 def delete_closed_single_point_target_tracks() -> dict:
     labels = ("aircraft", "drone")
     deleted_track_ids: list[str] = []
@@ -8895,6 +9198,26 @@ async def delete_implausible_tracks_admin(
         )
     result = await asyncio.to_thread(delete_implausible_target_tracks)
     await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    return result
+
+
+@app.post("/admin/tracks/smooth-linear")
+async def smooth_track_linear_admin(
+    track_id: str = Query(...),
+    dry_run: bool = Query(default=True),
+    confirm: str = Query(default=""),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    if confirm != "smooth_track_linear":
+        raise HTTPException(status_code=400, detail="confirm=smooth_track_linear is required")
+    result = await asyncio.to_thread(
+        smooth_closed_target_track_linear,
+        track_id,
+        dry_run=dry_run,
+    )
+    if not dry_run:
+        await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
     return result
 
 

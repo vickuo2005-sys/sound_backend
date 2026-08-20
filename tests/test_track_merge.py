@@ -30,15 +30,16 @@ def _insert_point(connection, point_id: str, track_id: str, time_ms: float, lati
     connection.execute(
         """
         INSERT INTO target_track_points (
-            id, track_id, measurement_time_ms, filtered_lat, filtered_lng,
-            speed_mps, heading_deg, confidence, velocity_east_mps,
+            id, track_id, measurement_time_ms, measured_lat, measured_lng,
+            filtered_lat, filtered_lng, speed_mps, heading_deg, confidence, velocity_east_mps,
             velocity_north_mps, diagnostics_json, created_at
-        ) VALUES (?, ?, ?, ?, 121.0, 0, NULL, 0.8, 0, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, 121.0, ?, 121.0, 0, NULL, 0.8, 0, 0, ?, ?)
         """,
         (
             point_id,
             track_id,
             time_ms,
+            latitude,
             latitude,
             json.dumps({"source": "test"}),
             "2026-08-20T06:01:00+00:00",
@@ -83,3 +84,31 @@ def test_merge_closed_tracks_preserves_source_audit(tmp_path, monkeypatch) -> No
         point["diagnostics_json"]["merged_from_track_id"] == source_id
         for point in moved
     )
+
+
+def test_linear_smoothing_preserves_measurements_and_audit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "DB_NAME", str(tmp_path / "track_smoothing.db"))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    main.init_sqlite_db()
+
+    track_id = "80ee98e1-dc4c-4a85-8b6d-9bc3157edceb"
+    with main.get_sqlite_connection() as connection:
+        _insert_track(connection, track_id, 1_000_000, 1_020_000, 3)
+        _insert_point(connection, "smooth-1", track_id, 1_000_000, 25.0000)
+        _insert_point(connection, "smooth-2", track_id, 1_010_000, 25.0100)
+        _insert_point(connection, "smooth-3", track_id, 1_020_000, 25.0002)
+        connection.commit()
+
+    preview = main.smooth_closed_target_track_linear(track_id, dry_run=True)
+    assert preview["point_count"] == 3
+    assert preview["speed_mps"] < main.TRACK_MAX_SPEED_MPS
+
+    result = main.smooth_closed_target_track_linear(track_id)
+    points = main.list_track_points(track_id, limit=10)
+
+    assert result["point_count"] == 3
+    assert points[1]["measured_lat"] == 25.0100
+    assert round(points[1]["filtered_lat"], 7) == 25.0001
+    assert points[1]["diagnostics_json"]["track_adjustment"] == "linear_time_interpolation"
+    assert points[1]["diagnostics_json"]["demo_smoothing_original"]["filtered_lat"] == 25.0100
+    assert all(point["speed_mps"] == result["speed_mps"] for point in points)
