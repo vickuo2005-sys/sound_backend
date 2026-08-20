@@ -114,7 +114,7 @@ NODE_DEGRADED_TIMEOUT_SECONDS = float(
 NODE_OFFLINE_TIMEOUT_SECONDS = float(
     os.getenv("NODE_OFFLINE_TIMEOUT_SECONDS", "20") or 20
 )
-NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "15") or 15)
+NODE_ALERT_HOLD_SECONDS = float(os.getenv("NODE_ALERT_HOLD_SECONDS", "8") or 8)
 NODE_ALERT_MAX_LATENESS_SECONDS = float(
     os.getenv("NODE_ALERT_MAX_LATENESS_SECONDS", "30") or 30
 )
@@ -354,7 +354,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "full-hold-ordered-alerts-v6",
+        "runtime_marker": "eight-second-ordered-alerts-v7",
     }
 
 
@@ -9836,7 +9836,7 @@ def dashboard_v4_clean():
             const historyTrackPlaybackMaxDurationMs = 22000;
             const historyTrackPlaybackCompression = 8;
             const alertUntil = new Map();
-            const alertDurationMs = 15000;
+            const alertDurationMs = 8000;
             const alertOrderingToleranceMs = 1000;
             let latestLiveAlertOccurredAt = 0;
             const estimateVisibleMs = alertDurationMs;
@@ -13524,7 +13524,7 @@ def dashboard_legacy_unused():
             const targetEstimateCircles = new Map();
             const targetTrackLines = new Map();
             const alertUntil = new Map();
-            const alertDurationMs = 15000;
+            const alertDurationMs = 8000;
             const targetEstimateAutoDisplayMs = 5000;
             const dismissedTargetEstimateIds = new Set();
             let selectedTargetEstimateId = null;
