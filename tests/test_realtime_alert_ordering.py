@@ -138,27 +138,37 @@ def test_duplicate_event_metadata_keeps_first_receipt_time(tmp_path, monkeypatch
     assert row["audio_path"] == "events/evt-receipt.mp3"
 
 
-def test_dashboard_never_restarts_expired_websocket_alerts() -> None:
+def test_dashboard_restores_archived_event_trigger_alert_flow() -> None:
     response = main.dashboard_v4_clean()
     html = response.body.decode("utf-8")
 
-    assert "latestLiveAlertOccurredAt" in html
-    assert "function acceptLiveAlert" in html
-    assert "activateAlertsForGroup(group, true)" not in html
-    assert "alertUntil.set(data.device_id, Date.now() + alertDurationMs)" not in html
+    assert "const alertDurationMs = 8000;" in html
+    assert "alertUntil.set(data.device_id, Date.now() + alertDurationMs)" in html
+    assert "activateAlertsForGroup" not in html
+    assert "latestLiveAlertOccurredAt" not in html
+    assert "function acceptLiveAlert" not in html
 
 
-def test_dashboard_keeps_archived_alert_eligibility_and_latest_batch_order() -> None:
+def test_dashboard_archived_flow_has_one_alert_state_source() -> None:
     html = main.dashboard_v4_clean().body.decode("utf-8")
 
     assert "device?.is_listening === true" not in html
-    assert "return deviceCanAlert(device);" in html
-    assert "const alertOccurredAt = new Map();" in html
-    assert "function advanceLiveAlertWatermark" in html
-    assert "const alertOrderingToleranceMs = 3000;" in html
-    assert "function latestGroupDeviceIds" in html
-    assert "item.relativeMs + alertOrderingToleranceMs >= latestRelativeMs" in html
-    assert "acceptLiveAlert(data, true)" not in html
+    assert "return deviceCanAlert(devices.get(deviceId));" in html
+    assert "const alertOccurredAt = new Map();" not in html
+    assert "function advanceLiveAlertWatermark" not in html
+    assert "alertOrderingToleranceMs" not in html
+    assert "function latestGroupDeviceIds" not in html
+    assert "return groupDeviceIds(group).filter(deviceAllowsAlert);" in html
+
+    event_handler = html.split("} else if (data.type === 'event_trigger') {", 1)[1]
+    event_handler = event_handler.split("} else if (data.type === 'event_group') {", 1)[0]
+    assert event_handler.index("alertUntil.set(") < event_handler.index("setDeviceState({")
+    assert "data.alert_accepted_in_time !== false" in event_handler
+    assert "data.is_live_alert !== false" in event_handler
+
+    group_handler = html.split("} else if (data.type === 'event_group') {", 1)[1]
+    group_handler = group_handler.split("} else if (data.type === 'track_update') {", 1)[0]
+    assert "alertUntil.set(" not in group_handler
 
 
 def test_events_api_includes_realtime_alert_contract(monkeypatch) -> None:
