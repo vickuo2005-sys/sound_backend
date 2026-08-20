@@ -351,7 +351,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "fixed-dashboard-coordinate-contract-v4",
+        "runtime_marker": "ordered-expiring-realtime-alerts-v5",
     }
 
 
@@ -6551,6 +6551,63 @@ def event_observed_time(row: dict) -> Optional[datetime]:
     )
 
 
+def realtime_alert_occurrence_time(payload: Optional[dict]) -> Optional[datetime]:
+    """Return the sound occurrence time used to order and expire realtime alerts."""
+
+    if not payload:
+        return None
+
+    # Fusion may finish well after the sound occurred. Group event times therefore
+    # take precedence over region/update timestamps, which reflect backend work.
+    group_time = (
+        parse_datetime(payload.get("last_event_time"))
+        or parse_datetime(payload.get("end_time"))
+        or parse_datetime(payload.get("first_event_time"))
+        or parse_datetime(payload.get("start_time"))
+    )
+    if group_time is not None:
+        return group_time
+
+    return event_observed_time(payload)
+
+
+def realtime_alert_timing(
+    payload: Optional[dict],
+    *,
+    now: Optional[datetime] = None,
+) -> dict:
+    """Build a stable realtime alert contract from occurrence time, not receipt time."""
+
+    occurred_at = realtime_alert_occurrence_time(payload)
+    reference_time = now or datetime.now(timezone.utc)
+    if occurred_at is None:
+        return {
+            "alert_occurred_at": None,
+            "alert_expires_at": None,
+            "alert_sequence_ms": None,
+            "alert_age_ms": None,
+            "is_live_alert": False,
+        }
+
+    expires_at = occurred_at + timedelta(seconds=max(0.0, NODE_ALERT_HOLD_SECONDS))
+    return {
+        "alert_occurred_at": occurred_at.isoformat(),
+        "alert_expires_at": expires_at.isoformat(),
+        "alert_sequence_ms": int(round(occurred_at.timestamp() * 1000.0)),
+        "alert_age_ms": max(0, int(round((reference_time - occurred_at).total_seconds() * 1000.0))),
+        "is_live_alert": expires_at > reference_time,
+    }
+
+
+def with_realtime_alert_timing(payload: Optional[dict]) -> Optional[dict]:
+    if not payload:
+        return payload
+    return {
+        **payload,
+        **realtime_alert_timing(payload),
+    }
+
+
 def fusion_weight(rms_peak: Any, aircraft_probability: Optional[float]) -> float:
     rms_value = parse_float_value(rms_peak)
     base_weight = 1.0 + math.log1p(max(rms_value or 0.0, 0.0))
@@ -7701,6 +7758,8 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 event_group.get("id"),
             )
 
+    event_group = with_realtime_alert_timing(event_group)
+
     return {
         "event_group": event_group,
         "region_track": region_track,
@@ -8061,6 +8120,7 @@ async def create_event(
     saved_event = result.get("saved_event") or {}
 
     if device_row:
+        alert_timing = realtime_alert_timing(saved_event)
         effective_latitude = saved_event.get("effective_latitude")
         effective_longitude = saved_event.get("effective_longitude")
         display_latitude = (
@@ -8077,6 +8137,7 @@ async def create_event(
         raw_longitude = saved_event.get("raw_longitude", event.longitude)
         dashboard_event = {
             **saved_event,
+            **alert_timing,
             "latitude": display_latitude,
             "longitude": display_longitude,
             "raw_latitude": raw_latitude,
@@ -8087,6 +8148,7 @@ async def create_event(
         }
         dashboard_device = {
             **device_row,
+            **alert_timing,
             "latitude": display_latitude,
             "longitude": display_longitude,
             "raw_latitude": raw_latitude,
@@ -8103,6 +8165,7 @@ async def create_event(
             {
                 "type": "event_trigger",
                 **dashboard_device,
+                **alert_timing,
                 "device_id": event.device_id,
                 "event_id": event.event_id,
                 "latitude": display_latitude,
@@ -8163,11 +8226,14 @@ def event_groups(
     status: Optional[str] = Query(default=None),
     label: Optional[str] = Query(default=None),
 ):
-    groups = list_event_fusion_groups(
-        limit=limit,
-        status_filter=status,
-        label_filter=label,
-    )
+    groups = [
+        with_realtime_alert_timing(group)
+        for group in list_event_fusion_groups(
+            limit=limit,
+            status_filter=status,
+            label_filter=label,
+        )
+    ]
     return {
         "status": "success",
         "count": len(groups),
@@ -8185,7 +8251,7 @@ def event_group_detail(group_id: str):
         )
     return {
         "status": "success",
-        "group": group,
+        "group": with_realtime_alert_timing(group),
     }
 
 
@@ -8197,7 +8263,7 @@ def event_group_localization(group_id: str):
     results = list_localization_results(limit=20, group_id=group_id)
     return {
         "status": "success",
-        "group": group,
+        "group": with_realtime_alert_timing(group),
         "localization_results": results,
         "latest": results[0] if results else None,
     }
@@ -8366,7 +8432,10 @@ async def localization_result_track(result_id: str):
 @app.get("/events")
 def list_events(limit: int = Query(default=20, ge=1, le=100)):
     try:
-        events = list_recent_events(limit=limit)
+        events = [
+            with_realtime_alert_timing(event)
+            for event in list_recent_events(limit=limit)
+        ]
     except Exception as exc:
         return degraded_read_payload(
             source="events",
@@ -9730,6 +9799,8 @@ def dashboard_v4_clean():
             const historyTrackPlaybackCompression = 8;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
+            const alertOrderingToleranceMs = 1000;
+            let latestLiveAlertOccurredAt = 0;
             const estimateVisibleMs = alertDurationMs;
             const trackVisibleMs = 20000;
             const trackMinMoveMeters = 12;
@@ -9907,26 +9978,61 @@ def dashboard_v4_clean():
                 if (existing) devices.set(deviceId, { ...existing, status: 'event' });
             }
 
-            function activateAlertsForGroup(group, force = false) {
-                if (!group || !isTarget(group.label) || !canTriggerEstimate(group)) return;
+            function activateAlertsForGroup(group, acceptedTiming) {
+                if (!group || !isTarget(group.label)) return false;
+                const timing = acceptedTiming === undefined
+                    ? acceptLiveAlert(group, true)
+                    : acceptedTiming;
+                if (!timing || !canTriggerEstimate(group)) return false;
                 const ids = activeGroupDeviceIds(group);
-                if (!ids.length) return;
-                const baseTime = parseTime(
-                    group.region_updated_at || group.last_event_time || group.updated_at || group.created_at
-                );
-                let until = Number.isFinite(baseTime)
-                    ? baseTime + alertDurationMs
-                    : Date.now() + alertDurationMs;
-                if (force && until <= Date.now()) {
-                    until = Date.now() + alertDurationMs;
-                }
-                if (!force && until <= Date.now()) return;
-                ids.forEach(deviceId => activateAlertForDevice(deviceId, until, true));
+                if (!ids.length) return false;
+                ids.forEach(deviceId => activateAlertForDevice(deviceId, timing.expiresAt, true));
+                return true;
             }
 
             function parseTime(value) {
                 const parsed = Date.parse(value || '');
                 return Number.isFinite(parsed) ? parsed : NaN;
+            }
+
+            function alertSequenceTimeMs(item) {
+                const explicit = Number(item?.alert_sequence_ms);
+                if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+                const rmsPeakTime = Number(item?.rms_peak_time_ms);
+                if (Number.isFinite(rmsPeakTime) && rmsPeakTime > 0) return rmsPeakTime;
+
+                const deviceEventTime = Number(item?.device_event_time_ms);
+                if (Number.isFinite(deviceEventTime) && deviceEventTime > 0) return deviceEventTime;
+
+                return parseTime(
+                    item?.alert_occurred_at
+                    || item?.last_event_time
+                    || item?.end_time
+                    || item?.first_event_time
+                    || item?.start_time
+                    || item?.last_event_at
+                    || item?.timestamp
+                    || item?.created_at
+                );
+            }
+
+            function alertExpiryTimeMs(item, occurredAt = alertSequenceTimeMs(item)) {
+                const explicit = parseTime(item?.alert_expires_at);
+                if (Number.isFinite(explicit)) return explicit;
+                return Number.isFinite(occurredAt) ? occurredAt + alertDurationMs : NaN;
+            }
+
+            function acceptLiveAlert(item, advanceWatermark = true) {
+                const occurredAt = alertSequenceTimeMs(item);
+                const expiresAt = alertExpiryTimeMs(item, occurredAt);
+                if (!Number.isFinite(occurredAt) || !Number.isFinite(expiresAt)) return null;
+                if (item?.is_live_alert === false || expiresAt <= Date.now()) return null;
+                if (occurredAt + alertOrderingToleranceMs < latestLiveAlertOccurredAt) return null;
+                if (advanceWatermark) {
+                    latestLiveAlertOccurredAt = Math.max(latestLiveAlertOccurredAt, occurredAt);
+                }
+                return { occurredAt, expiresAt };
             }
 
             function syncAlertFromDevice(device) {
@@ -9936,11 +10042,19 @@ def dashboard_v4_clean():
                     alertUntil.delete(deviceId);
                     return;
                 }
-                const eventTime = parseTime(device.last_event_at);
-                const eventUntil = Number.isFinite(eventTime) ? eventTime + alertDurationMs : NaN;
-                if (Number.isFinite(eventUntil) && eventUntil > Date.now()) {
+                const explicitSequence = Number(device?.alert_sequence_ms);
+                const hasExplicitTiming = (Number.isFinite(explicitSequence) && explicitSequence > 0)
+                    || Boolean(device?.alert_occurred_at);
+                if (!hasExplicitTiming) {
+                    if ((alertUntil.get(deviceId) || 0) <= Date.now()) {
+                        alertUntil.delete(deviceId);
+                    }
+                    return;
+                }
+                const timing = acceptLiveAlert(device, false);
+                if (timing) {
                     const currentUntil = alertUntil.get(deviceId) || 0;
-                    if (eventUntil > currentUntil) alertUntil.set(deviceId, eventUntil);
+                    if (timing.expiresAt > currentUntil) alertUntil.set(deviceId, timing.expiresAt);
                 } else if ((alertUntil.get(deviceId) || 0) <= Date.now()) {
                     alertUntil.delete(deviceId);
                 }
@@ -10424,6 +10538,15 @@ def dashboard_v4_clean():
                             events.length,
                             ...eventsData.events.map(normalizeEventForDashboard)
                         );
+                        [...eventsData.events]
+                            .filter(event => event?.device_id && isTarget(event?.label))
+                            .sort((a, b) => (alertSequenceTimeMs(b) || 0) - (alertSequenceTimeMs(a) || 0))
+                            .forEach(event => {
+                                const timing = acceptLiveAlert(event, true);
+                                if (timing) {
+                                    activateAlertForDevice(event.device_id, timing.expiresAt, true);
+                                }
+                            });
                     }
 
                     if (Array.isArray(groupsData?.event_groups)) {
@@ -10433,13 +10556,14 @@ def dashboard_v4_clean():
                         });
 
                         estimates.clear();
-                        groupsData.event_groups.forEach(group => {
-                            if (group.id && canTriggerEstimate(group)) {
-                                activateAlertsForGroup(group);
-                                if (isDisplayableEstimate(group)) {
+                        [...groupsData.event_groups]
+                            .sort((a, b) => (alertSequenceTimeMs(b) || 0) - (alertSequenceTimeMs(a) || 0))
+                            .forEach(group => {
+                                if (!group.id) return;
+                                const activated = activateAlertsForGroup(group);
+                                if (activated && isDisplayableEstimate(group)) {
                                     estimates.set(String(group.id), group);
                                 }
-                            }
                         });
                     }
 
@@ -10754,7 +10878,7 @@ def dashboard_v4_clean():
                 if (activeAlertDevicesForEstimate().length > 0) return null;
                 return Array.from(estimates.values())
                     .filter(isDisplayableEstimate)
-                    .sort((a, b) => (parseTime(b.region_updated_at || b.updated_at || b.created_at) || 0) - (parseTime(a.region_updated_at || a.updated_at || a.created_at) || 0))[0];
+                    .sort((a, b) => (alertSequenceTimeMs(b) || 0) - (alertSequenceTimeMs(a) || 0))[0];
             }
 
             function estimateId(item) {
@@ -11522,8 +11646,7 @@ def dashboard_v4_clean():
 
             function estimateIsFresh(item) {
                 if (item?.live_estimate) return Boolean(liveAlertEstimate());
-                const time = parseTime(item?.region_updated_at || item?.updated_at || item?.created_at);
-                return Number.isFinite(time) && Date.now() - time <= estimateVisibleMs;
+                return Boolean(acceptLiveAlert(item, false));
             }
 
             function boundsAround(lat, lng, radiusM) {
@@ -12478,18 +12601,39 @@ def dashboard_v4_clean():
                             refreshAll();
                         }
                     } else if (data.type === 'event_trigger') {
-                        const triggerTime = data.last_event_at || new Date().toISOString();
+                        const triggerTime = data.alert_occurred_at || data.last_event_at || data.timestamp;
                         const previousDevice = devices.get(data.device_id);
-                        const canAlert = !isDiagnosticDevice(data.device_id);
+                        const timing = acceptLiveAlert(data, true);
+                        const canAlert = !isDiagnosticDevice(data.device_id) && Boolean(timing);
                         const incomingDevice = data.device || {};
-                        alertUntil.set(data.device_id, Date.now() + alertDurationMs);
+                        const incomingTime = alertSequenceTimeMs(data);
+                        const previousTime = alertSequenceTimeMs(previousDevice);
+                        const advancesDeviceEvent = !Number.isFinite(previousTime)
+                            || (Number.isFinite(incomingTime) && incomingTime + alertOrderingToleranceMs >= previousTime);
+                        if (canAlert) {
+                            const currentUntil = alertUntil.get(data.device_id) || 0;
+                            if (timing.expiresAt > currentUntil) alertUntil.set(data.device_id, timing.expiresAt);
+                        }
+                        const previousStatus = String(previousDevice?.status || '').toLowerCase() === 'event'
+                            ? 'online'
+                            : (previousDevice?.status || 'online');
+                        const preservedOccurredAt = previousDevice?.alert_occurred_at
+                            || previousDevice?.last_event_at;
+                        const preservedExpiresAt = previousDevice?.alert_expires_at
+                            || (Number.isFinite(previousTime)
+                                ? new Date(previousTime + alertDurationMs).toISOString()
+                                : undefined);
                         const device = setDeviceState({
                             ...incomingDevice,
                             ...data,
-                            status: canAlert ? 'event' : (previousDevice?.status || incomingDevice.status || 'offline'),
+                            status: canAlert ? 'event' : previousStatus,
                             is_listening: previousDevice?.is_listening ?? incomingDevice.is_listening ?? data.is_listening ?? false,
-                            last_event_id: data.event_id,
-                            last_event_at: triggerTime,
+                            last_event_id: advancesDeviceEvent ? data.event_id : previousDevice?.last_event_id,
+                            last_event_at: advancesDeviceEvent ? triggerTime : previousDevice?.last_event_at,
+                            alert_occurred_at: advancesDeviceEvent ? data.alert_occurred_at : preservedOccurredAt,
+                            alert_expires_at: advancesDeviceEvent ? data.alert_expires_at : preservedExpiresAt,
+                            alert_sequence_ms: advancesDeviceEvent ? data.alert_sequence_ms : previousTime,
+                            is_live_alert: advancesDeviceEvent ? data.is_live_alert : previousDevice?.is_live_alert,
                         });
                         upsertEventState(data.event || {
                             event_id: data.event_id,
@@ -12515,27 +12659,36 @@ def dashboard_v4_clean():
                         renderMap();
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
-                        (group.merged_group_ids || []).forEach(groupId => {
-                            eventGroups.delete(groupId);
-                            estimates.delete(groupId);
-                            if (selectedEstimateId === groupId) {
-                                selectedEstimateId = null;
-                                clearEstimateObjects(false);
-                            }
-                        });
+                        const timing = isTarget(group?.label)
+                            ? acceptLiveAlert(group, true)
+                            : null;
+                        if (timing) {
+                            (group.merged_group_ids || []).forEach(groupId => {
+                                eventGroups.delete(groupId);
+                                estimates.delete(groupId);
+                                if (selectedEstimateId === groupId) {
+                                    selectedEstimateId = null;
+                                    clearEstimateObjects(false);
+                                }
+                            });
+                        }
                         if (group.id) {
-                            eventGroups.set(group.id, group);
-                            if (canTriggerEstimate(group)) {
-                                const groupId = String(group.id);
-                                activateAlertsForGroup(group, true);
-                                if (isDisplayableEstimate(group)) {
+                            const groupId = String(group.id);
+                            const existingGroup = eventGroups.get(groupId);
+                            const incomingTime = alertSequenceTimeMs(group);
+                            const existingTime = alertSequenceTimeMs(existingGroup);
+                            const isLatestGroupState = !Number.isFinite(existingTime)
+                                || (Number.isFinite(incomingTime)
+                                    && incomingTime + alertOrderingToleranceMs >= existingTime);
+                            if (isLatestGroupState) {
+                                eventGroups.set(groupId, group);
+                                const activated = activateAlertsForGroup(group, timing);
+                                if (activated && isDisplayableEstimate(group)) {
                                     estimates.set(groupId, group);
                                     autoPreviewEstimate(group, true);
                                 } else {
                                     estimates.delete(groupId);
                                 }
-                            } else {
-                                estimates.delete(String(group.id));
                             }
                         }
                         renderSummary();
