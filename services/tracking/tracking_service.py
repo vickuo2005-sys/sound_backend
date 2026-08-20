@@ -33,6 +33,55 @@ def heading_deg(vx: float, vy: float) -> Optional[float]:
     return (math.degrees(math.atan2(vx, vy)) + 360.0) % 360.0
 
 
+def valid_lat_lng(latitude: float, longitude: float) -> bool:
+    return (
+        math.isfinite(latitude)
+        and math.isfinite(longitude)
+        and -90.0 <= latitude <= 90.0
+        and -180.0 <= longitude <= 180.0
+    )
+
+
+def rejected_state(
+    track: dict,
+    *,
+    measurement_time_ms: float,
+    innovation_m: float,
+    reason: str,
+    dt: float,
+    max_speed_mps: float,
+    candidate_speed_mps: Optional[float] = None,
+) -> dict:
+    vx = float(track.get("velocity_east_mps") or 0.0)
+    vy = float(track.get("velocity_north_mps") or 0.0)
+    lat = float(track["last_lat"])
+    lng = float(track["last_lng"])
+    return {
+        "origin_lat": float(track["origin_lat"]),
+        "origin_lng": float(track["origin_lng"]),
+        "filtered_lat": lat,
+        "filtered_lng": lng,
+        "predicted_lat": lat,
+        "predicted_lng": lng,
+        "velocity_east_mps": vx,
+        "velocity_north_mps": vy,
+        "speed_mps": math.hypot(vx, vy),
+        "heading_deg": heading_deg(vx, vy),
+        "measurement_time_ms": measurement_time_ms,
+        "innovation_m": innovation_m,
+        "rejected_as_outlier": True,
+        "state_json": {
+            "reason": reason,
+            "dt": dt,
+            "max_speed_mps": max_speed_mps,
+            "candidate_speed_mps": candidate_speed_mps,
+        },
+        "covariance_json": {
+            "innovation_m": innovation_m,
+        },
+    }
+
+
 def predict_state(track: dict, measurement_time_ms: float) -> dict:
     origin_lat = float(track["origin_lat"])
     origin_lng = float(track["origin_lng"])
@@ -62,12 +111,16 @@ def update_track_from_measurement(
     *,
     alpha: float = 0.70,
     beta: float = 0.35,
+    max_speed_mps: float = 80.0,
+    base_gate_m: float = 100.0,
 ) -> dict:
     measurement_time_ms = parse_time_ms(measurement.get("event_time_ms")) or datetime.now(
         timezone.utc
     ).timestamp() * 1000.0
     measured_lat = float(measurement["estimated_lat"])
     measured_lng = float(measurement["estimated_lng"])
+    if not valid_lat_lng(measured_lat, measured_lng):
+        raise ValueError("measurement coordinates are outside valid latitude/longitude bounds")
 
     if track is None:
         return {
@@ -109,12 +162,46 @@ def update_track_from_measurement(
     residual_x = measurement_x - predicted["x"]
     residual_y = measurement_y - predicted["y"]
     innovation_m = math.hypot(residual_x, residual_y)
-    dt = max(predicted["dt"], 0.001)
+    dt = predicted["dt"]
+    safe_max_speed_mps = max(0.1, float(max_speed_mps))
+    if dt <= 0.0:
+        return rejected_state(
+            track,
+            measurement_time_ms=measurement_time_ms,
+            innovation_m=innovation_m,
+            reason="non_increasing_measurement_time",
+            dt=dt,
+            max_speed_mps=safe_max_speed_mps,
+        )
+
+    uncertainty_m = max(0.0, float(measurement.get("uncertainty_radius_m") or 0.0))
+    innovation_gate_m = max(0.0, float(base_gate_m)) + safe_max_speed_mps * dt + uncertainty_m
+    if innovation_m > innovation_gate_m:
+        return rejected_state(
+            track,
+            measurement_time_ms=measurement_time_ms,
+            innovation_m=innovation_m,
+            reason="innovation_gate_exceeded",
+            dt=dt,
+            max_speed_mps=safe_max_speed_mps,
+        )
 
     filtered_x = predicted["x"] + alpha * residual_x
     filtered_y = predicted["y"] + alpha * residual_y
     vx = predicted["vx"] + beta * residual_x / dt
     vy = predicted["vy"] + beta * residual_y / dt
+    speed = math.hypot(vx, vy)
+    if not math.isfinite(speed) or speed > safe_max_speed_mps:
+        return rejected_state(
+            track,
+            measurement_time_ms=measurement_time_ms,
+            innovation_m=innovation_m,
+            reason="speed_limit_exceeded",
+            dt=dt,
+            max_speed_mps=safe_max_speed_mps,
+            candidate_speed_mps=speed,
+        )
+
     filtered_lat, filtered_lng = xy_to_latlng(filtered_x, filtered_y, origin_lat, origin_lng)
     predicted_lat, predicted_lng = xy_to_latlng(
         filtered_x + vx,
@@ -122,7 +209,18 @@ def update_track_from_measurement(
         origin_lat,
         origin_lng,
     )
-    speed = math.hypot(vx, vy)
+    if not valid_lat_lng(filtered_lat, filtered_lng) or not valid_lat_lng(
+        predicted_lat, predicted_lng
+    ):
+        return rejected_state(
+            track,
+            measurement_time_ms=measurement_time_ms,
+            innovation_m=innovation_m,
+            reason="invalid_filtered_coordinates",
+            dt=dt,
+            max_speed_mps=safe_max_speed_mps,
+            candidate_speed_mps=speed,
+        )
 
     return {
         "origin_lat": origin_lat,

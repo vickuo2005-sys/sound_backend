@@ -51,6 +51,7 @@ from services.localization import localize_observations
 from services.region_localization import estimate_region
 from services.tracking.tracking_service import (
     can_associate_track,
+    parse_time_ms as parse_tracking_time_ms,
     update_track_from_measurement,
 )
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
@@ -354,7 +355,7 @@ def runtime_build_info() -> dict:
         "render_git_branch": os.getenv("RENDER_GIT_BRANCH"),
         "render_service_name": os.getenv("RENDER_SERVICE_NAME"),
         "render_service_id": os.getenv("RENDER_SERVICE_ID"),
-        "runtime_marker": "eight-second-ordered-alerts-v7",
+        "runtime_marker": "bounded-deduplicated-tracking-v8",
     }
 
 
@@ -3599,8 +3600,48 @@ def process_tracking_measurement(
     with tracking_update_lock:
         if close_stale:
             close_stale_tracks()
+        lat_lng = tracking_lat_lng(
+            measurement.get("estimated_lat"),
+            measurement.get("estimated_lng"),
+        )
+        if lat_lng is None:
+            logger.warning("Tracking measurement rejected: invalid coordinates")
+            return None
+        measurement = {
+            **measurement,
+            "estimated_lat": lat_lng[0],
+            "estimated_lng": lat_lng[1],
+        }
         track = choose_track_for_measurement(measurement)
-        state = update_track_from_measurement(track, measurement)
+        if track is not None:
+            measurement_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
+            last_time_ms = parse_tracking_time_ms(track.get("last_event_time_ms"))
+            if (
+                measurement_time_ms is not None
+                and last_time_ms is not None
+                and measurement_time_ms <= last_time_ms
+            ):
+                logger.info(
+                    "Tracking measurement deduplicated track_id=%s measurement_time_ms=%s last_time_ms=%s",
+                    track.get("id"),
+                    measurement_time_ms,
+                    last_time_ms,
+                )
+                return enrich_track_with_points(track)
+        state = update_track_from_measurement(
+            track,
+            measurement,
+            max_speed_mps=TRACK_MAX_SPEED_MPS,
+            base_gate_m=TRACK_BASE_GATE_METERS,
+        )
+        if state.get("rejected_as_outlier"):
+            logger.warning(
+                "Tracking measurement rejected track_id=%s reason=%s innovation_m=%s",
+                track.get("id") if track else None,
+                (state.get("state_json") or {}).get("reason"),
+                state.get("innovation_m"),
+            )
+            return enrich_track_with_points(track) if track else None
         saved_track = save_track_point(track, measurement, state)
     return enrich_track_with_points(saved_track)
 
@@ -4419,6 +4460,93 @@ def delete_closed_single_point_target_tracks() -> dict:
         invalidate_tracks_cache()
     return {
         "status": "success",
+        "deleted_count": len(deleted_track_ids),
+        "deleted_track_ids": deleted_track_ids,
+    }
+
+
+def delete_implausible_target_tracks(
+    max_speed_mps: Optional[float] = None,
+) -> dict:
+    """Delete tracks already contaminated by impossible speed or coordinates."""
+
+    speed_limit = max(
+        0.1,
+        float(TRACK_MAX_SPEED_MPS if max_speed_mps is None else max_speed_mps),
+    )
+    deleted_track_ids: list[str] = []
+    invalid_track_where = """
+        COALESCE(ABS(t.last_speed_mps), 0) > {placeholder}
+        OR t.last_lat NOT BETWEEN -90 AND 90
+        OR t.last_lng NOT BETWEEN -180 AND 180
+        OR EXISTS (
+            SELECT 1
+            FROM target_track_points p
+            WHERE p.track_id = t.id
+              AND (
+                  COALESCE(ABS(p.speed_mps), 0) > {placeholder}
+                  OR p.filtered_lat NOT BETWEEN -90 AND 90
+                  OR p.filtered_lng NOT BETWEEN -180 AND 180
+                  OR p.predicted_lat NOT BETWEEN -90 AND 90
+                  OR p.predicted_lng NOT BETWEEN -180 AND 180
+              )
+        )
+    """
+
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        SELECT t.id
+                        FROM target_tracks t
+                        WHERE {invalid_track_where.format(placeholder='%s')}
+                        """,
+                        (speed_limit, speed_limit),
+                    )
+                    deleted_track_ids = [str(row["id"]) for row in cursor.fetchall()]
+                    if deleted_track_ids:
+                        placeholders = ", ".join(["%s"] * len(deleted_track_ids))
+                        cursor.execute(
+                            f"DELETE FROM target_track_points WHERE track_id IN ({placeholders})",
+                            tuple(deleted_track_ids),
+                        )
+                        cursor.execute(
+                            f"DELETE FROM target_tracks WHERE id IN ({placeholders})",
+                            tuple(deleted_track_ids),
+                        )
+        finally:
+            connection.close()
+    else:
+        with get_sqlite_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT t.id
+                FROM target_tracks t
+                WHERE {invalid_track_where.format(placeholder='?')}
+                """,
+                (speed_limit, speed_limit),
+            ).fetchall()
+            deleted_track_ids = [str(row["id"]) for row in rows]
+            if deleted_track_ids:
+                placeholders = ", ".join(["?"] * len(deleted_track_ids))
+                connection.execute(
+                    f"DELETE FROM target_track_points WHERE track_id IN ({placeholders})",
+                    tuple(deleted_track_ids),
+                )
+                connection.execute(
+                    f"DELETE FROM target_tracks WHERE id IN ({placeholders})",
+                    tuple(deleted_track_ids),
+                )
+                connection.commit()
+
+    if deleted_track_ids:
+        invalidate_tracks_cache()
+    return {
+        "status": "success",
+        "speed_limit_mps": speed_limit,
         "deleted_count": len(deleted_track_ids),
         "deleted_track_ids": deleted_track_ids,
     }
@@ -8448,6 +8576,22 @@ async def delete_single_point_tracks_admin(
     return result
 
 
+@app.delete("/admin/tracks/implausible")
+async def delete_implausible_tracks_admin(
+    confirm: str = Query(default=""),
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_dashboard_write_token(upload_token)
+    if confirm != "delete_implausible_tracks":
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=delete_implausible_tracks is required",
+        )
+    result = await asyncio.to_thread(delete_implausible_target_tracks)
+    await dashboard_manager.broadcast({"type": "tracks_rebuilt", **result})
+    return result
+
+
 @app.post("/tracks/{track_id}/close")
 async def close_track_endpoint(track_id: str):
     track = close_track(track_id)
@@ -10951,7 +11095,8 @@ def dashboard_v4_clean():
 
             function validTrackPoints(track) {
                 return (track?.recent_points || [])
-                    .filter(point => Number.isFinite(Number(point.filtered_lat)) && Number.isFinite(Number(point.filtered_lng)))
+                    .filter(point => !Boolean(point.rejected_as_outlier)
+                        && isValidCoordinatePair(point.filtered_lat, point.filtered_lng))
                     .sort((a, b) => Number(a.measurement_time_ms || 0) - Number(b.measurement_time_ms || 0));
             }
 
@@ -11089,7 +11234,10 @@ def dashboard_v4_clean():
             }
 
             function formatSpeed(value) {
-                return Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)} m/s` : '-';
+                const speed = Number(value);
+                return Number.isFinite(speed) && speed >= 0 && speed <= 80
+                    ? `${speed.toFixed(1)} m/s`
+                    : '-';
             }
 
             function formatDistance(value) {
@@ -11212,7 +11360,9 @@ def dashboard_v4_clean():
 
             function historyTrackBadgeHtml(track, currentTimeMs = null, playback = {}) {
                 const points = trackPath(track);
-                const speed = Number.isFinite(Number(playback.speedMps))
+                const speed = playback.speedMps !== null
+                    && playback.speedMps !== undefined
+                    && Number.isFinite(Number(playback.speedMps))
                     ? playback.speedMps
                     : track?.last_speed_mps;
                 const distance = Number.isFinite(Number(playback.distanceM))
@@ -11376,8 +11526,11 @@ def dashboard_v4_clean():
                     const next = points[segmentIndex];
                     const previousTime = Number(previous.timeMs);
                     const nextTime = Number(next.timeMs);
-                    const segmentTimeMs = Math.max(1, nextTime - previousTime);
-                    const ratio = Math.max(0, Math.min((targetTime - previousTime) / segmentTimeMs, 1));
+                    const segmentTimeMs = nextTime - previousTime;
+                    const hasUsableSegmentTime = Number.isFinite(segmentTimeMs) && segmentTimeMs > 0;
+                    const ratio = hasUsableSegmentTime
+                        ? Math.max(0, Math.min((targetTime - previousTime) / segmentTimeMs, 1))
+                        : 1;
                     const position = interpolateLatLng(previous, next, ratio);
                     const segmentDistanceM = distanceMeters(previous, next);
                     const distanceM = (distances[segmentIndex - 1] || 0) + segmentDistanceM * ratio;
@@ -11385,7 +11538,9 @@ def dashboard_v4_clean():
                         position,
                         path: [...points.slice(0, segmentIndex), position],
                         timeMs: targetTime,
-                        speedMps: segmentDistanceM / (segmentTimeMs / 1000),
+                        speedMps: hasUsableSegmentTime
+                            ? segmentDistanceM / (segmentTimeMs / 1000)
+                            : null,
                         distanceM,
                         headingDeg: headingDegrees(previous, next),
                     };
