@@ -110,7 +110,7 @@ traffic.
 | Shadow ON/OFF Alert latency | Comparison harness ready, no samples |
 | Render to Supabase DB latency | Existing probe ready, not enabled or measured |
 | Backend tests | 110 passed; two pre-existing Pydantic deprecation warnings |
-| Flutter tests/analyze | 46 passed; analyze clean |
+| Flutter tests/analyze | 47 passed; analyze clean |
 
 ## Required evidence before GO
 
