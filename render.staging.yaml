@@ -30,7 +30,7 @@ services:
       - key: DASHBOARD_EVENT_ORDER_GUARD_ENABLED
         value: "true"
       - key: STAGING_DB_LATENCY_PROBE_ENABLED
-        value: "true"
+        value: "false"
       - key: TRACKING_REORDER_BUFFER_ENABLED
         value: "false"
       - key: TRACKING_REORDER_WINDOW_MS
