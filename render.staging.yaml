@@ -43,6 +43,20 @@ services:
         value: "10000"
       - key: OBSERVATION_SEQUENCE_MAX_LATE_MS
         value: "2000"
+      - key: OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS
+        value: "2000"
+      - key: OBSERVATION_SHADOW_TTL_SECONDS
+        value: "3600"
+      - key: OBSERVATION_SHADOW_MAX_STREAMS
+        value: "2048"
+      - key: OBSERVATION_MAX_PENDING_PER_KEY
+        value: "1024"
+      - key: OBSERVATION_MAX_TRACKS
+        value: "2048"
+      - key: OBSERVATION_MAILBOX_WORKERS
+        value: "4"
+      - key: OBSERVATION_FUSION_LATE_ATTACH_MS
+        value: "2000"
       - key: DATABASE_URL
         sync: false
       - key: GCS_BUCKET_NAME

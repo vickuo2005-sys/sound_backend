@@ -23,6 +23,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -49,6 +50,7 @@ from services.event_fusion import (
 )
 from services.localization import localize_observations
 from services.observation_shadow import (
+    ObservationClockQualityTracker,
     ObservationShadowRegistry,
     ShadowObservation,
     ShadowTrackingPipeline,
@@ -107,9 +109,40 @@ OBSERVATION_SHADOW_MAX_RECORDS = max(
     100,
     int(os.getenv("OBSERVATION_SHADOW_MAX_RECORDS", "10000") or 10000),
 )
-OBSERVATION_SEQUENCE_MAX_LATE_MS = max(
+OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS = max(
     0.0,
-    float(os.getenv("OBSERVATION_SEQUENCE_MAX_LATE_MS", "2000") or 2000),
+    float(
+        os.getenv(
+            "OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS",
+            os.getenv("OBSERVATION_SEQUENCE_MAX_LATE_MS", "2000"),
+        )
+        or 2000
+    ),
+)
+OBSERVATION_SEQUENCE_MAX_LATE_MS = OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS
+OBSERVATION_SHADOW_TTL_SECONDS = max(
+    60.0,
+    float(os.getenv("OBSERVATION_SHADOW_TTL_SECONDS", "3600") or 3600),
+)
+OBSERVATION_SHADOW_MAX_STREAMS = max(
+    1,
+    int(os.getenv("OBSERVATION_SHADOW_MAX_STREAMS", "2048") or 2048),
+)
+OBSERVATION_MAX_PENDING_PER_KEY = max(
+    1,
+    int(os.getenv("OBSERVATION_MAX_PENDING_PER_KEY", "1024") or 1024),
+)
+OBSERVATION_MAX_TRACKS = max(
+    1,
+    int(os.getenv("OBSERVATION_MAX_TRACKS", "2048") or 2048),
+)
+OBSERVATION_MAILBOX_WORKERS = max(
+    1,
+    int(os.getenv("OBSERVATION_MAILBOX_WORKERS", "4") or 4),
+)
+OBSERVATION_FUSION_LATE_ATTACH_MS = max(
+    0.0,
+    float(os.getenv("OBSERVATION_FUSION_LATE_ATTACH_MS", "2000") or 2000),
 )
 TRACKING_REORDER_BUFFER_ENABLED = (
     os.getenv("TRACKING_REORDER_BUFFER_ENABLED", "false").lower() == "true"
@@ -252,10 +285,22 @@ tracking_reorder_timer_lock = threading.Lock()
 tracking_reorder_timers: dict[str, threading.Timer] = {}
 tracking_reorder_event_loop: Optional[asyncio.AbstractEventLoop] = None
 observation_shadow_registry = ObservationShadowRegistry(
-    max_observations=OBSERVATION_SHADOW_MAX_RECORDS
+    max_observations=OBSERVATION_SHADOW_MAX_RECORDS,
+    ttl_seconds=OBSERVATION_SHADOW_TTL_SECONDS,
+    max_streams=OBSERVATION_SHADOW_MAX_STREAMS,
+)
+observation_clock_quality = ObservationClockQualityTracker(
+    max_streams=OBSERVATION_SHADOW_MAX_STREAMS,
+    stream_ttl_ms=OBSERVATION_SHADOW_TTL_SECONDS * 1000.0,
 )
 observation_shadow_tracking = ShadowTrackingPipeline(
-    max_late_ms=OBSERVATION_SEQUENCE_MAX_LATE_MS
+    max_late_ms=OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS,
+    max_pending_per_key=OBSERVATION_MAX_PENDING_PER_KEY,
+    max_sequence_keys=OBSERVATION_SHADOW_MAX_STREAMS,
+    max_tracks=OBSERVATION_MAX_TRACKS,
+    state_ttl_ms=OBSERVATION_SHADOW_TTL_SECONDS * 1000.0,
+    fusion_late_attach_ms=OBSERVATION_FUSION_LATE_ATTACH_MS,
+    mailbox_workers=OBSERVATION_MAILBOX_WORKERS,
 )
 device_status_cache_lock = threading.Lock()
 device_status_cache: tuple[float, list[dict]] = (0.0, [])
@@ -9152,7 +9197,8 @@ async def runtime_status():
         "observation_tracking_enabled": OBSERVATION_TRACKING_ENABLED,
         "observation_shadow": {
             "ingest": observation_shadow_registry.metrics(),
-            "tracking": observation_shadow_tracking.snapshot(),
+            "tracking": observation_shadow_tracking.snapshot(wait_for_idle=False),
+            "clock_quality": observation_clock_quality.snapshot(),
         },
         "localization_enabled": LOCALIZATION_ENABLED,
         "gcs_configured": bool(
@@ -9314,19 +9360,87 @@ def measure_staging_database_latency(
     }
 
 
+def estimate_shadow_request_wire_bytes(request: Request, payload_bytes: int) -> int:
+    query = f"?{request.url.query}" if request.url.query else ""
+    request_line = f"{request.method} {request.url.path}{query} HTTP/1.1\r\n"
+    header_bytes = sum(
+        len(name) + 2 + len(value) + 2 for name, value in request.headers.raw
+    )
+    return len(request_line.encode("utf-8")) + header_bytes + 2 + payload_bytes
+
+
+def observation_reconciliation_snapshot(
+    tracking_snapshot: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    ingest = observation_shadow_registry.metrics()
+    tracking = tracking_snapshot or observation_shadow_tracking.snapshot()
+    backend_received = int(ingest["observation_received_count"])
+    unique_observations = int(ingest["observation_uploaded_count"])
+    sequence_gate = int(tracking["sequence_gate_pass_count"])
+    fusion_applied = int(tracking["fusion_applied_count"])
+    tracking_measurements = int(tracking["tracking_measurement_count"])
+    track_points = int(tracking["track_point_count"])
+
+    def loss(source: int, destination: int) -> dict[str, Any]:
+        loss_count = max(0, source - destination)
+        return {
+            "count": loss_count,
+            "percent": round(loss_count * 100.0 / source, 4) if source else None,
+        }
+
+    return {
+        "raw_valid_target_count": None,
+        "observation_created_count": None,
+        "upload_attempt_count": None,
+        "upload_success_count": None,
+        "backend_received_count": backend_received,
+        "unique_observation_count": unique_observations,
+        "sequence_gate_count": sequence_gate,
+        "fusion_measurement_count": fusion_applied,
+        "tracking_measurement_count": tracking_measurements,
+        "track_point_count": track_points,
+        "raw_ai_to_backend_loss": None,
+        "backend_duplicate_loss": loss(backend_received, unique_observations),
+        "backend_to_sequence_loss": loss(unique_observations, sequence_gate),
+        "sequence_to_fusion_loss": loss(sequence_gate, fusion_applied),
+        "fusion_to_tracking_loss": loss(fusion_applied, tracking_measurements),
+        "backend_to_tracking_delivery_percent": round(
+            tracking_measurements * 100.0 / unique_observations,
+            4,
+        )
+        if unique_observations
+        else None,
+        "raw_counts_source": "android_field_log_required",
+    }
+
+
 @app.post("/observations/shadow", status_code=status.HTTP_202_ACCEPTED)
 def ingest_shadow_observation(
+    request: Request,
     observation: ShadowObservation,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+    content_length: Optional[int] = Header(default=None, alias="content-length"),
 ) -> dict:
     if not OBSERVATION_SHADOW_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     verify_upload_token(upload_token)
     received_at = datetime.now(timezone.utc)
+    payload_bytes = max(0, int(content_length or 0))
+    request_wire_estimate_bytes = estimate_shadow_request_wire_bytes(
+        request,
+        payload_bytes,
+    )
     result = observation_shadow_registry.ingest(
         observation,
         received_at=received_at,
+        payload_bytes=payload_bytes,
+        request_wire_estimate_bytes=request_wire_estimate_bytes,
     )
+    if result.accepted:
+        observation_clock_quality.observe(
+            observation,
+            received_at_ms=received_at.timestamp() * 1000.0,
+        )
     if result.accepted and OBSERVATION_TRACKING_ENABLED:
         observation_shadow_executor.submit(
             observation_shadow_tracking.accept,
@@ -9345,6 +9459,8 @@ def ingest_shadow_observation(
         "gap_detected": result.gap_detected,
         "gap_filled": result.gap_filled,
         "out_of_order": result.out_of_order,
+        "payload_bytes": payload_bytes,
+        "request_wire_estimate_bytes": request_wire_estimate_bytes,
         "tracking_scheduled": bool(result.accepted and OBSERVATION_TRACKING_ENABLED),
         "dashboard_alert_created": False,
         "storage": "bounded_in_memory_shadow_only",
@@ -9358,6 +9474,7 @@ def shadow_observation_metrics(
     if not OBSERVATION_SHADOW_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     verify_upload_token(upload_token)
+    shadow_tracking_snapshot = observation_shadow_tracking.snapshot()
     return {
         "status": "success",
         "feature_flags": {
@@ -9365,7 +9482,11 @@ def shadow_observation_metrics(
             "observation_tracking_enabled": OBSERVATION_TRACKING_ENABLED,
         },
         "ingest": observation_shadow_registry.metrics(),
-        "shadow_tracking": observation_shadow_tracking.snapshot(),
+        "shadow_tracking": shadow_tracking_snapshot,
+        "clock_quality": observation_clock_quality.snapshot(),
+        "reconciliation": observation_reconciliation_snapshot(
+            shadow_tracking_snapshot
+        ),
         "control_tracking": tracking_discard_metrics_snapshot(),
     }
 
