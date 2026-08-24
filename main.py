@@ -48,12 +48,18 @@ from services.event_fusion import (
     recompute_active_regions_for_device as recompute_fusion_regions_for_device,
 )
 from services.localization import localize_observations
+from services.observation_shadow import (
+    ObservationShadowRegistry,
+    ShadowObservation,
+    ShadowTrackingPipeline,
+)
 from services.region_localization import estimate_region
 from services.tracking.tracking_service import (
     can_associate_track,
     parse_time_ms as parse_tracking_time_ms,
     update_track_from_measurement,
 )
+from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
 
 
@@ -91,6 +97,27 @@ TIME_SYNC_MAX_AGE_SECONDS = float(os.getenv("TIME_SYNC_MAX_AGE_SECONDS", "120") 
 LOCALIZATION_ENABLED = os.getenv("LOCALIZATION_ENABLED", "false").lower() == "true"
 GCC_PHAT_ENABLED = os.getenv("GCC_PHAT_ENABLED", "false").lower() == "true"
 TRACKING_ENABLED = os.getenv("TRACKING_ENABLED", "true").lower() == "true"
+OBSERVATION_SHADOW_ENABLED = (
+    os.getenv("OBSERVATION_SHADOW_ENABLED", "false").lower() == "true"
+)
+OBSERVATION_TRACKING_ENABLED = (
+    os.getenv("OBSERVATION_TRACKING_ENABLED", "false").lower() == "true"
+)
+OBSERVATION_SHADOW_MAX_RECORDS = max(
+    100,
+    int(os.getenv("OBSERVATION_SHADOW_MAX_RECORDS", "10000") or 10000),
+)
+OBSERVATION_SEQUENCE_MAX_LATE_MS = max(
+    0.0,
+    float(os.getenv("OBSERVATION_SEQUENCE_MAX_LATE_MS", "2000") or 2000),
+)
+TRACKING_REORDER_BUFFER_ENABLED = (
+    os.getenv("TRACKING_REORDER_BUFFER_ENABLED", "false").lower() == "true"
+)
+TRACKING_REORDER_WINDOW_MS = max(
+    0.0,
+    float(os.getenv("TRACKING_REORDER_WINDOW_MS", "500") or 500),
+)
 TDOA_MIN_NODES = int(os.getenv("TDOA_MIN_NODES", "3") or 3)
 TDOA_MAX_SYNC_AGE_SECONDS = float(os.getenv("TDOA_MAX_SYNC_AGE_SECONDS", "120") or 120)
 TDOA_MAX_RESIDUAL_METERS = float(os.getenv("TDOA_MAX_RESIDUAL_METERS", "100") or 100)
@@ -140,6 +167,18 @@ DEVICE_STATUS_CACHE_TTL_SECONDS = float(
 TRACKS_CACHE_TTL_SECONDS = float(os.getenv("TRACKS_CACHE_TTL_SECONDS", "10") or 10)
 DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS = float(
     os.getenv("DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS", "60") or 60
+)
+FAST_EVENT_INGEST_ENABLED = (
+    os.getenv("FAST_EVENT_INGEST_ENABLED", "true").lower() == "true"
+)
+POST_INFERENCE_LATENCY_TRACING_ENABLED = (
+    os.getenv("POST_INFERENCE_LATENCY_TRACING_ENABLED", "true").lower() == "true"
+)
+STAGING_DB_LATENCY_PROBE_ENABLED = (
+    os.getenv("STAGING_DB_LATENCY_PROBE_ENABLED", "false").lower() == "true"
+)
+DASHBOARD_EVENT_ORDER_GUARD_ENABLED = (
+    os.getenv("DASHBOARD_EVENT_ORDER_GUARD_ENABLED", "true").lower() == "true"
 )
 POSTGRES_SCHEMA_CACHE_TTL_SECONDS = float(
     os.getenv("POSTGRES_SCHEMA_CACHE_TTL_SECONDS", "300") or 300
@@ -202,22 +241,51 @@ audio_stream_manager = AudioStreamManager(
     max_buffer_frames=max(1, int(LIVE_AUDIO_RING_BUFFER_SECONDS * 50))
 )
 tracking_update_lock = threading.Lock()
+tracking_discard_metrics_lock = threading.Lock()
+tracking_discard_metrics = {
+    "late_measurement_discarded": 0,
+    "duplicate_measurement_discarded": 0,
+    "outlier_measurement_discarded": 0,
+}
+tracking_reorder_buffer = TrackingReorderBuffer(TRACKING_REORDER_WINDOW_MS)
+tracking_reorder_timer_lock = threading.Lock()
+tracking_reorder_timers: dict[str, threading.Timer] = {}
+tracking_reorder_event_loop: Optional[asyncio.AbstractEventLoop] = None
+observation_shadow_registry = ObservationShadowRegistry(
+    max_observations=OBSERVATION_SHADOW_MAX_RECORDS
+)
+observation_shadow_tracking = ShadowTrackingPipeline(
+    max_late_ms=OBSERVATION_SEQUENCE_MAX_LATE_MS
+)
 device_status_cache_lock = threading.Lock()
 device_status_cache: tuple[float, list[dict]] = (0.0, [])
 tracks_cache_lock = threading.Lock()
 tracks_cache: dict[str, tuple[float, dict]] = {}
 device_fixed_location_cache_lock = threading.Lock()
 device_fixed_location_cache: tuple[float, list[dict]] = (0.0, [])
+device_fixed_location_refresh_in_flight = False
 postgres_schema_cache_lock = threading.Lock()
 postgres_schema_cache: dict[tuple[str, str], tuple[float, set[str]]] = {}
 post_ingest_executor = ThreadPoolExecutor(
     max_workers=POST_INGEST_WORKERS,
     thread_name_prefix="post-ingest",
 )
+observation_shadow_executor = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="observation-shadow",
+)
 
 
 async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
     try:
+        if (
+            POST_INFERENCE_LATENCY_TRACING_ENABLED
+            and message.get("type") == "event_trigger"
+        ):
+            message = dict(message)
+            latency_trace = dict(message.get("latency_trace") or {})
+            latency_trace["ws_sent_at"] = utc_wall_time_ms()
+            message["latency_trace"] = latency_trace
         await dashboard_manager.broadcast(message)
     except Exception:
         logger.exception(
@@ -294,6 +362,8 @@ class SoundEvent(BaseModel):
     time_sync_quality: Optional[str] = None
     time_sync_synced_at_ms: Optional[int] = None
     time_sync_age_ms: Optional[int] = None
+    trace_id: Optional[str] = None
+    latency_trace: Optional[dict[str, Any]] = None
 
 
 class LocationUpdate(BaseModel):
@@ -347,6 +417,60 @@ class DeviceFixedLocationUpsert(BaseModel):
 
 def current_time_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def utc_wall_time_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+LATENCY_TRACE_TIMESTAMP_KEYS = {
+    "device_event_time_ms",
+    "native_window_ready_time_ms",
+    "flutter_received_at",
+    "ai_started_at",
+    "ai_finished_at",
+    "metadata_enqueue_started_at",
+    "metadata_enqueue_finished_at",
+    "http_request_started_at",
+    "http_response_received_at",
+    "backend_received_at",
+    "backend_received",
+    "db_started_at",
+    "db_start",
+    "db_committed_at",
+    "db_complete",
+    "event_trigger_scheduled_at",
+    "ws_schedule",
+    "post_ingest_enqueued_at",
+    "ingest_response_started_at",
+    "response_start",
+    "ws_sent_at",
+    "ws_message_received_at",
+    "event_state_updated_at",
+    "render_started_at",
+    "render_finished_at",
+}
+
+
+def sanitize_latency_trace(event: SoundEvent) -> None:
+    if not POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        event.latency_trace = None
+        return
+
+    raw_trace = event.latency_trace if isinstance(event.latency_trace, dict) else {}
+    trace_id = str(event.trace_id or raw_trace.get("trace_id") or event.event_id).strip()[:128]
+    sanitized: dict[str, Any] = {"trace_id": trace_id}
+    for key in LATENCY_TRACE_TIMESTAMP_KEYS:
+        value = raw_trace.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        numeric = float(value)
+        if not math.isfinite(numeric) or numeric < 0:
+            continue
+        sanitized[key] = int(round(numeric))
+
+    event.trace_id = trace_id
+    event.latency_trace = sanitized
 
 
 def runtime_build_info() -> dict:
@@ -3467,7 +3591,11 @@ def get_localization_result(result_id: str) -> Optional[dict]:
         return serialize_db_row(dict(row)) if row else None
 
 
-def process_event_group_localization(group_id: str) -> Optional[dict]:
+def process_event_group_localization(
+    group_id: str,
+    *,
+    post_ingest_reorder: bool = False,
+) -> Optional[dict]:
     if not LOCALIZATION_ENABLED:
         return None
     group = get_event_fusion_group(group_id)
@@ -3488,7 +3616,14 @@ def process_event_group_localization(group_id: str) -> Optional[dict]:
     )
     result["label"] = group.get("label") or group.get("group_label")
     saved = save_localization_result(group, result)
-    track = process_tracking_for_localization(saved) if TRACKING_ENABLED else None
+    track = (
+        process_tracking_for_localization(
+            saved,
+            post_ingest_reorder=post_ingest_reorder,
+        )
+        if TRACKING_ENABLED
+        else None
+    )
     return {"localization": saved, "track": track}
 
 
@@ -3592,6 +3727,18 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
     return best[1] if best else None
 
 
+def record_tracking_discard(metric: str) -> None:
+    with tracking_discard_metrics_lock:
+        tracking_discard_metrics[metric] = tracking_discard_metrics.get(metric, 0) + 1
+
+
+def tracking_discard_metrics_snapshot() -> dict:
+    with tracking_discard_metrics_lock:
+        counters = dict(tracking_discard_metrics)
+    counters["reorder_buffer"] = tracking_reorder_buffer.metrics()
+    return counters
+
+
 def process_tracking_measurement(
     measurement: dict,
     *,
@@ -3621,9 +3768,16 @@ def process_tracking_measurement(
                 and last_time_ms is not None
                 and measurement_time_ms <= last_time_ms
             ):
+                metric = (
+                    "duplicate_measurement_discarded"
+                    if measurement_time_ms == last_time_ms
+                    else "late_measurement_discarded"
+                )
+                record_tracking_discard(metric)
                 logger.info(
-                    "Tracking measurement deduplicated track_id=%s measurement_time_ms=%s last_time_ms=%s",
+                    "Tracking measurement discarded track_id=%s reason=%s measurement_time_ms=%s last_time_ms=%s",
                     track.get("id"),
+                    metric,
                     measurement_time_ms,
                     last_time_ms,
                 )
@@ -3635,6 +3789,7 @@ def process_tracking_measurement(
             base_gate_m=TRACK_BASE_GATE_METERS,
         )
         if state.get("rejected_as_outlier"):
+            record_tracking_discard("outlier_measurement_discarded")
             logger.warning(
                 "Tracking measurement rejected track_id=%s reason=%s innovation_m=%s",
                 track.get("id") if track else None,
@@ -3646,7 +3801,134 @@ def process_tracking_measurement(
     return enrich_track_with_points(saved_track)
 
 
-def process_tracking_for_localization(localization: dict) -> Optional[dict]:
+TRACKING_REORDER_BUFFERED_RESULT = {"_tracking_reorder_status": "buffered"}
+
+
+def tracking_reorder_key(measurement: dict) -> str:
+    group_id = str(measurement.get("group_id") or "").strip()
+    if group_id:
+        return f"group:{group_id}"
+    devices = ",".join(
+        sorted(str(item) for item in measurement.get("reporting_device_ids") or [])
+    )
+    label = str(measurement.get("label") or "unknown").lower()
+    region_type = str(measurement.get("region_type") or "unknown").lower()
+    lat = round(float(measurement.get("estimated_lat") or 0.0), 2)
+    lng = round(float(measurement.get("estimated_lng") or 0.0), 2)
+    return f"region:{label}:{region_type}:{devices}:{lat}:{lng}"
+
+
+def tracking_reorder_observation_id(measurement: dict) -> str:
+    event_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms")) or 0.0
+    devices = ",".join(
+        sorted(str(item) for item in measurement.get("reporting_device_ids") or [])
+    )
+    return "|".join(
+        [
+            str(measurement.get("source") or "tracking"),
+            str(measurement.get("group_id") or ""),
+            str(measurement.get("localization_result_id") or ""),
+            f"{event_time_ms:.3f}",
+            devices,
+            f"{float(measurement.get('estimated_lat') or 0.0):.7f}",
+            f"{float(measurement.get('estimated_lng') or 0.0):.7f}",
+        ]
+    )
+
+
+def process_tracking_reorder_items(items: tuple) -> Optional[dict]:
+    latest_track = None
+    for item in items:
+        latest_track = process_tracking_measurement(item.payload)
+    return latest_track
+
+
+def flush_tracking_reorder_key(key: str) -> None:
+    with tracking_reorder_timer_lock:
+        tracking_reorder_timers.pop(key, None)
+    items = tracking_reorder_buffer.flush_key(key)
+    if not items:
+        return
+    try:
+        track = process_tracking_reorder_items(items)
+    except Exception:
+        logger.exception("Tracking reorder tail flush failed key=%s", key)
+        return
+    if not track or track.get("_tracking_reorder_status"):
+        return
+    loop = tracking_reorder_event_loop
+    if loop is None:
+        return
+    try:
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(
+                safe_dashboard_broadcast(
+                    {"type": "track_update", "track": track},
+                    "tracking_reorder_tail",
+                )
+            )
+        )
+    except RuntimeError:
+        logger.warning("Event loop closed before tracking reorder broadcast key=%s", key)
+
+
+def schedule_tracking_reorder_tail_flush(key: str) -> None:
+    with tracking_reorder_timer_lock:
+        existing = tracking_reorder_timers.get(key)
+        if existing is not None and existing.is_alive():
+            return
+        timer = threading.Timer(
+            TRACKING_REORDER_WINDOW_MS / 1000.0,
+            flush_tracking_reorder_key,
+            args=(key,),
+        )
+        timer.daemon = True
+        tracking_reorder_timers[key] = timer
+        timer.start()
+
+
+def process_post_ingest_tracking_measurement(measurement: dict) -> Optional[dict]:
+    if not TRACKING_REORDER_BUFFER_ENABLED:
+        return process_tracking_measurement(measurement)
+
+    event_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
+    if event_time_ms is None:
+        record_tracking_discard("outlier_measurement_discarded")
+        logger.warning("Tracking reorder rejected measurement without event_time_ms")
+        return None
+    key = tracking_reorder_key(measurement)
+    result = tracking_reorder_buffer.offer(
+        key,
+        observation_id=tracking_reorder_observation_id(measurement),
+        event_time_ms=event_time_ms,
+        payload=measurement,
+    )
+    if result.discarded_reason:
+        metric = (
+            "duplicate_measurement_discarded"
+            if result.discarded_reason == "duplicate"
+            else "late_measurement_discarded"
+        )
+        record_tracking_discard(metric)
+        logger.info(
+            "Tracking reorder discarded key=%s reason=%s event_time_ms=%s watermark_ms=%s",
+            key,
+            result.discarded_reason,
+            event_time_ms,
+            result.watermark_ms,
+        )
+    if tracking_reorder_buffer.pending_count(key):
+        schedule_tracking_reorder_tail_flush(key)
+    if result.ready:
+        return process_tracking_reorder_items(result.ready)
+    return dict(TRACKING_REORDER_BUFFERED_RESULT)
+
+
+def process_tracking_for_localization(
+    localization: dict,
+    *,
+    post_ingest_reorder: bool = False,
+) -> Optional[dict]:
     status_value = str(localization.get("status") or "").upper()
     if status_value == "FALLBACK" and not TRACK_ALLOW_FALLBACK:
         return None
@@ -3667,6 +3949,8 @@ def process_tracking_for_localization(localization: dict) -> Optional[dict]:
         "uncertainty_radius_m": localization.get("uncertainty_radius_m"),
         "event_time_ms": localization.get("event_time_ms"),
     }
+    if post_ingest_reorder:
+        return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement)
 
 
@@ -3674,6 +3958,7 @@ def process_tracking_for_event_group_region(
     event_group: dict,
     *,
     close_stale: bool = True,
+    post_ingest_reorder: bool = False,
 ) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
@@ -3733,6 +4018,8 @@ def process_tracking_for_event_group_region(
         "reporting_node_count": node_count,
         "reporting_device_ids": event_group.get("reporting_device_ids"),
     }
+    if post_ingest_reorder:
+        return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement, close_stale=close_stale)
 
 
@@ -3838,7 +4125,11 @@ def build_active_alert_region_measurement(
     }
 
 
-def process_tracking_for_active_alert_region(trigger_event_id: str) -> Optional[dict]:
+def process_tracking_for_active_alert_region(
+    trigger_event_id: str,
+    *,
+    post_ingest_reorder: bool = False,
+) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
     trigger_event = get_event_by_event_id(trigger_event_id)
@@ -3852,6 +4143,8 @@ def process_tracking_for_active_alert_region(trigger_event_id: str) -> Optional[
     )
     if measurement is None:
         return None
+    if post_ingest_reorder:
+        return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement)
 
 
@@ -6313,6 +6606,63 @@ def list_device_fixed_locations() -> list[dict]:
         return clone_rows(loaded_rows)
 
 
+def list_device_fixed_locations_for_ingest() -> tuple[list[dict], bool]:
+    """Return fixed locations without blocking an alert on a stale-cache refresh.
+
+    A cold or explicitly invalidated cache still loads synchronously so fixed
+    coordinates remain authoritative. Only TTL expiry may use stale data, and
+    the caller schedules a refresh after the first alert is queued.
+    """
+    if (
+        not FAST_EVENT_INGEST_ENABLED
+        or not use_postgres()
+        or DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS <= 0
+    ):
+        return list_device_fixed_locations(), False
+
+    with device_fixed_location_cache_lock:
+        cached_at, cached_rows = device_fixed_location_cache
+        if (
+            cached_at > 0
+            and monotonic() - cached_at > DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS
+        ):
+            return clone_rows(cached_rows), True
+
+    return list_device_fixed_locations(), False
+
+
+def refresh_device_fixed_location_cache_worker() -> None:
+    global device_fixed_location_cache, device_fixed_location_refresh_in_flight
+
+    try:
+        loaded_rows = _load_device_fixed_locations()
+        with device_fixed_location_cache_lock:
+            device_fixed_location_cache = (monotonic(), clone_rows(loaded_rows))
+    except Exception:
+        logger.exception("Background device fixed-location cache refresh failed")
+    finally:
+        with device_fixed_location_cache_lock:
+            device_fixed_location_refresh_in_flight = False
+
+
+def schedule_device_fixed_location_cache_refresh() -> None:
+    global device_fixed_location_refresh_in_flight
+
+    if not FAST_EVENT_INGEST_ENABLED:
+        return
+    with device_fixed_location_cache_lock:
+        if device_fixed_location_refresh_in_flight:
+            return
+        device_fixed_location_refresh_in_flight = True
+
+    try:
+        post_ingest_executor.submit(refresh_device_fixed_location_cache_worker)
+    except Exception:
+        with device_fixed_location_cache_lock:
+            device_fixed_location_refresh_in_flight = False
+        logger.exception("Failed to schedule device fixed-location cache refresh")
+
+
 def get_device_fixed_location(device_id: str) -> Optional[dict]:
     columns = ", ".join(DEVICE_LOCATION_COLUMNS)
     if not use_postgres():
@@ -8466,14 +8816,32 @@ def fast_saved_event_payload(event: SoundEvent, db_id: int, created_at: str) -> 
         "audio_format": event.audio_format,
         "note": event.note,
         "created_at": created_at,
+        "trace_id": event.trace_id,
+        "latency_trace": event.latency_trace,
     }
 
 
 def process_event_initial_submission(event: SoundEvent) -> dict:
     created_at = current_time_iso()
+    latency_trace = event.latency_trace if isinstance(event.latency_trace, dict) else {}
+    db_started_monotonic = monotonic()
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        db_started_at = utc_wall_time_ms()
+        latency_trace["db_started_at"] = db_started_at
+        latency_trace["db_start"] = db_started_at
     db_id, inserted = save_event_with_inserted(event, created_at)
+    db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        db_committed_at = utc_wall_time_ms()
+        latency_trace["db_committed_at"] = db_committed_at
+        latency_trace["db_complete"] = db_committed_at
     is_existing_event = not inserted
-    fixed_locations = location_map(list_device_fixed_locations())
+    fixed_location_started_monotonic = monotonic()
+    fixed_location_rows, fixed_location_cache_stale = (
+        list_device_fixed_locations_for_ingest()
+    )
+    fixed_location_duration_ms = (monotonic() - fixed_location_started_monotonic) * 1000.0
+    fixed_locations = location_map(fixed_location_rows)
     saved_event = enrich_event_location_row(
         fast_saved_event_payload(event, db_id, created_at),
         fixed_locations=fixed_locations,
@@ -8494,6 +8862,9 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         "is_existing_event": is_existing_event,
         "saved_event": saved_event,
         "created_at": created_at,
+        "db_duration_ms": db_duration_ms,
+        "fixed_location_duration_ms": fixed_location_duration_ms,
+        "fixed_location_cache_stale": fixed_location_cache_stale,
     }
 
 
@@ -8511,7 +8882,10 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
         try:
-            region_track = process_tracking_for_event_group_region(event_group)
+            region_track = process_tracking_for_event_group_region(
+                event_group,
+                post_ingest_reorder=True,
+            )
         except Exception:
             logger.exception(
                 "Region tracking failed for event_group=%s",
@@ -8520,13 +8894,19 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 
     if is_alert and not is_existing_event and region_track is None:
         try:
-            active_alert_track = process_tracking_for_active_alert_region(event_id)
+            active_alert_track = process_tracking_for_active_alert_region(
+                event_id,
+                post_ingest_reorder=True,
+            )
         except Exception:
             logger.exception("Active alert region tracking failed for event_id=%s", event_id)
 
     if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
         try:
-            localization_package = process_event_group_localization(event_group["id"])
+            localization_package = process_event_group_localization(
+                event_group["id"],
+                post_ingest_reorder=True,
+            )
         except Exception:
             logger.exception(
                 "Localization failed for event_group=%s",
@@ -8557,7 +8937,7 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
             },
             "event_group",
         )
-    if region_track:
+    if region_track and not region_track.get("_tracking_reorder_status"):
         await safe_dashboard_broadcast(
             {
                 "type": "track_update",
@@ -8565,7 +8945,7 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
             },
             "region_track",
         )
-    if active_alert_track:
+    if active_alert_track and not active_alert_track.get("_tracking_reorder_status"):
         await safe_dashboard_broadcast(
             {
                 "type": "track_update",
@@ -8581,7 +8961,9 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
             },
             "localization_result",
         )
-        if localization_package.get("track"):
+        if localization_package.get("track") and not localization_package["track"].get(
+            "_tracking_reorder_status"
+        ):
             await safe_dashboard_broadcast(
                 {
                     "type": "track_update",
@@ -8668,7 +9050,9 @@ def schedule_event_post_ingest(
     label: Optional[str],
     is_existing_event: bool,
 ) -> None:
+    global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
+    tracking_reorder_event_loop = loop
     try:
         post_ingest_executor.submit(
             run_event_post_ingest_worker,
@@ -8756,7 +9140,20 @@ async def runtime_status():
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
         "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
+        "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
+        "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
+        "staging_db_latency_probe_enabled": STAGING_DB_LATENCY_PROBE_ENABLED,
+        "dashboard_event_order_guard_enabled": DASHBOARD_EVENT_ORDER_GUARD_ENABLED,
         "tracking_enabled": TRACKING_ENABLED,
+        "tracking_reorder_buffer_enabled": TRACKING_REORDER_BUFFER_ENABLED,
+        "tracking_reorder_window_ms": TRACKING_REORDER_WINDOW_MS,
+        "tracking_discard_metrics": tracking_discard_metrics_snapshot(),
+        "observation_shadow_enabled": OBSERVATION_SHADOW_ENABLED,
+        "observation_tracking_enabled": OBSERVATION_TRACKING_ENABLED,
+        "observation_shadow": {
+            "ingest": observation_shadow_registry.metrics(),
+            "tracking": observation_shadow_tracking.snapshot(),
+        },
         "localization_enabled": LOCALIZATION_ENABLED,
         "gcs_configured": bool(
             os.getenv("GCS_BUCKET_NAME")
@@ -8865,15 +9262,131 @@ async def time_sync():
     }
 
 
+@app.post("/diagnostics/db-latency")
+def measure_staging_database_latency(
+    response: Response,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+) -> dict:
+    """Measure Render pool acquisition and one Supabase SELECT round trip.
+
+    This probe is disabled by default and still requires the normal upload token.
+    It is intended only for bounded staging validation runs.
+    """
+
+    if not STAGING_DB_LATENCY_PROBE_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    verify_upload_token(upload_token)
+    if not use_postgres():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="postgres_required",
+        )
+
+    total_started = monotonic()
+    acquire_started = monotonic()
+    connection = get_postgres_connection()
+    acquire_duration_ms = (monotonic() - acquire_started) * 1000.0
+    try:
+        query_started = monotonic()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1 AS ok")
+            row = cursor.fetchone()
+        query_duration_ms = (monotonic() - query_started) * 1000.0
+    finally:
+        connection.close()
+    total_duration_ms = (monotonic() - total_started) * 1000.0
+    if not row or int(row.get("ok") if isinstance(row, dict) else row[0]) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="db_probe_failed",
+        )
+
+    response.headers["Server-Timing"] = (
+        f"db_acquire;dur={acquire_duration_ms:.2f}, "
+        f"db_ping;dur={query_duration_ms:.2f}, "
+        f"db_probe_total;dur={total_duration_ms:.2f}"
+    )
+    return {
+        "status": "success",
+        "db_acquire_ms": round(acquire_duration_ms, 2),
+        "db_ping_ms": round(query_duration_ms, 2),
+        "db_probe_total_ms": round(total_duration_ms, 2),
+    }
+
+
+@app.post("/observations/shadow", status_code=status.HTTP_202_ACCEPTED)
+def ingest_shadow_observation(
+    observation: ShadowObservation,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+) -> dict:
+    if not OBSERVATION_SHADOW_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    verify_upload_token(upload_token)
+    received_at = datetime.now(timezone.utc)
+    result = observation_shadow_registry.ingest(
+        observation,
+        received_at=received_at,
+    )
+    if result.accepted and OBSERVATION_TRACKING_ENABLED:
+        observation_shadow_executor.submit(
+            observation_shadow_tracking.accept,
+            observation,
+            arrival_time_ms=received_at.timestamp() * 1000.0,
+        )
+    return {
+        "status": "duplicate" if result.duplicate else "accepted",
+        "observation_id": observation.observation_id,
+        "trace_id": observation.trace_id,
+        "received_at": result.received_at,
+        "observed_at": observation.observed_at,
+        "event_time_ms": observation.event_time_ms,
+        "sequence": observation.sequence,
+        "duplicate": result.duplicate,
+        "gap_detected": result.gap_detected,
+        "gap_filled": result.gap_filled,
+        "out_of_order": result.out_of_order,
+        "tracking_scheduled": bool(result.accepted and OBSERVATION_TRACKING_ENABLED),
+        "dashboard_alert_created": False,
+        "storage": "bounded_in_memory_shadow_only",
+    }
+
+
+@app.get("/observations/shadow/metrics")
+def shadow_observation_metrics(
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+) -> dict:
+    if not OBSERVATION_SHADOW_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+    verify_upload_token(upload_token)
+    return {
+        "status": "success",
+        "feature_flags": {
+            "observation_shadow_enabled": OBSERVATION_SHADOW_ENABLED,
+            "observation_tracking_enabled": OBSERVATION_TRACKING_ENABLED,
+        },
+        "ingest": observation_shadow_registry.metrics(),
+        "shadow_tracking": observation_shadow_tracking.snapshot(),
+        "control_tracking": tracking_discard_metrics_snapshot(),
+    }
+
+
 @app.post("/events")
 async def create_event(
     event: SoundEvent,
+    response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
+    request_started_monotonic = monotonic()
+    backend_received_at = utc_wall_time_ms()
     verify_upload_token(upload_token)
     sanitize_timing_metadata(event)
     sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
+    sanitize_latency_trace(event)
+    latency_trace = event.latency_trace if isinstance(event.latency_trace, dict) else {}
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        latency_trace["backend_received_at"] = backend_received_at
+        latency_trace["backend_received"] = backend_received_at
     try:
         result = await asyncio.to_thread(process_event_initial_submission, event)
     except HTTPException:
@@ -8936,6 +9449,10 @@ async def create_event(
             "marker_location_source": saved_event.get("effective_location_source"),
             "status": "event",
         }
+        if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+            ws_scheduled_at = utc_wall_time_ms()
+            latency_trace["event_trigger_scheduled_at"] = ws_scheduled_at
+            latency_trace["ws_schedule"] = ws_scheduled_at
         schedule_dashboard_broadcast(
             {
                 "type": "event_trigger",
@@ -8943,6 +9460,8 @@ async def create_event(
                 **alert_timing,
                 "device_id": event.device_id,
                 "event_id": event.event_id,
+                "trace_id": event.trace_id,
+                "latency_trace": latency_trace,
                 "latitude": display_latitude,
                 "longitude": display_longitude,
                 "raw_latitude": raw_latitude,
@@ -8963,12 +9482,17 @@ async def create_event(
         )
         schedule_device_event_status_update(event)
 
+    if result.get("fixed_location_cache_stale"):
+        schedule_device_fixed_location_cache_refresh()
+
     if not is_existing_event and is_alert_event_label(saved_event.get("label", event.label)):
         schedule_event_post_ingest(
             event.event_id,
             saved_event.get("label", event.label),
             is_existing_event,
         )
+        if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+            latency_trace["post_ingest_enqueued_at"] = utc_wall_time_ms()
 
     if is_existing_event and has_audio_metadata(event):
         schedule_dashboard_broadcast(
@@ -8982,12 +9506,47 @@ async def create_event(
             "event_audio_update",
         )
 
-    return {
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        response_started_at = utc_wall_time_ms()
+        latency_trace["ingest_response_started_at"] = response_started_at
+        latency_trace["response_start"] = response_started_at
+    ingest_duration_ms = (monotonic() - request_started_monotonic) * 1000.0
+    db_duration_ms = float(result.get("db_duration_ms") or 0.0)
+    fixed_location_duration_ms = float(result.get("fixed_location_duration_ms") or 0.0)
+    server_non_db_duration_ms = max(0.0, ingest_duration_ms - db_duration_ms)
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        response.headers["Server-Timing"] = (
+            f"db;dur={db_duration_ms:.2f}, "
+            f"fixed_location;dur={fixed_location_duration_ms:.2f}, "
+            f"server_non_db;dur={server_non_db_duration_ms:.2f}, "
+            f"ingest;dur={ingest_duration_ms:.2f}"
+        )
+        logger.info(
+            "post_inference_latency event_id=%s trace_id=%s db_ms=%.2f "
+            "fixed_location_ms=%.2f ingest_ms=%.2f",
+            event.event_id,
+            event.trace_id,
+            db_duration_ms,
+            fixed_location_duration_ms,
+            ingest_duration_ms,
+        )
+
+    payload = {
         "status": "success",
         "message": "Event received",
         "event_id": event.event_id,
         "db_id": db_id,
     }
+    if POST_INFERENCE_LATENCY_TRACING_ENABLED:
+        payload["trace_id"] = event.trace_id
+        payload["latency_trace"] = latency_trace
+        payload["server_timing_ms"] = {
+            "db": round(db_duration_ms, 2),
+            "fixed_location": round(fixed_location_duration_ms, 2),
+            "server_non_db": round(server_non_db_duration_ms, 2),
+            "ingest": round(ingest_duration_ms, 2),
+        }
+    return payload
 
 
 @app.get("/target-estimates")
@@ -10590,6 +11149,9 @@ def dashboard_v4_clean():
             const historyTrackPlaybackCompression = 8;
             const alertUntil = new Map();
             const alertDurationMs = 15000;
+            const postInferenceLatencyTracingEnabled = __POST_INFERENCE_LATENCY_TRACING_ENABLED__;
+            const dashboardEventOrderGuardEnabled = __DASHBOARD_EVENT_ORDER_GUARD_ENABLED__;
+            const postInferenceLatencySamples = [];
             const estimateVisibleMs = alertDurationMs;
             const trackVisibleMs = 20000;
             const trackMinMoveMeters = 12;
@@ -10597,6 +11159,75 @@ def dashboard_v4_clean():
             let infoWindow = null;
             let selectedEstimateId = null;
             let selectedHistoryTrackId = null;
+
+            function latencyPercentile(values, percentile) {
+                if (!values.length) return null;
+                const sorted = [...values].sort((a, b) => a - b);
+                const index = Math.min(
+                    sorted.length - 1,
+                    Math.max(0, Math.round((sorted.length - 1) * percentile)),
+                );
+                return Number(sorted[index].toFixed(1));
+            }
+
+            function summarizePostInferenceLatency() {
+                const metricNames = [
+                    'ai_to_http_start_ms',
+                    'http_to_backend_receive_ms',
+                    'backend_receive_to_db_commit_ms',
+                    'db_commit_to_ws_schedule_ms',
+                    'backend_ws_to_browser_ms',
+                    'ws_receive_to_render_ms',
+                    'render_duration_ms',
+                    'ai_finished_to_dashboard_render_ms',
+                ];
+                return Object.fromEntries(metricNames.map(name => {
+                    const values = postInferenceLatencySamples
+                        .map(sample => sample[name])
+                        .filter(Number.isFinite);
+                    return [name, {
+                        count: values.length,
+                        p50: latencyPercentile(values, 0.50),
+                        p95: latencyPercentile(values, 0.95),
+                        p99: latencyPercentile(values, 0.99),
+                        max: values.length ? Number(Math.max(...values).toFixed(1)) : null,
+                    }];
+                }));
+            }
+
+            function recordPostInferenceLatency(data, browserTrace) {
+                if (!postInferenceLatencyTracingEnabled) return;
+                const trace = { ...(data.latency_trace || {}), ...browserTrace };
+                const duration = (end, start) => {
+                    const endValue = Number(trace[end]);
+                    const startValue = Number(trace[start]);
+                    return Number.isFinite(endValue) && Number.isFinite(startValue)
+                        ? endValue - startValue
+                        : null;
+                };
+                const sample = {
+                    event_id: data.event_id,
+                    trace_id: data.trace_id || trace.trace_id || data.event_id,
+                    ...trace,
+                    ai_to_http_start_ms: duration('http_request_started_at', 'ai_finished_at'),
+                    http_to_backend_receive_ms: duration('backend_received_at', 'http_request_started_at'),
+                    backend_receive_to_db_commit_ms: duration('db_committed_at', 'backend_received_at'),
+                    db_commit_to_ws_schedule_ms: duration('event_trigger_scheduled_at', 'db_committed_at'),
+                    backend_ws_to_browser_ms: duration('ws_message_received_at', 'ws_sent_at'),
+                    ws_receive_to_render_ms: Number.isFinite(browserTrace.ws_receive_to_render_duration_ms)
+                        ? browserTrace.ws_receive_to_render_duration_ms
+                        : duration('render_finished_at', 'ws_message_received_at'),
+                    render_duration_ms: Number.isFinite(browserTrace.render_duration_ms)
+                        ? browserTrace.render_duration_ms
+                        : duration('render_finished_at', 'render_started_at'),
+                    ai_finished_to_dashboard_render_ms: duration('render_finished_at', 'ai_finished_at'),
+                };
+                postInferenceLatencySamples.push(sample);
+                if (postInferenceLatencySamples.length > 500) postInferenceLatencySamples.shift();
+                window.__postInferenceLatencySamples = postInferenceLatencySamples;
+                window.__postInferenceLatencyStats = summarizePostInferenceLatency();
+                console.info('[POST_INFERENCE_LATENCY]', JSON.stringify(sample));
+            }
             let autoEstimateId = null;
             let estimateMarker = null;
             let estimateCircle = null;
@@ -13290,6 +13921,8 @@ def dashboard_v4_clean():
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const ws = new WebSocket(`${protocol}//${window.location.host}/ws/dashboard`);
                 ws.onmessage = event => {
+                    const wsMessageReceivedAt = Date.now();
+                    const wsMessageReceivedMonotonic = performance.now();
                     const data = JSON.parse(event.data);
                     if (data.device_id && isDiagnosticDevice(data.device_id)) return;
                     if (data.type === 'location_update') {
@@ -13316,21 +13949,32 @@ def dashboard_v4_clean():
                     } else if (data.type === 'event_trigger') {
                         const triggerTime = data.last_event_at || new Date().toISOString();
                         const previousDevice = devices.get(data.device_id);
+                        const incomingSequence = finiteNumber(data.alert_sequence_ms)
+                            ?? parseTime(data.alert_occurred_at || data.timestamp || triggerTime);
+                        const previousSequence = finiteNumber(previousDevice?.alert_sequence_ms)
+                            ?? parseTime(previousDevice?.alert_occurred_at || previousDevice?.last_event_at);
+                        const advancesEventState = !dashboardEventOrderGuardEnabled
+                            || !Number.isFinite(previousSequence)
+                            || !Number.isFinite(incomingSequence)
+                            || incomingSequence >= previousSequence;
                         const canAlert = !isDiagnosticDevice(data.device_id)
+                            && advancesEventState
                             && data.alert_accepted_in_time !== false
                             && data.is_live_alert !== false;
                         const incomingDevice = data.device || {};
                         if (canAlert) {
                             alertUntil.set(data.device_id, Date.now() + alertDurationMs);
                         }
-                        const device = setDeviceState({
-                            ...incomingDevice,
-                            ...data,
-                            status: canAlert ? 'event' : (previousDevice?.status || incomingDevice.status || 'offline'),
-                            is_listening: previousDevice?.is_listening ?? incomingDevice.is_listening ?? data.is_listening ?? false,
-                            last_event_id: data.event_id,
-                            last_event_at: triggerTime,
-                        });
+                        const device = advancesEventState
+                            ? setDeviceState({
+                                ...incomingDevice,
+                                ...data,
+                                status: canAlert ? 'event' : (previousDevice?.status || incomingDevice.status || 'offline'),
+                                is_listening: previousDevice?.is_listening ?? incomingDevice.is_listening ?? data.is_listening ?? false,
+                                last_event_id: data.event_id,
+                                last_event_at: triggerTime,
+                            })
+                            : previousDevice;
                         upsertEventState(data.event || {
                             event_id: data.event_id,
                             device_id: data.device_id,
@@ -13348,11 +13992,32 @@ def dashboard_v4_clean():
                             audio_path: null,
                             note: 'event_trigger_pending_refresh',
                         });
+                        const eventStateUpdatedAt = Date.now();
+                        const renderStartedAt = Date.now();
+                        const renderStartedMonotonic = performance.now();
                         renderSummary();
-                        updateDeviceMarker(device);
+                        if (device) updateDeviceMarker(device);
                         renderAlerts();
                         renderTimeline();
                         renderMap();
+                        if (postInferenceLatencyTracingEnabled) {
+                            requestAnimationFrame(() => requestAnimationFrame(() => {
+                                const renderCompleteAt = Date.now();
+                                const renderCompleteMonotonic = performance.now();
+                                recordPostInferenceLatency(data, {
+                                    ws_message_received_at: wsMessageReceivedAt,
+                                    ws_received: wsMessageReceivedAt,
+                                    ws_received_at_monotonic: wsMessageReceivedMonotonic,
+                                    event_state_updated_at: eventStateUpdatedAt,
+                                    render_started_at: renderStartedAt,
+                                    render_finished_at: renderCompleteAt,
+                                    render_complete: renderCompleteAt,
+                                    render_complete_at_monotonic: renderCompleteMonotonic,
+                                    ws_receive_to_render_duration_ms: renderCompleteMonotonic - wsMessageReceivedMonotonic,
+                                    render_duration_ms: renderCompleteMonotonic - renderStartedMonotonic,
+                                });
+                            }));
+                        }
                     } else if (data.type === 'event_group') {
                         const group = data.group || data;
                         (group.merged_group_ids || []).forEach(groupId => {
@@ -13408,6 +14073,14 @@ def dashboard_v4_clean():
     if maps_script_url:
         maps_script_tag = f"<script async defer src=\"{maps_script_url}\"></script>"
     html = html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+    html = html.replace(
+        "__POST_INFERENCE_LATENCY_TRACING_ENABLED__",
+        "true" if POST_INFERENCE_LATENCY_TRACING_ENABLED else "false",
+    )
+    html = html.replace(
+        "__DASHBOARD_EVENT_ORDER_GUARD_ENABLED__",
+        "true" if DASHBOARD_EVENT_ORDER_GUARD_ENABLED else "false",
+    )
     return HTMLResponse(content=html)
 
 

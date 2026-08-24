@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sound_backend
+    name: sound-backend-staging
     env: python
     plan: starter
     buildCommand: pip install -r requirements.txt
@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
-        value: development
+        value: staging
       - key: NODE_WEBSOCKET_ENABLED
         value: "true"
       - key: COMMAND_WEBSOCKET_ENABLED
@@ -23,6 +23,26 @@ services:
         value: "1"
       - key: EVENT_UPLOAD_RETRY_ENABLED
         value: "true"
+      - key: FAST_EVENT_INGEST_ENABLED
+        value: "true"
+      - key: POST_INFERENCE_LATENCY_TRACING_ENABLED
+        value: "true"
+      - key: DASHBOARD_EVENT_ORDER_GUARD_ENABLED
+        value: "true"
+      - key: STAGING_DB_LATENCY_PROBE_ENABLED
+        value: "true"
+      - key: TRACKING_REORDER_BUFFER_ENABLED
+        value: "false"
+      - key: TRACKING_REORDER_WINDOW_MS
+        value: "500"
+      - key: OBSERVATION_SHADOW_ENABLED
+        value: "false"
+      - key: OBSERVATION_TRACKING_ENABLED
+        value: "false"
+      - key: OBSERVATION_SHADOW_MAX_RECORDS
+        value: "10000"
+      - key: OBSERVATION_SEQUENCE_MAX_LATE_MS
+        value: "2000"
       - key: DATABASE_URL
         sync: false
       - key: GCS_BUCKET_NAME
