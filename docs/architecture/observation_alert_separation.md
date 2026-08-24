@@ -219,3 +219,18 @@ AI valid hop
 - Shadow tracking 使用獨立 executor、per-device process sequence gate、per-region event-time track state，以及每 hop 的 lightweight weighted-region shadow fusion。它不呼叫 Dashboard broadcast，也不共用 control track table。
 - Shadow fusion 的 node-position centroid 只用於比較 observation density/order，不宣稱是正式 target localization；沒有 Kalman、moving average、interpolation 或 trajectory smoothing。
 - `GET /observations/shadow/metrics` 回傳 ingest sequence diagnostics、shadow tracking point intervals，以及既有 control discard counters。這個 endpoint 和 ingest 一樣需要 upload token。
+
+## V2.3 Phase 4 ordered field shadow
+
+Phase 4 保留 `observation.v1` 與 Phase 3 Alert 邊界，新增 production-oriented、但仍預設關閉的 shadow 元件：
+
+- Sequence identity key 固定為 `(device_id, process_session_id, sequence)`；App restart 建立新的 process session，sequence 可從 1 重來。
+- `observed_at`/`event_time_ms` 仍是 measurement time；sequence 只做 dedup、gap、out-of-order 與 bounded missing timeout。
+- Sequence gate 之後使用 per-region serialized mailbox。同一 region update 不並行；不同 region 由獨立 worker 平行，禁止 global queue。
+- 跨裝置 fusion 依 event-time hop bucket 合併。已存在 bucket 的晚到節點形成明確 revision/late attach；超出 bounded window 的資料增加 `fusion_late_drop_count`，不得 silent corruption。
+- Registry、dedup、sequence keys、mailbox、fusion buckets 與 tracks 都有 TTL/max/cleanup。Backend restart 會清空全部 shadow state，因此目前 reliability 是 best effort。
+- `time_sync` 增加 device wall/monotonic snapshot。Monotonic drift/jump 只在同一 device/process session 內計算，不跨裝置相減。
+- App field log 與 Backend metrics 可 reconciliation `raw target -> created -> attempted -> uploaded -> received -> unique -> sequence -> fusion -> tracking -> point`。
+- `audio_ref` 仍只能是 null；Phase 4 不寫 production DB、不送 Dashboard、不觸發 audio pipeline。
+
+實際 field 執行與證據門檻見 `docs/performance/phase4_field_runbook.md`。在真實 Android/staging、Alert OFF/ON latency、clock、bandwidth 與長時間 memory 證據完成前，不得進入 filtering/localization tuning。
