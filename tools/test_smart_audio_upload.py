@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.pop("DATABASE_URL", None)
-os.environ.setdefault("UPLOAD_TOKEN", "test-token-123")
+os.environ.setdefault("UPLOAD_TOKEN", "test-only-token")
 
 import main  # noqa: E402
 

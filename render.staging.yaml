@@ -1,0 +1,81 @@
+services:
+  - type: web
+    name: sound-backend-staging
+    runtime: python
+    branch: feat/v2-3-phase4-field-shadow
+    autoDeployTrigger: off
+    region: singapore
+    plan: starter
+    numInstances: 1
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: POSTGRES_SCHEMA_AUTO_INIT
+        value: "false"
+      - key: NODE_WEBSOCKET_ENABLED
+        value: "true"
+      - key: COMMAND_WEBSOCKET_ENABLED
+        value: "true"
+      - key: COMMAND_REST_FALLBACK_ENABLED
+        value: "true"
+      - key: LIVE_AUDIO_ENABLED
+        value: "false"
+      - key: LIVE_AUDIO_DEFAULT_CODEC
+        value: pcm_s16le
+      - key: LIVE_AUDIO_MAX_CONCURRENT_STREAMS
+        value: "1"
+      - key: EVENT_UPLOAD_RETRY_ENABLED
+        value: "true"
+      - key: FAST_EVENT_INGEST_ENABLED
+        value: "true"
+      - key: POST_INFERENCE_LATENCY_TRACING_ENABLED
+        value: "true"
+      - key: DASHBOARD_EVENT_ORDER_GUARD_ENABLED
+        value: "true"
+      - key: STAGING_DB_LATENCY_PROBE_ENABLED
+        value: "false"
+      - key: TRACKING_ENABLED
+        value: "true"
+      - key: TRACKING_REORDER_BUFFER_ENABLED
+        value: "false"
+      - key: TRACKING_REORDER_WINDOW_MS
+        value: "500"
+      - key: OBSERVATION_SHADOW_ENABLED
+        value: "true"
+      - key: OBSERVATION_TRACKING_ENABLED
+        value: "true"
+      - key: OBSERVATION_SHADOW_MAX_RECORDS
+        value: "10000"
+      - key: OBSERVATION_SEQUENCE_MAX_LATE_MS
+        value: "2000"
+      - key: OBSERVATION_MISSING_SEQUENCE_TIMEOUT_MS
+        value: "2000"
+      - key: OBSERVATION_SHADOW_TTL_SECONDS
+        value: "3600"
+      - key: OBSERVATION_SHADOW_MAX_STREAMS
+        value: "2048"
+      - key: OBSERVATION_MAX_PENDING_PER_KEY
+        value: "1024"
+      - key: OBSERVATION_MAX_TRACKS
+        value: "2048"
+      - key: OBSERVATION_MAILBOX_WORKERS
+        value: "4"
+      - key: OBSERVATION_FUSION_LATE_ATTACH_MS
+        value: "2000"
+      - key: DATABASE_URL
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: UPLOAD_TOKEN
+        sync: false
+      - key: DASHBOARD_WRITE_TOKEN_REQUIRED
+        value: "true"
+      - key: DASHBOARD_ADMIN_TOKEN
+        sync: false

@@ -1,0 +1,67 @@
+-- Phase 4 staging baseline for a brand-new PostgreSQL database.
+--
+-- This creates only the legacy events table that later versioned migrations
+-- assume already exists. It is intentionally additive and contains no data
+-- migration. Run only after confirming the target is the isolated staging DB.
+
+create table if not exists events (
+    id bigserial primary key,
+    event_id text not null,
+    device_id text,
+    timestamp text,
+    latitude double precision,
+    longitude double precision,
+    duration_s double precision,
+    rms_peak double precision,
+    avg_db double precision,
+    peak_db double precision,
+    estimated_avg_db double precision,
+    estimated_peak_db double precision,
+    gps_speed_mps double precision,
+    gps_heading_deg double precision,
+    gps_accuracy_m double precision,
+    label text,
+    audio_file_name text,
+    local_audio_path text,
+    audio_path text,
+    audio_format text,
+    audio_size_bytes bigint,
+    source_pcm_size_bytes bigint,
+    audio_encoding_status text,
+    tdoa_clip_path text,
+    tdoa_clip_format text,
+    tdoa_clip_size_bytes bigint,
+    tdoa_clip_start_sample bigint,
+    tdoa_clip_end_sample bigint,
+    tdoa_clip_peak_sample bigint,
+    tdoa_clip_duration_ms integer,
+    tdoa_clip_source text,
+    note text,
+    created_at text,
+    timing_version integer,
+    timing_source text,
+    capture_start_time_ms bigint,
+    event_start_sample bigint,
+    event_end_sample bigint,
+    rms_peak_sample bigint,
+    sample_rate_hz integer,
+    channel_count integer,
+    device_event_time_ms double precision,
+    event_start_time_ms double precision,
+    event_end_time_ms double precision,
+    rms_peak_time_ms bigint,
+    rms_peak_offset_ms double precision,
+    sample_rate integer,
+    audio_duration_ms double precision,
+    time_sync_version integer,
+    time_sync_offset_ms double precision,
+    time_sync_rtt_ms double precision,
+    time_sync_quality text,
+    time_sync_synced_at_ms bigint,
+    time_sync_age_ms bigint,
+    corrected_arrival_time_ms double precision,
+    timing_quality text
+);
+
+create unique index if not exists events_event_id_key
+    on events (event_id);

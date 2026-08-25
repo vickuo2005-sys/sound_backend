@@ -32,6 +32,10 @@ def make_connection() -> sqlite3.Connection:
             latitude REAL,
             longitude REAL,
             rms_peak REAL,
+            avg_db REAL,
+            peak_db REAL,
+            estimated_avg_db REAL,
+            estimated_peak_db REAL,
             label TEXT,
             audio_path TEXT,
             audio_format TEXT,
@@ -59,6 +63,13 @@ def make_connection() -> sqlite3.Connection:
             device_event_time_ms INTEGER,
             event_end_time_ms INTEGER,
             rms_peak_time_ms INTEGER,
+            time_sync_version INTEGER,
+            time_sync_offset_ms REAL,
+            time_sync_rtt_ms REAL,
+            time_sync_quality TEXT,
+            time_sync_synced_at_ms INTEGER,
+            time_sync_age_ms INTEGER,
+            corrected_arrival_time_ms REAL,
             created_at TEXT
         )
         """
@@ -78,9 +89,19 @@ def make_connection() -> sqlite3.Connection:
             node_count INTEGER DEFAULT 0,
             estimated_lat REAL,
             estimated_lng REAL,
+            region_type TEXT,
+            region_center_lat REAL,
+            region_center_lng REAL,
+            region_geojson TEXT,
+            reporting_node_count INTEGER,
+            reporting_device_ids TEXT,
+            region_updated_at TEXT,
             localization_method TEXT,
             method TEXT,
             confidence REAL,
+            tdoa_residual_rmse_m REAL,
+            tdoa_node_count INTEGER,
+            time_sync_quality TEXT,
             created_at TEXT,
             updated_at TEXT
         )
@@ -99,6 +120,10 @@ def make_connection() -> sqlite3.Connection:
             latitude REAL,
             longitude REAL,
             rms_peak REAL,
+            avg_db REAL,
+            peak_db REAL,
+            estimated_avg_db REAL,
+            estimated_peak_db REAL,
             ai_probability REAL,
             aircraft_probability REAL,
             audio_path TEXT,
@@ -126,8 +151,28 @@ def make_connection() -> sqlite3.Connection:
             device_event_time_ms INTEGER,
             event_end_time_ms INTEGER,
             rms_peak_time_ms INTEGER,
+            time_sync_version INTEGER,
+            time_sync_offset_ms REAL,
+            time_sync_rtt_ms REAL,
+            time_sync_quality TEXT,
+            time_sync_synced_at_ms INTEGER,
+            time_sync_age_ms INTEGER,
+            corrected_arrival_time_ms REAL,
             created_at TEXT,
             observation_kind TEXT DEFAULT 'fusion'
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE device_locations (
+            device_id TEXT PRIMARY KEY,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            location_source TEXT NOT NULL,
+            accuracy_m REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
         """
     )
@@ -147,8 +192,9 @@ def add_event(
     device_id: str,
     label: str,
     event_time: datetime,
+    created_at: datetime | None = None,
 ) -> dict:
-    created_at = event_time.isoformat()
+    created_at_iso = (created_at or event_time).isoformat()
     cursor = connection.execute(
         """
         INSERT INTO events (
@@ -185,9 +231,16 @@ def add_event(
             device_event_time_ms,
             event_end_time_ms,
             rms_peak_time_ms,
+            time_sync_version,
+            time_sync_offset_ms,
+            time_sync_rtt_ms,
+            time_sync_quality,
+            time_sync_synced_at_ms,
+            time_sync_age_ms,
+            corrected_arrival_time_ms,
             created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             event_id,
@@ -223,7 +276,14 @@ def add_event(
             int(event_time.timestamp() * 1000),
             int(event_time.timestamp() * 1000) + 3000,
             int(event_time.timestamp() * 1000) + 625,
-            created_at,
+            1,
+            12.5,
+            30.0,
+            "good",
+            int(event_time.timestamp() * 1000) - 100,
+            100,
+            int(event_time.timestamp() * 1000) + 12.5,
+            created_at_iso,
         ),
     )
     connection.commit()
@@ -268,6 +328,8 @@ def run_service_tests() -> None:
         window_seconds=3,
     )
     assert_equal(group1["node_count"], 1, "Test 1 node_count")
+    assert_equal(group1["region_type"], "single_node", "Test 1 region_type")
+    assert_equal(group1["reporting_node_count"], 1, "Test 1 reporting_node_count")
 
     group1b = process_event(
         connection,
@@ -277,6 +339,7 @@ def run_service_tests() -> None:
     )
     assert_equal(group1b["id"], group1["id"], "Test 2 group id")
     assert_equal(group1b["node_count"], 2, "Test 2 node_count")
+    assert_equal(group1b["region_type"], "segment", "Test 2 region_type")
 
     a03_record = add_event(connection, "evt_a03_002", "node_A03", "aircraft", base + timedelta(seconds=2))
     group1c = process_event(
@@ -287,6 +350,11 @@ def run_service_tests() -> None:
     )
     assert_equal(group1c["id"], group1["id"], "Test 3 group id")
     assert_equal(group1c["node_count"], 3, "Test 3 node_count")
+    assert_equal(
+        group1c["localization_method"],
+        "multi_node_region",
+        "Test 3 localization method",
+    )
 
     before_duplicate = observation_count(connection)
     duplicate = process_event(
@@ -339,15 +407,16 @@ def run_service_tests() -> None:
     )
     assert_equal(same_device["id"], group1["id"], "Test 5 same device group id")
     assert_equal(same_device["node_count"], 3, "Test 5 distinct node_count")
+    assert_equal(same_device["reporting_node_count"], 3, "Test 5 reporting_node_count")
 
     group2 = process_event(
         connection,
-        add_event(connection, "evt_a04_008", "node_A04", "aircraft", base + timedelta(seconds=8)),
+        add_event(connection, "evt_a04_070", "node_A04", "aircraft", base + timedelta(seconds=70)),
         is_postgres=False,
         window_seconds=3,
     )
     if group2["id"] == group1["id"]:
-        raise AssertionError("Test 6 expected a new group after fusion window")
+        raise AssertionError("Test 6 expected a new group after episode hold window")
 
     other_group = process_event(
         connection,
@@ -388,11 +457,125 @@ def run_service_tests() -> None:
         "wav",
         "Test 12 tdoa_clip_format copied",
     )
+    assert_equal(
+        timed_observation["time_sync_version"],
+        1,
+        "Test 13 time_sync_version copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_quality"],
+        "good",
+        "Test 13 time_sync_quality copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_synced_at_ms"],
+        int(base.timestamp() * 1000) - 100,
+        "Test 13 time_sync_synced_at_ms copied",
+    )
+    assert_equal(
+        timed_observation["time_sync_age_ms"],
+        100,
+        "Test 13 time_sync_age_ms copied",
+    )
+    assert_equal(
+        timed_observation["corrected_arrival_time_ms"],
+        int(base.timestamp() * 1000) + 12.5,
+        "Test 13 corrected arrival copied",
+    )
+
+    late_connection = make_connection()
+    late_first = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a01", "node_A01", "aircraft", base),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a02", "node_A02", "aircraft", base + timedelta(seconds=1)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    late_newer = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a04", "node_A04", "aircraft", base + timedelta(seconds=45)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    if late_newer["id"] == late_first["id"]:
+        raise AssertionError("Test 14 expected later episode to split")
+    late_arrival = process_event(
+        late_connection,
+        add_event(late_connection, "evt_late_a03", "node_A03", "aircraft", base + timedelta(seconds=2)),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(late_arrival["id"], late_first["id"], "Test 14 late observation group id")
+    assert_equal(late_arrival["node_count"], 3, "Test 14 late observation node_count")
+
+    delayed_upload_connection = make_connection()
+    delayed_first = process_event(
+        delayed_upload_connection,
+        add_event(
+            delayed_upload_connection,
+            "evt_device_time_a01",
+            "node_A01",
+            "aircraft",
+            base,
+            created_at=base + timedelta(seconds=25),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    delayed_second = process_event(
+        delayed_upload_connection,
+        add_event(
+            delayed_upload_connection,
+            "evt_device_time_a02",
+            "node_A02",
+            "aircraft",
+            base + timedelta(seconds=1),
+            created_at=base + timedelta(seconds=50),
+        ),
+        is_postgres=False,
+        window_seconds=3,
+    )
+    assert_equal(
+        delayed_second["id"],
+        delayed_first["id"],
+        "Test 15 delayed upload uses device event time for grouping",
+    )
+    delayed_detail = get_event_group_detail(
+        delayed_upload_connection,
+        delayed_first["id"],
+        is_postgres=False,
+    )
+    delayed_observations = delayed_detail["observations"]
+    assert_equal(
+        [item["device_id"] for item in delayed_observations],
+        ["node_A01", "node_A02"],
+        "Test 15 observations are ordered by device-observed sound time",
+    )
+    assert_equal(
+        delayed_detail["device_relative_times"][0]["device_id"],
+        "node_A01",
+        "Test 15 relative order first node",
+    )
+    assert_equal(
+        delayed_detail["device_relative_times"][1]["relative_time_s"],
+        1.0,
+        "Test 15 relative interval preserved",
+    )
+    assert_equal(
+        delayed_observations[1]["relative_time_s"],
+        1.0,
+        "Test 15 observation relative interval preserved",
+    )
 
 
 def run_route_failure_test() -> None:
     os.environ.pop("DATABASE_URL", None)
-    os.environ["UPLOAD_TOKEN"] = "test-token-123"
+    os.environ["UPLOAD_TOKEN"] = "test-only-token"
 
     import main  # noqa: E402
 
@@ -433,7 +616,7 @@ def run_route_failure_test() -> None:
                     rms_peak_time_ms=1001750,
                     audio_duration_ms=4000,
                 ),
-                upload_token="test-token-123",
+                upload_token="test-only-token",
             )
         )
         assert_equal(result["status"], "success", "Test 8 POST status")
