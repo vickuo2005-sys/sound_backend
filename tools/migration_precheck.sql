@@ -18,8 +18,12 @@ where table_schema = 'public'
     'event_groups',
     'event_group_observations',
     'localization_results',
+    'localization_pair_results',
     'target_tracks',
-    'target_track_points'
+    'target_track_points',
+    'device_locations',
+    'device_connections',
+    'audio_stream_sessions'
   )
 order by table_name, ordinal_position;
 
@@ -39,8 +43,12 @@ where n.nspname = 'public'
     'event_groups',
     'event_group_observations',
     'localization_results',
+    'localization_pair_results',
     'target_tracks',
-    'target_track_points'
+    'target_track_points',
+    'device_locations',
+    'device_connections',
+    'audio_stream_sessions'
   )
 order by t.relname, i.relname;
 
@@ -66,8 +74,12 @@ where tc.table_schema = 'public'
     'event_groups',
     'event_group_observations',
     'localization_results',
+    'localization_pair_results',
     'target_tracks',
-    'target_track_points'
+    'target_track_points',
+    'device_locations',
+    'device_connections',
+    'audio_stream_sessions'
   )
 order by tc.table_name, tc.constraint_name, kcu.ordinal_position;
 

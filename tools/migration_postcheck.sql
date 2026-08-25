@@ -23,8 +23,12 @@ with required_columns(table_name, column_name) as (
     ('event_group_observations', 'event_id'),
     ('event_group_observations', 'corrected_arrival_time_ms'),
     ('localization_results', 'group_id'),
+    ('localization_pair_results', 'localization_result_id'),
     ('target_tracks', 'id'),
-    ('target_track_points', 'track_id')
+    ('target_track_points', 'track_id'),
+    ('device_locations', 'device_id'),
+    ('device_connections', 'device_id'),
+    ('audio_stream_sessions', 'stream_id')
 )
 select
   rc.table_name,
@@ -68,7 +72,16 @@ where schemaname = 'public'
     'event_groups',
     'event_group_observations',
     'localization_results',
+    'localization_pair_results',
     'target_tracks',
-    'target_track_points'
+    'target_track_points',
+    'device_locations',
+    'device_connections',
+    'audio_stream_sessions'
   )
 order by tablename, indexname;
+
+select
+  case when exists (
+    select 1 from pg_extension where extname = 'pgcrypto'
+  ) then 'ok' else 'missing' end as pgcrypto_status;

@@ -14,7 +14,8 @@ where table_schema = 'public'
 order by table_name, ordinal_position;
 ```
 
-4. Apply migrations in order:
+4. For a brand-new isolated staging database only, apply migrations in order:
+   - `v2_0_events_baseline.sql`
    - `v2_1_remote_node_management.sql`
    - `v3_0_event_fusion_tracking.sql`
    - `v3_1a_timing_metadata.sql`
@@ -22,10 +23,13 @@ order by table_name, ordinal_position;
    - `v3_2_time_sync.sql`
    - `v3_3_localization.sql`
    - `v3_4_hybrid_localization.sql`
-   - `v4_0_tracking.sql`
    - `v4_final_realtime.sql`
    - `v4_final_localization.sql`
    - `v4_final_tracking.sql`
+   - `v4_1_tracking_metadata.sql`
+   - `v4_region_localization.sql`
+   - `v5_device_fixed_locations.sql`
+   - `v5_1_device_status_split_upload_status.sql`
 5. Re-run safe migrations once in staging if the file is documented idempotent.
 6. Run post-check SQL:
 
@@ -36,9 +40,11 @@ select count(*) from event_groups;
 select count(*) from event_group_observations;
 select count(*) from localization_results;
 select count(*) from target_tracks;
+select count(*) from device_locations;
+select count(*) from device_connections;
+select count(*) from audio_stream_sessions;
 ```
 
 7. Deploy staging backend.
 8. Run `tools/post_deploy_smoke.py --base-url <staging-url> --allow-websocket`.
 9. If a migration fails, stop and forward-fix with an incremental migration. Do not destructively roll back schema objects.
-
