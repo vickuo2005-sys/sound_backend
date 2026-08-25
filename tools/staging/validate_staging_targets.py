@@ -1,4 +1,4 @@
-"""Validate local integration target identity without touching cloud resources."""
+"""Fail-closed validation of Phase 4 staging target identity."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-CURRENT_INTEGRATION_RENDER_HOST = "sound-backend.onrender.com"
-CURRENT_INTEGRATION_GCS_BUCKET = "sound-detector"
+PRODUCTION_RENDER_HOST = "sound-backend.onrender.com"
+PRODUCTION_GCS_BUCKET = "sound-detector"
+EXPECTED_RENDER_SERVICE = "sound-backend-staging"
+EXPECTED_BACKEND_BRANCH = "feat/v2-3-phase4-field-shadow"
 
 
 def fail(message: str) -> int:
@@ -30,30 +32,55 @@ def main() -> int:
     errors: list[str] = []
 
     environment = str(data.get("environment", "")).strip().lower()
-    if environment not in {"development", "integration", "staging"}:
-        errors.append("environment must be development, integration, or staging")
-    if data.get("backend_git_branch") != "staging":
-        errors.append("backend_git_branch must be staging")
+    if environment != "staging":
+        errors.append("environment must be staging")
+    if data.get("backend_git_branch") != EXPECTED_BACKEND_BRANCH:
+        errors.append(f"backend_git_branch must be {EXPECTED_BACKEND_BRANCH}")
     if not str(data.get("flutter_application_id", "")).endswith(".staging"):
         errors.append("flutter_application_id must end with .staging")
 
     render_base_url = str(data.get("render_base_url", "")).strip()
-    if render_base_url:
+    if not render_base_url:
+        errors.append("render_base_url is required")
+    else:
         parsed = urlparse(render_base_url)
-        if parsed.scheme != "https":
-            errors.append("render_base_url must use https")
+        render_host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not render_host:
+            errors.append("render_base_url must use https and include a hostname")
+        if render_host == PRODUCTION_RENDER_HOST:
+            errors.append("render_base_url points to the production host")
+        if "staging" not in render_host:
+            errors.append("render hostname must be explicitly staging-labelled")
+
+    if data.get("render_service_name") != EXPECTED_RENDER_SERVICE:
+        errors.append(f"render_service_name must be {EXPECTED_RENDER_SERVICE}")
+
+    supabase_project_ref = str(data.get("supabase_project_ref", "")).strip()
+    if not supabase_project_ref:
+        errors.append("supabase_project_ref is required")
 
     gcs_bucket = str(data.get("gcs_bucket", "")).strip()
-    if gcs_bucket and gcs_bucket != CURRENT_INTEGRATION_GCS_BUCKET:
-        print(f"warning: gcs_bucket differs from current integration bucket: {gcs_bucket}")
+    if not gcs_bucket:
+        errors.append("gcs_bucket is required for the Phase 4 /events audio path")
+    elif gcs_bucket == PRODUCTION_GCS_BUCKET:
+        errors.append("gcs_bucket points to the production bucket")
+    elif "staging" not in gcs_bucket.lower():
+        errors.append("gcs_bucket must be explicitly staging-labelled")
+
+    if not str(data.get("gcs_project_id", "")).strip():
+        errors.append("gcs_project_id is required")
 
     gcs_prefix = str(data.get("gcs_prefix", "")).strip()
     if gcs_prefix and not gcs_prefix.endswith("/"):
         errors.append("gcs_prefix must end with /")
 
     database_host = str(data.get("database_host", "")).strip().lower()
-    if database_host and "localhost" in database_host:
-        errors.append("database_host should reference the existing integration Supabase database")
+    if not database_host:
+        errors.append("database_host is required")
+    elif "localhost" in database_host:
+        errors.append("database_host must not use localhost")
+    elif not database_host.endswith("supabase.com"):
+        errors.append("database_host must be a Supabase staging database host")
 
     joined = json.dumps(data, ensure_ascii=False).lower()
     if "test-token-123" in joined:
@@ -66,10 +93,7 @@ def main() -> int:
             print(f"- {error}")
         return 1
 
-    if render_base_url and urlparse(render_base_url).netloc != CURRENT_INTEGRATION_RENDER_HOST:
-        print("warning: render_base_url differs from current integration backend")
-
-    print("ready: integration target identity is valid")
+    print("ready: Phase 4 staging target shape is valid; verify identities against cloud dashboards")
     return 0
 
 

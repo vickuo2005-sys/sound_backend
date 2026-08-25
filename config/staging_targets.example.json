@@ -1,12 +1,12 @@
 {
-  "environment": "development",
+  "environment": "staging",
   "supabase_project_ref": "",
   "database_host": "",
   "gcs_project_id": "",
-  "gcs_bucket": "sound-detector",
-  "gcs_prefix": "audio/",
-  "render_service_name": "sound_backend",
-  "render_base_url": "https://sound-backend.onrender.com",
-  "backend_git_branch": "staging",
+  "gcs_bucket": "",
+  "gcs_prefix": "staging/",
+  "render_service_name": "sound-backend-staging",
+  "render_base_url": "",
+  "backend_git_branch": "feat/v2-3-phase4-field-shadow",
   "flutter_application_id": "com.example.sound_detector_clean.staging"
 }

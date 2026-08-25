@@ -1,9 +1,16 @@
 param(
-    [string]$OutputPath = "config\staging_secrets.local.env",
-    [string]$InventoryPath = "config\staging_secrets_inventory.local.json"
+    [string]$OutputPath = "config\phase4_staging_secrets.local.env",
+    [string]$InventoryPath = "config\phase4_staging_secrets_inventory.local.json"
 )
 
 $ErrorActionPreference = "Stop"
+
+if (Test-Path -LiteralPath $OutputPath) {
+    throw "Refusing to overwrite existing secret file: $OutputPath"
+}
+if (Test-Path -LiteralPath $InventoryPath) {
+    throw "Refusing to overwrite existing inventory file: $InventoryPath"
+}
 
 function New-Token {
     param([int]$Bytes = 32)
@@ -27,22 +34,20 @@ if ($inventoryDirectory -and -not (Test-Path $inventoryDirectory)) {
 }
 
 $values = @{
-    APP_ENV = "development"
+    APP_ENV = "staging"
     DEVICE_TOKEN = New-Token
     UPLOAD_TOKEN = New-Token
-    STREAM_TOKEN_SECRET = New-Token
-    DASHBOARD_AUTH_SECRET = New-Token
+    DASHBOARD_WRITE_TOKEN_REQUIRED = "true"
+    DASHBOARD_ADMIN_TOKEN = New-Token
     DATABASE_URL = ""
-    SUPABASE_URL = ""
-    SUPABASE_KEY = ""
     GCS_BUCKET_NAME = ""
-    GCP_PROJECT_ID = ""
     GOOGLE_APPLICATION_CREDENTIALS_JSON = ""
+    GOOGLE_MAPS_API_KEY = ""
 }
 
 $lines = @(
-    "# Local integration secrets generated on $(Get-Date -Format o)",
-    "# Do not commit this file. Copy values into the existing Render development service manually."
+    "# Local Phase 4 staging secrets generated on $(Get-Date -Format o)",
+    "# Do not commit this file. Configure only confirmed staging resources."
 )
 foreach ($key in $values.Keys | Sort-Object) {
     $lines += "$key=$($values[$key])"
@@ -56,7 +61,6 @@ $inventory = foreach ($key in $values.Keys | Sort-Object) {
         configured = -not [string]::IsNullOrWhiteSpace($value)
         length = $value.Length
         created_at = (Get-Date -Format o)
-        suffix = if ($value.Length -ge 4) { $value.Substring($value.Length - 4) } else { "" }
     }
 }
 $inventory | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $InventoryPath -Encoding UTF8

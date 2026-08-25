@@ -10,7 +10,8 @@ or a production host must not be labelled field/staging evidence.
 2. Create ignored Flutter `config/staging.local.json` with `APP_ENV=staging`, a
    real staging-only HTTPS host, staging upload/device tokens, and
    `OBSERVATION_SHADOW_ENABLED=true`.
-3. Run `dart run tools/validate_field_staging_config.dart config/staging.local.json`.
+3. Run `dart run tools/validate_field_staging_config.dart
+   config/staging.local.json --approved-host <actual-staging-hostname>`.
    The validator prints token-presence booleans only. It rejects the known
    production host, localhost, missing tokens, and a disabled shadow flag.
 4. Backend staging must separately enable `OBSERVATION_SHADOW_ENABLED=true` and

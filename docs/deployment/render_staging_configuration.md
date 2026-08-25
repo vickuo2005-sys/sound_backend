@@ -30,10 +30,19 @@ Start staging with:
 - `COMMAND_WEBSOCKET_ENABLED=true`
 - `COMMAND_REST_FALLBACK_ENABLED=true`
 - `LIVE_AUDIO_ENABLED=false`
+- `FAST_EVENT_INGEST_ENABLED=true`
+- `POST_INFERENCE_LATENCY_TRACING_ENABLED=true`
+- `OBSERVATION_SHADOW_ENABLED=true`
+- `OBSERVATION_TRACKING_ENABLED=true`
+- `TRACKING_REORDER_BUFFER_ENABLED=false`
+- `STAGING_DB_LATENCY_PROBE_ENABLED=false`
+
+`APP_ENV=staging`, the Supabase target, GCS bucket, and token fingerprints must
+also be verified in the Render Dashboard before deploy. `/health` does not
+currently echo `APP_ENV` or the database hostname.
 
 Only enable `LIVE_AUDIO_ENABLED=true` after baseline node command and event upload checks pass.
 
 ## Production Caution
 
 Do not point staging to production Supabase or production GCS. Do not paste service account JSON into files.
-
