@@ -231,7 +231,14 @@ def test_http_field_metrics_include_body_bytes_and_reconciliation(monkeypatch) -
 
     monkeypatch.setattr(main, "observation_shadow_executor", ImmediateExecutor())
     client = TestClient(main.app)
-    payload = observation("A01", "s1", 1, 0).model_dump()
+    now = datetime.now(timezone.utc)
+    payload = observation(
+        "A01",
+        "s1",
+        1,
+        int(now.timestamp() * 1000),
+    ).model_dump()
+    payload["observed_at"] = now.isoformat()
     response = client.post(
         "/observations/shadow",
         headers={"x-upload-token": "shadow-token"},

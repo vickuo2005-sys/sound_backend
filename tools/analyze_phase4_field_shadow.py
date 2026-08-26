@@ -85,6 +85,7 @@ def analyze_field_run(
     clock = final_backend.get("clock_quality") or {}
 
     app_totals = _app_reconciliation_totals(app_samples)
+    app_queue = _app_queue_snapshot(app_samples)
     raw = int(app_totals.get("raw_valid_target_count") or 0)
     upload_success = int(app_totals.get("upload_success_count") or 0)
     backend_received = int(backend_reconciliation.get("backend_received_count") or 0)
@@ -164,6 +165,29 @@ def analyze_field_run(
                     ordering.get("sequence_timeout_advance_count") or 0
                 ),
             },
+            "observation_queue": app_queue,
+            "replay": {
+                "live_count": int(ingest.get("replay_live_count") or 0),
+                "late_recoverable_count": int(
+                    ingest.get("replay_late_recoverable_count") or 0
+                ),
+                "historical_only_count": int(
+                    ingest.get("replay_historical_only_count") or 0
+                ),
+                "expired_count": int(ingest.get("replay_expired_count") or 0),
+                "tracking_eligible_count": int(
+                    ingest.get("tracking_eligible_count") or 0
+                ),
+                "tracking_historical_suppressed_count": int(
+                    ingest.get("tracking_historical_suppressed_count") or 0
+                ),
+                "tracking_expired_suppressed_count": int(
+                    ingest.get("tracking_expired_suppressed_count") or 0
+                ),
+                "idempotency_tombstone_count": int(
+                    ingest.get("idempotency_tombstone_count") or 0
+                ),
+            },
             "control_vs_shadow": {
                 "alert_admitted_count": alert_admitted,
                 "cooldown_rejected_count": cooldown_rejected,
@@ -204,12 +228,18 @@ def analyze_field_run(
             "memory": _memory_summary(backend_snapshots),
             "mailbox": mailbox,
             "restart_semantics": {
-                "flutter_restart": "new process_session_id; sequence restarts at 1",
+                "flutter_restart": (
+                    "new process_session_id; old SQLite queue rows retain their "
+                    "original process_session_id and sequence"
+                ),
                 "backend_restart": (
                     "bounded in-memory observations, sequence state, fusion buckets, "
                     "and shadow tracks are cleared; shadow delivery is best effort"
                 ),
-                "retry": "same observation_id is idempotent while dedup TTL retains it",
+                "retry": (
+                    "same observation_id is idempotent while the bounded Backend "
+                    "tombstone TTL retains it"
+                ),
             },
             "smoothing": "disabled",
         },
@@ -234,6 +264,42 @@ def _app_reconciliation_totals(samples: list[dict[str, Any]]) -> dict[str, int]:
     )
     return {
         field: sum(int(snapshot.get(field) or 0) for snapshot in final_by_process.values())
+        for field in fields
+    }
+
+
+def _app_queue_snapshot(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    fields = (
+        "observation_queue_depth",
+        "observation_queue_bytes",
+        "observation_queued_total",
+        "observation_upload_attempt_total",
+        "observation_upload_success_total",
+        "observation_upload_failure_total",
+        "observation_retry_total",
+        "observation_retry_success_total",
+        "observation_retry_failure_total",
+        "observation_expired_total",
+        "observation_overflow_total",
+        "observation_recovered_after_restart_total",
+        "observation_failed_permanent_total",
+        "oldest_pending_age_ms",
+        "retry_delay_ms",
+    )
+    snapshots = [
+        reconciliation
+        for sample in samples
+        if isinstance((reconciliation := sample.get("reconciliation")), dict)
+    ]
+    if not snapshots:
+        return {field: None for field in fields}
+    final = snapshots[-1]
+    return {
+        field: (
+            max(int(snapshot.get(field) or 0) for snapshot in snapshots)
+            if field.endswith("_total")
+            else final.get(field)
+        )
         for field in fields
     }
 

@@ -29,6 +29,15 @@ def app_sample(sequence: int, raw: int, uploaded: int) -> dict:
             "observation_upload_failed_count": raw - uploaded,
             "alert_admitted_count": 2,
             "cooldown_rejected_count": raw - 2,
+            "observation_queue_depth": raw - uploaded,
+            "observation_queue_bytes": (raw - uploaded) * 700,
+            "observation_queued_total": raw,
+            "observation_retry_total": max(0, raw - uploaded),
+            "observation_retry_success_total": 0,
+            "observation_retry_failure_total": max(0, raw - uploaded),
+            "observation_expired_total": 0,
+            "observation_overflow_total": 0,
+            "observation_recovered_after_restart_total": 0,
         },
     }
 
@@ -82,6 +91,8 @@ def test_field_analyzer_reconciles_counts_and_measured_bandwidth() -> None:
     assert report["reconciliation"]["overall_observation_delivery_percent"] == 90
     assert report["bandwidth"]["json_payload_bytes"]["p50"] == 700
     assert report["bandwidth"]["projections"]["4"]["24h"]["requests"] > 0
+    assert report["observation_queue"]["observation_queued_total"] == 10
+    assert report["observation_queue"]["observation_queue_depth"] == 1
 
 
 def test_field_analyzer_rejects_production_or_synthetic_manifest() -> None:

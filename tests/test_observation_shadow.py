@@ -1,23 +1,32 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 import main
+from services.observation_shadow import ObservationShadowRegistry, ShadowObservation
 
 
 def observation_payload(
     *,
     observation_id: str = "obs-A01-process-1-1",
     sequence: int = 1,
-    event_time_ms: int = 1000,
+    event_time_ms: int | None = None,
 ) -> dict:
+    effective_event_time_ms = event_time_ms or int(
+        datetime.now(timezone.utc).timestamp() * 1000
+    )
     return {
         "message_type": "observation.v1",
         "schema_version": 1,
         "observation_id": observation_id,
         "device_id": "A01",
-        "observed_at": "2026-08-25T00:00:01Z",
-        "event_time_ms": event_time_ms,
+        "observed_at": datetime.fromtimestamp(
+            effective_event_time_ms / 1000.0,
+            tz=timezone.utc,
+        ).isoformat(),
+        "event_time_ms": effective_event_time_ms,
         "sequence": sequence,
         "process_session_id": "process-1",
         "label": "drone",
@@ -182,20 +191,21 @@ def test_shadow_tracking_measures_late_event_time_and_coordinate_outlier(
 
     monkeypatch.setattr(main, "observation_shadow_executor", ImmediateExecutor())
     headers = {"x-upload-token": "shadow-token"}
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     first = observation_payload(
         observation_id="obs-1",
         sequence=1,
-        event_time_ms=3000,
+        event_time_ms=now_ms,
     )
     late = observation_payload(
         observation_id="obs-2",
         sequence=2,
-        event_time_ms=1500,
+        event_time_ms=now_ms - 1500,
     )
     outlier = observation_payload(
         observation_id="obs-3",
         sequence=3,
-        event_time_ms=4500,
+        event_time_ms=now_ms + 1500,
     )
     outlier["location"] = {
         "source": "unavailable",
@@ -218,6 +228,166 @@ def test_shadow_tracking_measures_late_event_time_and_coordinate_outlier(
     assert snapshot["track_point_count"] == 1
     assert snapshot["late_discard_count"] == 1
     assert snapshot["outlier_discard_count"] == 1
+
+
+def test_same_observation_id_retried_five_times_tracks_once(monkeypatch) -> None:
+    client = prepare_shadow(monkeypatch, tracking=True)
+
+    class ImmediateExecutor:
+        def submit(self, function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+    monkeypatch.setattr(main, "observation_shadow_executor", ImmediateExecutor())
+    payload = observation_payload()
+    responses = [
+        client.post(
+            "/observations/shadow",
+            headers={"x-upload-token": "shadow-token"},
+            json=payload,
+        )
+        for _ in range(5)
+    ]
+
+    assert all(response.status_code == 202 for response in responses)
+    assert [response.json()["duplicate"] for response in responses] == [
+        False,
+        True,
+        True,
+        True,
+        True,
+    ]
+    metrics = main.observation_shadow_registry.metrics()
+    tracking = main.observation_shadow_tracking.snapshot()
+    assert metrics["observation_received_count"] == 5
+    assert metrics["observation_uploaded_count"] == 1
+    assert metrics["duplicate_observation_count"] == 4
+    assert tracking["tracking_measurement_count"] == 1
+    assert tracking["track_point_count"] == 1
+
+
+def test_late_recoverable_observation_keeps_event_time_and_tracks(monkeypatch) -> None:
+    client = prepare_shadow(monkeypatch, tracking=True)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_MAX_AGE_MS", 5_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_TRACKING_MAX_AGE_MS", 120_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_HISTORICAL_MAX_AGE_MS", 21_600_000.0)
+
+    class ImmediateExecutor:
+        def submit(self, function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+    monkeypatch.setattr(main, "observation_shadow_executor", ImmediateExecutor())
+    event_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - 30_000
+    response = client.post(
+        "/observations/shadow",
+        headers={"x-upload-token": "shadow-token"},
+        json=observation_payload(event_time_ms=event_time_ms),
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["event_time_ms"] == event_time_ms
+    assert body["age_classification"] == "late-but-recoverable"
+    assert body["tracking_eligible"] is True
+    assert body["tracking_scheduled"] is True
+    assert main.observation_shadow_tracking.snapshot()["track_point_count"] == 1
+
+
+def test_historical_only_replay_is_retained_but_does_not_touch_live_track(
+    monkeypatch,
+) -> None:
+    client = prepare_shadow(monkeypatch, tracking=True)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_MAX_AGE_MS", 5_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_TRACKING_MAX_AGE_MS", 120_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_HISTORICAL_MAX_AGE_MS", 21_600_000.0)
+
+    class ImmediateExecutor:
+        def submit(self, function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+    monkeypatch.setattr(main, "observation_shadow_executor", ImmediateExecutor())
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    live = observation_payload(
+        observation_id="obs-live-1",
+        sequence=1,
+        event_time_ms=now_ms,
+    )
+    old = observation_payload(
+        observation_id="obs-old-2",
+        sequence=2,
+        event_time_ms=now_ms - 180_000,
+    )
+
+    live_response = client.post(
+        "/observations/shadow",
+        headers={"x-upload-token": "shadow-token"},
+        json=live,
+    )
+    old_response = client.post(
+        "/observations/shadow",
+        headers={"x-upload-token": "shadow-token"},
+        json=old,
+    )
+
+    assert live_response.json()["tracking_scheduled"] is True
+    assert old_response.json()["age_classification"] == "historical-only"
+    assert old_response.json()["tracking_scheduled"] is False
+    metrics = main.observation_shadow_registry.metrics()
+    tracking = main.observation_shadow_tracking.snapshot()
+    assert metrics["observation_uploaded_count"] == 2
+    assert metrics["replay_historical_only_count"] == 1
+    assert metrics["tracking_historical_suppressed_count"] == 1
+    assert tracking["track_point_count"] == 1
+
+
+def test_expired_replay_is_counted_and_never_scheduled_for_tracking(
+    monkeypatch,
+) -> None:
+    client = prepare_shadow(monkeypatch, tracking=True)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_MAX_AGE_MS", 5_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_LIVE_TRACKING_MAX_AGE_MS", 120_000.0)
+    monkeypatch.setattr(main, "OBSERVATION_HISTORICAL_MAX_AGE_MS", 600_000.0)
+    event_time_ms = int(datetime.now(timezone.utc).timestamp() * 1000) - 900_000
+
+    response = client.post(
+        "/observations/shadow",
+        headers={"x-upload-token": "shadow-token"},
+        json=observation_payload(event_time_ms=event_time_ms),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["age_classification"] == "expired"
+    assert response.json()["tracking_eligible"] is False
+    assert response.json()["tracking_scheduled"] is False
+    metrics = main.observation_shadow_registry.metrics()
+    assert metrics["replay_expired_count"] == 1
+    assert metrics["tracking_expired_suppressed_count"] == 1
+    assert main.observation_shadow_tracking.snapshot()["track_point_count"] == 0
+
+
+def test_idempotency_tombstone_outlives_short_record_retention() -> None:
+    registry = ObservationShadowRegistry(
+        max_observations=10,
+        ttl_seconds=1,
+        max_streams=2,
+        dedup_ttl_seconds=60,
+        max_dedup_ids=20,
+    )
+    accepted_at = datetime(2026, 8, 25, tzinfo=timezone.utc)
+    observation = ShadowObservation.model_validate(observation_payload())
+
+    first = registry.ingest(observation, received_at=accepted_at)
+    registry.cleanup_expired(now=accepted_at + timedelta(seconds=2))
+    duplicate = registry.ingest(
+        observation,
+        received_at=accepted_at + timedelta(seconds=2),
+    )
+
+    assert first.accepted is True
+    assert duplicate.duplicate is True
+    metrics = registry.metrics()
+    assert metrics["current_entries"] == 0
+    assert metrics["idempotency_tombstone_count"] == 1
+    assert metrics["duplicate_observation_count"] == 1
 
 
 def test_shadow_metrics_exposes_control_and_shadow_without_dashboard_side_effect(
