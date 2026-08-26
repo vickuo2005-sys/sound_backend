@@ -54,6 +54,7 @@ from services.observation_shadow import (
     ObservationShadowRegistry,
     ShadowObservation,
     ShadowTrackingPipeline,
+    classify_observation_age,
 )
 from services.region_localization import estimate_region
 from services.tracking.tracking_service import (
@@ -127,6 +128,28 @@ OBSERVATION_SHADOW_TTL_SECONDS = max(
 OBSERVATION_SHADOW_MAX_STREAMS = max(
     1,
     int(os.getenv("OBSERVATION_SHADOW_MAX_STREAMS", "2048") or 2048),
+)
+OBSERVATION_IDEMPOTENCY_TTL_SECONDS = max(
+    OBSERVATION_SHADOW_TTL_SECONDS,
+    float(os.getenv("OBSERVATION_IDEMPOTENCY_TTL_SECONDS", "21600") or 21600),
+)
+OBSERVATION_IDEMPOTENCY_MAX_IDS = max(
+    OBSERVATION_SHADOW_MAX_RECORDS,
+    int(os.getenv("OBSERVATION_IDEMPOTENCY_MAX_IDS", "50000") or 50000),
+)
+OBSERVATION_LIVE_MAX_AGE_MS = max(
+    0.0,
+    float(os.getenv("OBSERVATION_LIVE_MAX_AGE_MS", "5000") or 5000),
+)
+OBSERVATION_LIVE_TRACKING_MAX_AGE_MS = max(
+    OBSERVATION_LIVE_MAX_AGE_MS,
+    float(
+        os.getenv("OBSERVATION_LIVE_TRACKING_MAX_AGE_MS", "120000") or 120000
+    ),
+)
+OBSERVATION_HISTORICAL_MAX_AGE_MS = max(
+    OBSERVATION_LIVE_TRACKING_MAX_AGE_MS,
+    float(os.getenv("OBSERVATION_HISTORICAL_MAX_AGE_MS", "21600000") or 21600000),
 )
 OBSERVATION_MAX_PENDING_PER_KEY = max(
     1,
@@ -288,6 +311,8 @@ observation_shadow_registry = ObservationShadowRegistry(
     max_observations=OBSERVATION_SHADOW_MAX_RECORDS,
     ttl_seconds=OBSERVATION_SHADOW_TTL_SECONDS,
     max_streams=OBSERVATION_SHADOW_MAX_STREAMS,
+    dedup_ttl_seconds=OBSERVATION_IDEMPOTENCY_TTL_SECONDS,
+    max_dedup_ids=OBSERVATION_IDEMPOTENCY_MAX_IDS,
 )
 observation_clock_quality = ObservationClockQualityTracker(
     max_streams=OBSERVATION_SHADOW_MAX_STREAMS,
@@ -9195,6 +9220,13 @@ async def runtime_status():
         "tracking_discard_metrics": tracking_discard_metrics_snapshot(),
         "observation_shadow_enabled": OBSERVATION_SHADOW_ENABLED,
         "observation_tracking_enabled": OBSERVATION_TRACKING_ENABLED,
+        "observation_replay_policy": {
+            "live_max_age_ms": OBSERVATION_LIVE_MAX_AGE_MS,
+            "live_tracking_max_age_ms": OBSERVATION_LIVE_TRACKING_MAX_AGE_MS,
+            "historical_max_age_ms": OBSERVATION_HISTORICAL_MAX_AGE_MS,
+            "idempotency_ttl_seconds": OBSERVATION_IDEMPOTENCY_TTL_SECONDS,
+            "idempotency_max_ids": OBSERVATION_IDEMPOTENCY_MAX_IDS,
+        },
         "observation_shadow": {
             "ingest": observation_shadow_registry.metrics(),
             "tracking": observation_shadow_tracking.snapshot(wait_for_idle=False),
@@ -9425,6 +9457,14 @@ def ingest_shadow_observation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     verify_upload_token(upload_token)
     received_at = datetime.now(timezone.utc)
+    received_at_ms = received_at.timestamp() * 1000.0
+    age_ms, age_classification, tracking_eligible = classify_observation_age(
+        event_time_ms=observation.event_time_ms,
+        received_at_ms=received_at_ms,
+        live_max_age_ms=OBSERVATION_LIVE_MAX_AGE_MS,
+        live_tracking_max_age_ms=OBSERVATION_LIVE_TRACKING_MAX_AGE_MS,
+        historical_max_age_ms=OBSERVATION_HISTORICAL_MAX_AGE_MS,
+    )
     payload_bytes = max(0, int(content_length or 0))
     request_wire_estimate_bytes = estimate_shadow_request_wire_bytes(
         request,
@@ -9435,17 +9475,20 @@ def ingest_shadow_observation(
         received_at=received_at,
         payload_bytes=payload_bytes,
         request_wire_estimate_bytes=request_wire_estimate_bytes,
+        age_ms=age_ms,
+        age_classification=age_classification,
+        tracking_eligible=tracking_eligible,
     )
     if result.accepted:
         observation_clock_quality.observe(
             observation,
-            received_at_ms=received_at.timestamp() * 1000.0,
+            received_at_ms=received_at_ms,
         )
-    if result.accepted and OBSERVATION_TRACKING_ENABLED:
+    if result.accepted and OBSERVATION_TRACKING_ENABLED and tracking_eligible:
         observation_shadow_executor.submit(
             observation_shadow_tracking.accept,
             observation,
-            arrival_time_ms=received_at.timestamp() * 1000.0,
+            arrival_time_ms=received_at_ms,
         )
     return {
         "status": "duplicate" if result.duplicate else "accepted",
@@ -9454,6 +9497,9 @@ def ingest_shadow_observation(
         "received_at": result.received_at,
         "observed_at": observation.observed_at,
         "event_time_ms": observation.event_time_ms,
+        "age_ms": round(age_ms, 3),
+        "age_classification": age_classification,
+        "tracking_eligible": tracking_eligible,
         "sequence": observation.sequence,
         "duplicate": result.duplicate,
         "gap_detected": result.gap_detected,
@@ -9461,7 +9507,11 @@ def ingest_shadow_observation(
         "out_of_order": result.out_of_order,
         "payload_bytes": payload_bytes,
         "request_wire_estimate_bytes": request_wire_estimate_bytes,
-        "tracking_scheduled": bool(result.accepted and OBSERVATION_TRACKING_ENABLED),
+        "tracking_scheduled": bool(
+            result.accepted
+            and OBSERVATION_TRACKING_ENABLED
+            and tracking_eligible
+        ),
         "dashboard_alert_created": False,
         "storage": "bounded_in_memory_shadow_only",
     }

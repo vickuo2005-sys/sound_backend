@@ -73,6 +73,37 @@ class ShadowObservation(BaseModel):
     trace_id: str = Field(min_length=1, max_length=200)
 
 
+ShadowObservationAgeClassification = Literal[
+    "live",
+    "late-but-recoverable",
+    "historical-only",
+    "expired",
+]
+
+
+def classify_observation_age(
+    *,
+    event_time_ms: int,
+    received_at_ms: float,
+    live_max_age_ms: float,
+    live_tracking_max_age_ms: float,
+    historical_max_age_ms: float,
+) -> tuple[float, ShadowObservationAgeClassification, bool]:
+    """Classify replay age without replacing event time with arrival time."""
+
+    age_ms = max(0.0, float(received_at_ms) - float(event_time_ms))
+    live_limit = max(0.0, float(live_max_age_ms))
+    tracking_limit = max(live_limit, float(live_tracking_max_age_ms))
+    historical_limit = max(tracking_limit, float(historical_max_age_ms))
+    if age_ms <= live_limit:
+        return age_ms, "live", True
+    if age_ms <= tracking_limit:
+        return age_ms, "late-but-recoverable", True
+    if age_ms <= historical_limit:
+        return age_ms, "historical-only", False
+    return age_ms, "expired", False
+
+
 @dataclass(frozen=True)
 class ShadowIngestResult:
     accepted: bool
@@ -92,12 +123,17 @@ class ObservationShadowRegistry:
         max_observations: int = 10000,
         ttl_seconds: float = 3600.0,
         max_streams: int = 2048,
+        dedup_ttl_seconds: float = 21600.0,
+        max_dedup_ids: int = 50000,
     ) -> None:
         self.max_observations = max(1, int(max_observations))
         self.ttl_seconds = max(1.0, float(ttl_seconds))
         self.max_streams = max(1, int(max_streams))
+        self.dedup_ttl_seconds = max(self.ttl_seconds, float(dedup_ttl_seconds))
+        self.max_dedup_ids = max(self.max_observations, int(max_dedup_ids))
         self._lock = threading.RLock()
         self._records: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._dedup_ids: OrderedDict[str, float] = OrderedDict()
         self._streams: dict[str, dict[str, Any]] = {}
         self._metrics = {
             "observation_received_count": 0,
@@ -119,6 +155,15 @@ class ObservationShadowRegistry:
             "request_wire_estimate_bytes": 0,
             "minimum_payload_bytes": 0,
             "maximum_payload_bytes": 0,
+            "dedup_expired_count": 0,
+            "dedup_evicted_count": 0,
+            "replay_live_count": 0,
+            "replay_late_recoverable_count": 0,
+            "replay_historical_only_count": 0,
+            "replay_expired_count": 0,
+            "tracking_eligible_count": 0,
+            "tracking_historical_suppressed_count": 0,
+            "tracking_expired_suppressed_count": 0,
         }
         self._first_received_ms: Optional[float] = None
         self._last_received_ms: Optional[float] = None
@@ -130,6 +175,9 @@ class ObservationShadowRegistry:
         received_at: Optional[datetime] = None,
         payload_bytes: int = 0,
         request_wire_estimate_bytes: int = 0,
+        age_ms: float = 0.0,
+        age_classification: ShadowObservationAgeClassification = "live",
+        tracking_eligible: bool = True,
     ) -> ShadowIngestResult:
         received = received_at or datetime.now(timezone.utc)
         received_iso = received.isoformat()
@@ -161,7 +209,7 @@ class ObservationShadowRegistry:
                 else self._first_received_ms
             )
             self._last_received_ms = received_ms
-            if observation.observation_id in self._records:
+            if observation.observation_id in self._dedup_ids:
                 self._metrics["duplicate_observation_count"] += 1
                 return ShadowIngestResult(
                     accepted=False,
@@ -222,8 +270,29 @@ class ObservationShadowRegistry:
             record = observation.model_dump()
             record["received_at"] = received_iso
             record["_received_epoch_ms"] = received_ms
+            record["age_ms"] = max(0.0, float(age_ms))
+            record["age_classification"] = age_classification
+            record["tracking_eligible"] = bool(tracking_eligible)
             self._records[observation.observation_id] = record
+            self._dedup_ids[observation.observation_id] = received_ms
+            self._dedup_ids.move_to_end(observation.observation_id)
+            while len(self._dedup_ids) > self.max_dedup_ids:
+                self._dedup_ids.popitem(last=False)
+                self._metrics["dedup_evicted_count"] += 1
             self._metrics["observation_uploaded_count"] += 1
+            classification_metric = {
+                "live": "replay_live_count",
+                "late-but-recoverable": "replay_late_recoverable_count",
+                "historical-only": "replay_historical_only_count",
+                "expired": "replay_expired_count",
+            }[age_classification]
+            self._metrics[classification_metric] += 1
+            if tracking_eligible:
+                self._metrics["tracking_eligible_count"] += 1
+            elif age_classification == "historical-only":
+                self._metrics["tracking_historical_suppressed_count"] += 1
+            else:
+                self._metrics["tracking_expired_suppressed_count"] += 1
             while len(self._records) > self.max_observations:
                 self._records.popitem(last=False)
                 self._metrics["evicted_observation_count"] += 1
@@ -263,7 +332,8 @@ class ObservationShadowRegistry:
                 "retained_observation_count": len(self._records),
                 "current_entries": len(self._records),
                 "stream_count": len(self._streams),
-                "dedup_cache_size": len(self._records),
+                "dedup_cache_size": len(self._dedup_ids),
+                "idempotency_tombstone_count": len(self._dedup_ids),
                 "open_sequence_gap_count": sum(
                     len(stream["missing"]) for stream in self._streams.values()
                 ),
@@ -282,12 +352,15 @@ class ObservationShadowRegistry:
                 "ttl_seconds": self.ttl_seconds,
                 "max_entries": self.max_observations,
                 "max_streams": self.max_streams,
+                "dedup_ttl_seconds": self.dedup_ttl_seconds,
+                "max_dedup_ids": self.max_dedup_ids,
                 "storage": "bounded_in_memory_shadow_only",
             }
 
     def reset(self) -> None:
         with self._lock:
             self._records.clear()
+            self._dedup_ids.clear()
             self._streams.clear()
             self._first_received_ms = None
             self._last_received_ms = None
@@ -306,15 +379,24 @@ class ObservationShadowRegistry:
             for key, stream in self._streams.items()
             if float(stream.get("last_activity_ms") or 0.0) <= cutoff_ms
         ]
-        if not expired_ids and not expired_streams:
+        dedup_cutoff_ms = now_ms - self.dedup_ttl_seconds * 1000.0
+        expired_dedup_ids = [
+            observation_id
+            for observation_id, accepted_at_ms in self._dedup_ids.items()
+            if accepted_at_ms <= dedup_cutoff_ms
+        ]
+        if not expired_ids and not expired_streams and not expired_dedup_ids:
             return 0
         for observation_id in expired_ids:
             self._records.pop(observation_id, None)
         for key in expired_streams:
             self._streams.pop(key, None)
+        for observation_id in expired_dedup_ids:
+            self._dedup_ids.pop(observation_id, None)
         self._metrics["cleanup_count"] += 1
         self._metrics["expired_count"] += len(expired_ids)
         self._metrics["expired_stream_count"] += len(expired_streams)
+        self._metrics["dedup_expired_count"] += len(expired_dedup_ids)
         return len(expired_ids)
 
     def _ensure_stream_capacity_locked(self, stream_key: str) -> None:
