@@ -136,6 +136,11 @@ Machine-readable App logs include:
 - `observation_failed_permanent_total`
 - `oldest_pending_age_ms`, `retry_delay_ms`
 
+Android field samples use bounded
+`[OBSERVATION_SHADOW_FIELD_JSON_B64]` logcat chunks. The analyzer validates,
+reassembles, Base64-decodes, and parses a complete JSON record; incomplete or
+truncated chunk sets are ignored instead of being counted as evidence.
+
 Backend metrics include replay classification counts, tracking suppression
 counts, dedup expiry/eviction, and current idempotency tombstone size.
 

@@ -1,26 +1,63 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 APP_MARKER = "[OBSERVATION_SHADOW_FIELD_JSON]"
+APP_B64_MARKER = "[OBSERVATION_SHADOW_FIELD_JSON_B64]"
+APP_B64_PATTERN = re.compile(
+    r"observation_id=(?P<observation_id>\S+) "
+    r"chunk=(?P<part>\d+)/(?P<total>\d+) data=(?P<data>\S+)"
+)
 FORBIDDEN_PRODUCTION_HOSTS = {"sound-backend.onrender.com"}
 
 
 def read_app_samples(path: Path) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
+    pending_chunks: dict[str, dict[str, Any]] = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         marker_index = line.find(APP_MARKER)
+        if marker_index >= 0:
+            try:
+                value = json.loads(line[marker_index + len(APP_MARKER) :].strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                samples.append(value)
+            continue
+
+        marker_index = line.find(APP_B64_MARKER)
         if marker_index < 0:
             continue
-        try:
-            value = json.loads(line[marker_index + len(APP_MARKER) :].strip())
-        except json.JSONDecodeError:
+        match = APP_B64_PATTERN.search(line[marker_index + len(APP_B64_MARKER) :])
+        if not match:
             continue
+        observation_id = unquote(match.group("observation_id"))
+        part = int(match.group("part"))
+        total = int(match.group("total"))
+        if part < 1 or total < 1 or part > total:
+            continue
+        if part == 1:
+            pending_chunks[observation_id] = {"total": total, "parts": {}}
+        pending = pending_chunks.get(observation_id)
+        if not pending or pending["total"] != total:
+            continue
+        pending["parts"][part] = match.group("data")
+        if len(pending["parts"]) != total:
+            continue
+        try:
+            encoded = "".join(pending["parts"][index] for index in range(1, total + 1))
+            value = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        except (KeyError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            pending_chunks.pop(observation_id, None)
+            continue
+        pending_chunks.pop(observation_id, None)
         if isinstance(value, dict):
             samples.append(value)
     return samples
