@@ -2,7 +2,7 @@ services:
   - type: web
     name: sound-backend-staging
     runtime: python
-    branch: feat/v2-3-phase4-field-shadow
+    branch: validate/v2-4-bi1-5-classification-staging
     autoDeployTrigger: off
     region: singapore
     plan: starter
@@ -38,11 +38,11 @@ services:
       - key: STAGING_DB_LATENCY_PROBE_ENABLED
         value: "false"
       - key: CLASSIFICATION_V1_ENABLED
-        value: "false"
+        value: "true"
       - key: CLASSIFICATION_V1_PERSISTENCE_ENABLED
-        value: "false"
+        value: "true"
       - key: CLASSIFICATION_V1_WEBSOCKET_ENABLED
-        value: "false"
+        value: "true"
       - key: MOTION_SHADOW_ENABLED
         value: "false"
       - key: MOTION_OUTLIER_SPEED_GUARD_ENABLED
