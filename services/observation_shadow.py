@@ -10,6 +10,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.classification import ClassificationMetadata
+
 from services.tracking.ordering_experiments import (
     PerKeySequenceExecutor,
     SequenceEmission,
@@ -71,6 +73,7 @@ class ShadowObservation(BaseModel):
     audio_ref: None = None
     alert_candidate: bool = True
     trace_id: str = Field(min_length=1, max_length=200)
+    classification: Optional[ClassificationMetadata] = None
 
 
 ShadowObservationAgeClassification = Literal[
@@ -356,6 +359,13 @@ class ObservationShadowRegistry:
                 "max_dedup_ids": self.max_dedup_ids,
                 "storage": "bounded_in_memory_shadow_only",
             }
+
+    def record(self, observation_id: str) -> Optional[dict[str, Any]]:
+        """Return a snapshot for diagnostics/tests without exposing mutable state."""
+
+        with self._lock:
+            record = self._records.get(observation_id)
+            return dict(record) if record is not None else None
 
     def reset(self) -> None:
         with self._lock:

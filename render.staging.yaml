@@ -37,6 +37,18 @@ services:
         value: "true"
       - key: STAGING_DB_LATENCY_PROBE_ENABLED
         value: "false"
+      - key: CLASSIFICATION_V1_ENABLED
+        value: "false"
+      - key: CLASSIFICATION_V1_PERSISTENCE_ENABLED
+        value: "false"
+      - key: CLASSIFICATION_V1_WEBSOCKET_ENABLED
+        value: "false"
+      - key: MOTION_SHADOW_ENABLED
+        value: "false"
+      - key: MOTION_OUTLIER_SPEED_GUARD_ENABLED
+        value: "false"
+      - key: MOTION_MAX_DIAGNOSTIC_SPEED_MPS
+        value: "200"
       - key: TRACKING_ENABLED
         value: "true"
       - key: TRACKING_REORDER_BUFFER_ENABLED

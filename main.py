@@ -35,6 +35,12 @@ from google.oauth2 import service_account
 from pydantic import BaseModel
 
 from app.protocol import ProtocolError, build_envelope, parse_node_message
+from services.classification import (
+    ClassificationMetadata,
+    classification_storage_values,
+    classification_transport_dict,
+    normalize_classification,
+)
 from services.device_location_service import (
     DeviceLocationValidationError,
     location_map,
@@ -232,6 +238,31 @@ POST_INFERENCE_LATENCY_TRACING_ENABLED = (
 )
 STAGING_DB_LATENCY_PROBE_ENABLED = (
     os.getenv("STAGING_DB_LATENCY_PROBE_ENABLED", "false").lower() == "true"
+)
+CLASSIFICATION_V1_ENABLED = (
+    os.getenv("CLASSIFICATION_V1_ENABLED", "false").lower() == "true"
+)
+CLASSIFICATION_V1_PERSISTENCE_ENABLED = (
+    os.getenv(
+        "CLASSIFICATION_V1_PERSISTENCE_ENABLED",
+        str(CLASSIFICATION_V1_ENABLED).lower(),
+    ).lower()
+    == "true"
+)
+CLASSIFICATION_V1_WEBSOCKET_ENABLED = (
+    os.getenv(
+        "CLASSIFICATION_V1_WEBSOCKET_ENABLED",
+        str(CLASSIFICATION_V1_ENABLED).lower(),
+    ).lower()
+    == "true"
+)
+MOTION_SHADOW_ENABLED = os.getenv("MOTION_SHADOW_ENABLED", "false").lower() == "true"
+MOTION_OUTLIER_SPEED_GUARD_ENABLED = (
+    os.getenv("MOTION_OUTLIER_SPEED_GUARD_ENABLED", "false").lower() == "true"
+)
+MOTION_MAX_DIAGNOSTIC_SPEED_MPS = max(
+    0.1,
+    float(os.getenv("MOTION_MAX_DIAGNOSTIC_SPEED_MPS", "200") or 200),
 )
 DASHBOARD_EVENT_ORDER_GUARD_ENABLED = (
     os.getenv("DASHBOARD_EVENT_ORDER_GUARD_ENABLED", "true").lower() == "true"
@@ -434,6 +465,7 @@ class SoundEvent(BaseModel):
     time_sync_age_ms: Optional[int] = None
     trace_id: Optional[str] = None
     latency_trace: Optional[dict[str, Any]] = None
+    classification: Optional[ClassificationMetadata] = None
 
 
 class LocationUpdate(BaseModel):
@@ -640,6 +672,15 @@ EVENT_COLUMNS = [
     "gps_heading_deg",
     "gps_accuracy_m",
     "label",
+    "classification_schema_version",
+    "model_id",
+    "model_version",
+    "model_label",
+    "model_confidence",
+    "operational_class",
+    "aircraft_probability",
+    "drone_subtype",
+    "class_scores_json",
     "audio_file_name",
     "local_audio_path",
     "audio_path",
@@ -682,7 +723,29 @@ EVENT_COLUMNS = [
     "timing_quality",
 ]
 
-EVENT_WRITE_COLUMNS = [column for column in EVENT_COLUMNS if column != "id"]
+CLASSIFICATION_EVENT_COLUMNS = [
+    "classification_schema_version",
+    "model_id",
+    "model_version",
+    "model_label",
+    "model_confidence",
+    "operational_class",
+    "aircraft_probability",
+    "drone_subtype",
+    "class_scores_json",
+]
+
+
+def event_write_columns() -> list[str]:
+    return [
+        column
+        for column in EVENT_COLUMNS
+        if column != "id"
+        and (
+            CLASSIFICATION_V1_PERSISTENCE_ENABLED
+            or column not in CLASSIFICATION_EVENT_COLUMNS
+        )
+    ]
 
 NEW_TIMING_METADATA_COLUMNS = [
     "timing_version",
@@ -1115,6 +1178,15 @@ def init_sqlite_db() -> None:
                 gps_heading_deg REAL,
                 gps_accuracy_m REAL,
                 label TEXT,
+                classification_schema_version TEXT,
+                model_id TEXT,
+                model_version TEXT,
+                model_label TEXT,
+                model_confidence REAL,
+                operational_class TEXT,
+                aircraft_probability REAL,
+                drone_subtype TEXT,
+                class_scores_json TEXT,
                 audio_file_name TEXT,
                 local_audio_path TEXT,
                 audio_path TEXT,
@@ -1166,6 +1238,15 @@ def init_sqlite_db() -> None:
             ("gps_speed_mps", "REAL"),
             ("gps_heading_deg", "REAL"),
             ("gps_accuracy_m", "REAL"),
+            ("classification_schema_version", "TEXT"),
+            ("model_id", "TEXT"),
+            ("model_version", "TEXT"),
+            ("model_label", "TEXT"),
+            ("model_confidence", "REAL"),
+            ("operational_class", "TEXT"),
+            ("aircraft_probability", "REAL"),
+            ("drone_subtype", "TEXT"),
+            ("class_scores_json", "TEXT"),
             ("audio_path", "TEXT"),
             ("audio_format", "TEXT"),
             ("audio_size_bytes", "INTEGER"),
@@ -1799,6 +1880,15 @@ def init_postgres_db() -> None:
                         gps_heading_deg DOUBLE PRECISION,
                         gps_accuracy_m DOUBLE PRECISION,
                         label TEXT,
+                        classification_schema_version TEXT,
+                        model_id TEXT,
+                        model_version TEXT,
+                        model_label TEXT,
+                        model_confidence DOUBLE PRECISION,
+                        operational_class TEXT,
+                        aircraft_probability DOUBLE PRECISION,
+                        drone_subtype TEXT,
+                        class_scores_json JSONB,
                         audio_file_name TEXT,
                         local_audio_path TEXT,
                         audio_path TEXT,
@@ -1865,6 +1955,15 @@ def init_postgres_db() -> None:
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION",
                     "ALTER TABLE events ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS classification_schema_version TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS model_id TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS model_version TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS model_label TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS model_confidence DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS operational_class TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS aircraft_probability DOUBLE PRECISION",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS drone_subtype TEXT",
+                    "ALTER TABLE events ADD COLUMN IF NOT EXISTS class_scores_json JSONB",
                 ]:
                     cursor.execute(statement)
                 cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS label TEXT")
@@ -2682,6 +2781,15 @@ def sanitize_audio_metadata(event: SoundEvent) -> None:
 
 
 def event_values(event: SoundEvent, created_at: str) -> tuple:
+    classification_values = classification_storage_values(
+        event.classification if CLASSIFICATION_V1_PERSISTENCE_ENABLED else None
+    )
+    if classification_values["class_scores_json"] is not None:
+        classification_values["class_scores_json"] = json.dumps(
+            classification_values["class_scores_json"],
+            separators=(",", ":"),
+            sort_keys=True,
+        )
     values = {
         "event_id": event.event_id,
         "device_id": event.device_id,
@@ -2698,6 +2806,7 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         "gps_heading_deg": event.gps_heading_deg,
         "gps_accuracy_m": event.gps_accuracy_m,
         "label": event.label,
+        **classification_values,
         "audio_file_name": event.audio_file_name,
         "local_audio_path": event.local_audio_path,
         "audio_path": event.audio_path,
@@ -2739,7 +2848,7 @@ def event_values(event: SoundEvent, created_at: str) -> tuple:
         "corrected_arrival_time_ms": corrected_arrival_time_ms(event),
         "timing_quality": timing_quality_for_event(event),
     }
-    return tuple(values[column] for column in EVENT_WRITE_COLUMNS)
+    return tuple(values[column] for column in event_write_columns())
 
 
 def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
@@ -2748,17 +2857,23 @@ def upsert_event_postgres(event: SoundEvent, created_at: str) -> int:
 
 
 def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
-    columns = ", ".join(EVENT_WRITE_COLUMNS)
-    placeholders = ", ".join(["%s"] * len(EVENT_WRITE_COLUMNS))
+    write_columns = event_write_columns()
+    columns = ", ".join(write_columns)
+    placeholders = ", ".join(["%s"] * len(write_columns))
     # created_at is the immutable backend receipt time. Audio metadata may be
     # uploaded later for the same event_id and must not make an old event look new.
     update_columns = [
         column
-        for column in EVENT_WRITE_COLUMNS
+        for column in write_columns
         if column not in {"event_id", "created_at"}
     ]
     update_clause = ",\n                        ".join(
-        f"{column} = EXCLUDED.{column}" for column in update_columns
+        (
+            f"{column} = COALESCE(EXCLUDED.{column}, events.{column})"
+            if column in CLASSIFICATION_EVENT_COLUMNS
+            else f"{column} = EXCLUDED.{column}"
+        )
+        for column in update_columns
     )
     connection = get_postgres_connection()
     try:
@@ -2791,16 +2906,22 @@ def upsert_event_sqlite(event: SoundEvent, created_at: str) -> int:
 
 
 def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, bool]:
-    columns = ", ".join(EVENT_WRITE_COLUMNS)
-    placeholders = ", ".join(["?"] * len(EVENT_WRITE_COLUMNS))
+    write_columns = event_write_columns()
+    columns = ", ".join(write_columns)
+    placeholders = ", ".join(["?"] * len(write_columns))
     # Preserve the first backend receipt time when audio metadata refreshes an event.
     update_columns = [
         column
-        for column in EVENT_WRITE_COLUMNS
+        for column in write_columns
         if column not in {"event_id", "created_at"}
     ]
     update_clause = ",\n                    ".join(
-        f"{column} = ?" for column in update_columns
+        (
+            f"{column} = COALESCE(?, {column})"
+            if column in CLASSIFICATION_EVENT_COLUMNS
+            else f"{column} = ?"
+        )
+        for column in update_columns
     )
     values = event_values(event, created_at)
     with get_sqlite_connection() as connection:
@@ -2819,7 +2940,7 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
                 WHERE id = ?
                 """,
                 tuple(
-                    values[EVENT_WRITE_COLUMNS.index(column)]
+                    values[write_columns.index(column)]
                     for column in update_columns
                 )
                 + (db_id,),
@@ -3541,6 +3662,22 @@ def enrich_event_location_row(
     fixed_locations: Optional[dict[str, dict]] = None,
 ) -> dict:
     event = serialize_db_row(dict(row))
+    if (
+        CLASSIFICATION_V1_PERSISTENCE_ENABLED
+        and event.get("classification_schema_version")
+    ):
+        event["classification"] = {
+            "schema_version": event.get("classification_schema_version"),
+            "model_id": event.get("model_id"),
+            "model_version": event.get("model_version"),
+            "model_label": event.get("model_label"),
+            "confidence": event.get("model_confidence"),
+            "class_scores": event.get("class_scores_json"),
+            "operational_class": event.get("operational_class"),
+            "aircraft_probability": event.get("aircraft_probability"),
+            "is_target": event.get("operational_class") in {"aircraft", "drone"},
+            "drone_subtype": event.get("drone_subtype"),
+        }
     event["raw_latitude"] = event.get("latitude")
     event["raw_longitude"] = event.get("longitude")
 
@@ -7677,8 +7814,10 @@ def parse_int_value(value: Any) -> Optional[int]:
 
 
 def event_aircraft_probability(row: dict) -> Optional[float]:
+    probability = parse_float_value(row.get("aircraft_probability"))
     note = row.get("note")
-    probability = parse_float_value(parse_note_field(note, "probability_aircraft"))
+    if probability is None:
+        probability = parse_float_value(parse_note_field(note, "probability_aircraft"))
     if probability is None:
         probability = parse_float_value(parse_note_field(note, "aircraft_probability"))
     if probability is None:
@@ -8888,6 +9027,11 @@ def fast_saved_event_payload(event: SoundEvent, db_id: int, created_at: str) -> 
         "created_at": created_at,
         "trace_id": event.trace_id,
         "latency_trace": event.latency_trace,
+        **(
+            {"classification": classification_transport_dict(event.classification)}
+            if CLASSIFICATION_V1_WEBSOCKET_ENABLED and event.classification is not None
+            else {}
+        ),
     }
 
 
@@ -9213,6 +9357,12 @@ async def runtime_status():
         "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
         "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
         "staging_db_latency_probe_enabled": STAGING_DB_LATENCY_PROBE_ENABLED,
+        "classification_v1_enabled": CLASSIFICATION_V1_ENABLED,
+        "classification_v1_persistence_enabled": CLASSIFICATION_V1_PERSISTENCE_ENABLED,
+        "classification_v1_websocket_enabled": CLASSIFICATION_V1_WEBSOCKET_ENABLED,
+        "motion_shadow_enabled": MOTION_SHADOW_ENABLED,
+        "motion_outlier_speed_guard_enabled": MOTION_OUTLIER_SPEED_GUARD_ENABLED,
+        "motion_max_diagnostic_speed_mps": MOTION_MAX_DIAGNOSTIC_SPEED_MPS,
         "dashboard_event_order_guard_enabled": DASHBOARD_EVENT_ORDER_GUARD_ENABLED,
         "tracking_enabled": TRACKING_ENABLED,
         "tracking_reorder_buffer_enabled": TRACKING_REORDER_BUFFER_ENABLED,
@@ -9456,6 +9606,9 @@ def ingest_shadow_observation(
     if not OBSERVATION_SHADOW_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
     verify_upload_token(upload_token)
+    observation = observation.model_copy(
+        update={"classification": normalize_classification(observation.classification)}
+    )
     received_at = datetime.now(timezone.utc)
     received_at_ms = received_at.timestamp() * 1000.0
     age_ms, age_classification, tracking_eligible = classify_observation_age(
@@ -9550,6 +9703,7 @@ async def create_event(
     request_started_monotonic = monotonic()
     backend_received_at = utc_wall_time_ms()
     verify_upload_token(upload_token)
+    event.classification = normalize_classification(event.classification)
     sanitize_timing_metadata(event)
     sanitize_time_sync_metadata(event)
     sanitize_audio_metadata(event)
@@ -9641,6 +9795,12 @@ async def create_event(
                 "effective_longitude": effective_longitude,
                 "effective_location_source": saved_event.get("effective_location_source"),
                 "label": saved_event.get("label", event.label),
+                **(
+                    {"classification": classification_transport_dict(event.classification)}
+                    if CLASSIFICATION_V1_WEBSOCKET_ENABLED
+                    and event.classification is not None
+                    else {}
+                ),
                 "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
@@ -9708,6 +9868,8 @@ async def create_event(
         "event_id": event.event_id,
         "db_id": db_id,
     }
+    if CLASSIFICATION_V1_ENABLED and event.classification is not None:
+        payload["classification"] = classification_transport_dict(event.classification)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
         payload["trace_id"] = event.trace_id
         payload["latency_trace"] = latency_trace
