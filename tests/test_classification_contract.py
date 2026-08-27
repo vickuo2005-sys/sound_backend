@@ -174,6 +174,30 @@ def test_invalid_model_label_and_score_keys_are_rejected(monkeypatch) -> None:
     assert scores_response.status_code == 422
 
 
+@pytest.mark.parametrize("invalid_score", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_class_score_is_rejected_without_server_error(
+    monkeypatch, invalid_score: str
+) -> None:
+    client = prepare_event_client(monkeypatch)
+    payload = event_payload(
+        f"invalid-{invalid_score}", classification=classification_payload()
+    )
+    encoded = json.dumps(payload, separators=(",", ":")).replace(
+        '"Drone":0.92', f'"Drone":{invalid_score}'
+    )
+
+    response = client.post(
+        "/events",
+        headers={
+            "x-upload-token": "classification-token",
+            "content-type": "application/json",
+        },
+        content=encoded,
+    )
+
+    assert response.status_code == 422
+
+
 def test_old_and_new_observations_are_accepted_and_identity_is_unchanged(
     monkeypatch,
 ) -> None:

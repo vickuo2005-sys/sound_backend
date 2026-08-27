@@ -29,7 +29,9 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
-from fastapi.responses import HTMLResponse, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from google.cloud import storage
 from google.oauth2 import service_account
 from pydantic import BaseModel
@@ -73,6 +75,28 @@ from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandSe
 
 
 app = FastAPI()
+
+
+def _json_safe_validation_detail(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {
+            key: _json_safe_validation_detail(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_validation_detail(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    _request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Keep malformed non-finite JSON numbers on the normal 422 path."""
+
+    detail = _json_safe_validation_detail(jsonable_encoder(exc.errors()))
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""

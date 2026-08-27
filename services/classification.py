@@ -52,6 +52,13 @@ class ClassificationMetadata(BaseModel):
             raise ValueError(
                 "class_scores must contain exactly the five canonical labels"
             )
+        score_values = {
+            "confidence": self.confidence,
+            "aircraft_probability": self.aircraft_probability,
+            **self.class_scores,
+        }
+        if any(not math.isfinite(score) for score in score_values.values()):
+            raise ValueError("classification scores must be finite numbers")
         top_label = max(CANONICAL_LABELS, key=self.class_scores.__getitem__)
         top_score = self.class_scores[top_label]
         if self.model_label != top_label:
