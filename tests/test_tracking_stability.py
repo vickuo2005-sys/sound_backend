@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import main
+import pytest
 from services.localization.geo import xy_to_latlng
 from services.tracking.tracking_service import update_track_from_measurement
 
@@ -62,6 +63,19 @@ def test_impossible_motion_is_rejected_by_physical_gate() -> None:
     assert state["speed_mps"] <= 80.0
 
 
+def test_motion_field_mode_rejects_missing_event_time() -> None:
+    with pytest.raises(ValueError, match="canonical event_time_ms"):
+        update_track_from_measurement(
+            None,
+            {
+                "estimated_lat": 25.033,
+                "estimated_lng": 121.565,
+                "uncertainty_radius_m": 30.0,
+            },
+            require_event_time=True,
+        )
+
+
 def test_process_tracking_deduplicates_equal_measurement_time(tmp_path, monkeypatch) -> None:
     db_path = tmp_path / "tracking_dedup.db"
     monkeypatch.setattr(main, "DB_NAME", str(db_path))
@@ -102,6 +116,62 @@ def test_process_tracking_deduplicates_equal_measurement_time(tmp_path, monkeypa
     assert second["id"] == first["id"]
     assert second["point_count"] == 1
     assert point_count == 1
+
+
+def test_motion_field_telemetry_persists_rejected_raw_point_without_track_update(
+    tmp_path, monkeypatch
+) -> None:
+    db_path = tmp_path / "tracking_raw_rejection.db"
+    monkeypatch.setattr(main, "DB_NAME", str(db_path))
+    monkeypatch.setattr(main, "MOTION_FIELD_TELEMETRY_ENABLED", True)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    main.init_sqlite_db()
+    event_time_ms = datetime.now(timezone.utc).timestamp() * 1000.0
+    first = main.process_tracking_measurement(
+        {
+            "group_id": "motion-field-raw-rejection",
+            "label": "aircraft",
+            "estimated_lat": 25.033,
+            "estimated_lng": 121.565,
+            "confidence": 0.9,
+            "uncertainty_radius_m": 0.0,
+            "event_time_ms": event_time_ms,
+            "source": "field-test",
+        },
+        close_stale=False,
+    )
+    jump_lat, jump_lng = xy_to_latlng(1000.0, 0.0, 25.033, 121.565)
+    second = main.process_tracking_measurement(
+        {
+            "group_id": "motion-field-raw-rejection",
+            "label": "aircraft",
+            "estimated_lat": jump_lat,
+            "estimated_lng": jump_lng,
+            "confidence": 0.9,
+            "uncertainty_radius_m": 0.0,
+            "event_time_ms": event_time_ms + 1000.0,
+            "source": "field-test",
+        },
+        close_stale=False,
+    )
+
+    with main.get_sqlite_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT measured_lat, measured_lng, rejected_as_outlier, state_json
+            FROM target_track_points
+            WHERE track_id = ?
+            ORDER BY created_at
+            """,
+            (first["id"],),
+        ).fetchall()
+
+    assert second["point_count"] == 1
+    assert len(rows) == 2
+    assert rows[1]["rejected_as_outlier"] == 1
+    assert rows[1]["measured_lat"] == pytest.approx(jump_lat)
+    assert rows[1]["measured_lng"] == pytest.approx(jump_lng)
+    assert "innovation_gate_exceeded" in rows[1]["state_json"]
 
 
 def test_delete_implausible_tracks_preserves_healthy_history(tmp_path, monkeypatch) -> None:

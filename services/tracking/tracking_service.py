@@ -113,10 +113,13 @@ def update_track_from_measurement(
     beta: float = 0.35,
     max_speed_mps: float = 80.0,
     base_gate_m: float = 100.0,
+    require_event_time: bool = False,
 ) -> dict:
-    measurement_time_ms = parse_time_ms(measurement.get("event_time_ms")) or datetime.now(
-        timezone.utc
-    ).timestamp() * 1000.0
+    measurement_time_ms = parse_time_ms(measurement.get("event_time_ms"))
+    if measurement_time_ms is None:
+        if require_event_time:
+            raise ValueError("tracking measurement requires canonical event_time_ms")
+        measurement_time_ms = datetime.now(timezone.utc).timestamp() * 1000.0
     measured_lat = float(measurement["estimated_lat"])
     measured_lng = float(measurement["estimated_lng"])
     if not valid_lat_lng(measured_lat, measured_lng):

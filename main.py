@@ -281,6 +281,9 @@ CLASSIFICATION_V1_WEBSOCKET_ENABLED = (
     == "true"
 )
 MOTION_SHADOW_ENABLED = os.getenv("MOTION_SHADOW_ENABLED", "false").lower() == "true"
+MOTION_FIELD_TELEMETRY_ENABLED = (
+    os.getenv("MOTION_FIELD_TELEMETRY_ENABLED", "false").lower() == "true"
+)
 MOTION_OUTLIER_SPEED_GUARD_ENABLED = (
     os.getenv("MOTION_OUTLIER_SPEED_GUARD_ENABLED", "false").lower() == "true"
 )
@@ -3990,9 +3993,14 @@ def process_tracking_measurement(
             "estimated_lat": lat_lng[0],
             "estimated_lng": lat_lng[1],
         }
+        measurement_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
+        if measurement_time_ms is None and MOTION_FIELD_TELEMETRY_ENABLED:
+            logger.warning(
+                "Motion-field tracking measurement rejected: canonical event_time_ms is required"
+            )
+            return None
         track = choose_track_for_measurement(measurement)
         if track is not None:
-            measurement_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
             last_time_ms = parse_tracking_time_ms(track.get("last_event_time_ms"))
             if (
                 measurement_time_ms is not None
@@ -4012,12 +4020,24 @@ def process_tracking_measurement(
                     measurement_time_ms,
                     last_time_ms,
                 )
+                if MOTION_FIELD_TELEMETRY_ENABLED:
+                    state = update_track_from_measurement(
+                        track,
+                        measurement,
+                        require_event_time=True,
+                    )
+                    save_rejected_track_point(
+                        track,
+                        {**measurement, "tracking_discard_reason": metric},
+                        state,
+                    )
                 return enrich_track_with_points(track)
         state = update_track_from_measurement(
             track,
             measurement,
             max_speed_mps=TRACK_MAX_SPEED_MPS,
             base_gate_m=TRACK_BASE_GATE_METERS,
+            require_event_time=MOTION_FIELD_TELEMETRY_ENABLED,
         )
         if state.get("rejected_as_outlier"):
             record_tracking_discard("outlier_measurement_discarded")
@@ -4027,6 +4047,8 @@ def process_tracking_measurement(
                 (state.get("state_json") or {}).get("reason"),
                 state.get("innovation_m"),
             )
+            if MOTION_FIELD_TELEMETRY_ENABLED and track is not None:
+                save_rejected_track_point(track, measurement, state)
             return enrich_track_with_points(track) if track else None
         saved_track = save_track_point(track, measurement, state)
     return enrich_track_with_points(saved_track)
@@ -4179,6 +4201,12 @@ def process_tracking_for_localization(
         "confidence": localization.get("confidence"),
         "uncertainty_radius_m": localization.get("uncertainty_radius_m"),
         "event_time_ms": localization.get("event_time_ms"),
+        "source": "localization_result",
+        "localization_method": localization.get("method")
+        or localization.get("localization_method"),
+        "reporting_node_count": localization.get("node_count"),
+        "reporting_device_ids": localization.get("devices")
+        or (localization.get("diagnostics") or {}).get("selected_device_ids"),
     }
     if post_ingest_reorder:
         return process_post_ingest_tracking_measurement(measurement)
@@ -4224,10 +4252,18 @@ def process_tracking_for_event_group_region(
         or parse_datetime(event_group.get("end_time"))
         or parse_datetime(event_group.get("first_event_time"))
         or parse_datetime(event_group.get("start_time"))
-        or parse_datetime(event_group.get("region_updated_at"))
-        or parse_datetime(event_group.get("updated_at"))
-        or datetime.now(timezone.utc)
     )
+    if event_time is None and MOTION_FIELD_TELEMETRY_ENABLED:
+        logger.warning(
+            "Motion-field event-group measurement rejected: canonical event time is missing"
+        )
+        return None
+    if event_time is None:
+        event_time = (
+            parse_datetime(event_group.get("region_updated_at"))
+            or parse_datetime(event_group.get("updated_at"))
+            or datetime.now(timezone.utc)
+        )
     confidence = parse_float_value(event_group.get("confidence"))
     if confidence is None:
         confidence = fusion_confidence(node_count)
@@ -4246,6 +4282,8 @@ def process_tracking_for_event_group_region(
         "event_time_ms": event_time.timestamp() * 1000.0,
         "source": "event_group_region",
         "region_type": event_group.get("region_type"),
+        "localization_method": event_group.get("localization_method")
+        or "multi_node_region",
         "reporting_node_count": node_count,
         "reporting_device_ids": event_group.get("reporting_device_ids"),
     }
@@ -4350,6 +4388,8 @@ def build_active_alert_region_measurement(
         "event_time_ms": latest_event_time.timestamp() * 1000.0,
         "source": "active_alert_region",
         "region_type": region.get("region_type"),
+        "localization_method": region.get("localization_method")
+        or "multi_node_region",
         "reporting_node_count": node_count,
         "reporting_device_ids": region.get("reporting_device_ids"),
         "region_geojson": region.get("region_geojson"),
@@ -4377,6 +4417,120 @@ def process_tracking_for_active_alert_region(
     if post_ingest_reorder:
         return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement)
+
+
+def tracking_point_diagnostics(measurement: dict) -> dict:
+    return {
+        "source": measurement.get("source") or "localization_result",
+        "region_type": measurement.get("region_type"),
+        "localization_method": measurement.get("localization_method"),
+        "reporting_node_count": measurement.get("reporting_node_count"),
+        "reporting_device_ids": measurement.get("reporting_device_ids"),
+        "tracking_discard_reason": measurement.get("tracking_discard_reason"),
+        "observation_id": measurement.get("observation_id"),
+        "sequence": measurement.get("sequence"),
+    }
+
+
+def save_rejected_track_point(track: dict, measurement: dict, state: dict) -> str:
+    """Persist a telemetry-only raw rejection without changing track state.
+
+    The existing accepted point count, last position, velocity, association,
+    and Dashboard alert semantics remain untouched. Production keeps this path
+    disabled because MOTION_FIELD_TELEMETRY_ENABLED defaults to false.
+    """
+
+    point_id = str(uuid.uuid4())
+    track_id = str(track["id"])
+    diagnostics = tracking_point_diagnostics(measurement)
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO target_track_points (
+                            id, track_id, group_id, localization_result_id,
+                            measurement_time_ms, measured_lat, measured_lng,
+                            filtered_lat, filtered_lng, predicted_lat, predicted_lng,
+                            velocity_east_mps, velocity_north_mps, speed_mps,
+                            heading_deg, uncertainty_radius_m, confidence,
+                            rejected_as_outlier, innovation_m, state_json,
+                            covariance_json, diagnostics_json, created_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, true, %s, CAST(%s AS JSONB), CAST(%s AS JSONB), CAST(%s AS JSONB), now())
+                        """,
+                        (
+                            point_id,
+                            track_id,
+                            measurement.get("group_id"),
+                            measurement.get("localization_result_id"),
+                            state["measurement_time_ms"],
+                            measurement.get("estimated_lat"),
+                            measurement.get("estimated_lng"),
+                            state["filtered_lat"],
+                            state["filtered_lng"],
+                            state["predicted_lat"],
+                            state["predicted_lng"],
+                            state["velocity_east_mps"],
+                            state["velocity_north_mps"],
+                            state["speed_mps"],
+                            state["heading_deg"],
+                            measurement.get("uncertainty_radius_m"),
+                            measurement.get("confidence"),
+                            state["innovation_m"],
+                            json_dumps(state["state_json"]),
+                            json_dumps(state["covariance_json"]),
+                            json_dumps(diagnostics),
+                        ),
+                    )
+        finally:
+            connection.close()
+    else:
+        now = current_time_iso()
+        with get_sqlite_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO target_track_points (
+                    id, track_id, group_id, localization_result_id,
+                    measurement_time_ms, measured_lat, measured_lng,
+                    filtered_lat, filtered_lng, predicted_lat, predicted_lng,
+                    velocity_east_mps, velocity_north_mps, speed_mps,
+                    heading_deg, uncertainty_radius_m, confidence,
+                    rejected_as_outlier, innovation_m, state_json,
+                    covariance_json, diagnostics_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    point_id,
+                    track_id,
+                    measurement.get("group_id"),
+                    measurement.get("localization_result_id"),
+                    state["measurement_time_ms"],
+                    measurement.get("estimated_lat"),
+                    measurement.get("estimated_lng"),
+                    state["filtered_lat"],
+                    state["filtered_lng"],
+                    state["predicted_lat"],
+                    state["predicted_lng"],
+                    state["velocity_east_mps"],
+                    state["velocity_north_mps"],
+                    state["speed_mps"],
+                    state["heading_deg"],
+                    measurement.get("uncertainty_radius_m"),
+                    measurement.get("confidence"),
+                    state["innovation_m"],
+                    json_dumps(state["state_json"]),
+                    json_dumps(state["covariance_json"]),
+                    json_dumps(diagnostics),
+                    now,
+                ),
+            )
+            connection.commit()
+    invalidate_tracks_cache()
+    return point_id
 
 
 def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> dict:
@@ -4484,15 +4638,7 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
                             state["innovation_m"],
                             json_dumps(state["state_json"]),
                             json_dumps(state["covariance_json"]),
-                            json_dumps(
-                                {
-                                    "source": measurement.get("source")
-                                    or "localization_result",
-                                    "region_type": measurement.get("region_type"),
-                                    "reporting_node_count": measurement.get("reporting_node_count"),
-                                    "reporting_device_ids": measurement.get("reporting_device_ids"),
-                                }
-                            ),
+                            json_dumps(tracking_point_diagnostics(measurement)),
                         ),
                     )
                     cursor.execute("SELECT * FROM target_tracks WHERE id = %s", (track_id,))
@@ -4597,14 +4743,7 @@ def save_track_point(track: Optional[dict], measurement: dict, state: dict) -> d
                 state["innovation_m"],
                 json_dumps(state["state_json"]),
                 json_dumps(state["covariance_json"]),
-                json_dumps(
-                    {
-                        "source": measurement.get("source") or "localization_result",
-                        "region_type": measurement.get("region_type"),
-                        "reporting_node_count": measurement.get("reporting_node_count"),
-                        "reporting_device_ids": measurement.get("reporting_device_ids"),
-                    }
-                ),
+                json_dumps(tracking_point_diagnostics(measurement)),
                 now,
             ),
         )
@@ -9385,6 +9524,7 @@ async def runtime_status():
         "classification_v1_persistence_enabled": CLASSIFICATION_V1_PERSISTENCE_ENABLED,
         "classification_v1_websocket_enabled": CLASSIFICATION_V1_WEBSOCKET_ENABLED,
         "motion_shadow_enabled": MOTION_SHADOW_ENABLED,
+        "motion_field_telemetry_enabled": MOTION_FIELD_TELEMETRY_ENABLED,
         "motion_outlier_speed_guard_enabled": MOTION_OUTLIER_SPEED_GUARD_ENABLED,
         "motion_max_diagnostic_speed_mps": MOTION_MAX_DIAGNOSTIC_SPEED_MPS,
         "dashboard_event_order_guard_enabled": DASHBOARD_EVENT_ORDER_GUARD_ENABLED,
