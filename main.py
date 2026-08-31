@@ -43,6 +43,12 @@ from services.classification import (
     classification_transport_dict,
     normalize_classification,
 )
+from services.dashboard_payloads import (
+    serialize_event_for_dashboard,
+    serialize_node_for_dashboard,
+    serialize_track_for_dashboard,
+)
+from services.dashboard_v2_4 import render_dashboard_v2_4
 from services.device_location_service import (
     DeviceLocationValidationError,
     location_map,
@@ -278,6 +284,11 @@ CLASSIFICATION_V1_WEBSOCKET_ENABLED = (
         "CLASSIFICATION_V1_WEBSOCKET_ENABLED",
         str(CLASSIFICATION_V1_ENABLED).lower(),
     ).lower()
+    == "true"
+)
+DASHBOARD_V2_ENABLED = os.getenv("DASHBOARD_V2_ENABLED", "false").lower() == "true"
+DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED = (
+    os.getenv("DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED", "false").lower()
     == "true"
 )
 MOTION_SHADOW_ENABLED = os.getenv("MOTION_SHADOW_ENABLED", "false").lower() == "true"
@@ -9523,6 +9534,8 @@ async def runtime_status():
         "classification_v1_enabled": CLASSIFICATION_V1_ENABLED,
         "classification_v1_persistence_enabled": CLASSIFICATION_V1_PERSISTENCE_ENABLED,
         "classification_v1_websocket_enabled": CLASSIFICATION_V1_WEBSOCKET_ENABLED,
+        "dashboard_v2_enabled": DASHBOARD_V2_ENABLED,
+        "dashboard_v2_experimental_motion_enabled": DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
         "motion_shadow_enabled": MOTION_SHADOW_ENABLED,
         "motion_field_telemetry_enabled": MOTION_FIELD_TELEMETRY_ENABLED,
         "motion_outlier_speed_guard_enabled": MOTION_OUTLIER_SPEED_GUARD_ENABLED,
@@ -9912,7 +9925,13 @@ async def create_event(
         )
         raw_latitude = saved_event.get("raw_latitude", event.latitude)
         raw_longitude = saved_event.get("raw_longitude", event.longitude)
-        dashboard_event = {
+        classification_payload = (
+            classification_transport_dict(event.classification)
+            if CLASSIFICATION_V1_WEBSOCKET_ENABLED
+            and event.classification is not None
+            else None
+        )
+        dashboard_event = serialize_event_for_dashboard({
             **saved_event,
             **alert_timing,
             "latitude": display_latitude,
@@ -9922,8 +9941,9 @@ async def create_event(
             "effective_latitude": effective_latitude,
             "effective_longitude": effective_longitude,
             "effective_location_source": saved_event.get("effective_location_source"),
-        }
-        dashboard_device = {
+            **({"classification": classification_payload} if classification_payload else {}),
+        })
+        dashboard_device = serialize_node_for_dashboard({
             **device_row,
             **alert_timing,
             "latitude": display_latitude,
@@ -9937,7 +9957,7 @@ async def create_event(
             "effective_location_source": saved_event.get("effective_location_source"),
             "marker_location_source": saved_event.get("effective_location_source"),
             "status": "event",
-        }
+        })
         if POST_INFERENCE_LATENCY_TRACING_ENABLED:
             ws_scheduled_at = utc_wall_time_ms()
             latency_trace["event_trigger_scheduled_at"] = ws_scheduled_at
@@ -9959,12 +9979,8 @@ async def create_event(
                 "effective_longitude": effective_longitude,
                 "effective_location_source": saved_event.get("effective_location_source"),
                 "label": saved_event.get("label", event.label),
-                **(
-                    {"classification": classification_transport_dict(event.classification)}
-                    if CLASSIFICATION_V1_WEBSOCKET_ENABLED
-                    and event.classification is not None
-                    else {}
-                ),
+                **({"classification": classification_payload} if classification_payload else {}),
+                "dashboard_presentation": dashboard_event.get("dashboard_presentation"),
                 "timestamp": saved_event.get("timestamp", event.timestamp),
                 "last_event_at": device_row.get("last_event_at"),
                 "status": "event",
@@ -10161,6 +10177,13 @@ def tracks(
         rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
         if points_limit:
             rows = enrich_tracks_with_points(rows, limit=points_limit)
+        rows = [
+            serialize_track_for_dashboard(
+                row,
+                experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
+            )
+            for row in rows
+        ]
         payload = {
             "status": "success",
             "count": len(rows),
@@ -10280,7 +10303,7 @@ async def localization_result_track(result_id: str):
 def list_events(limit: int = Query(default=20, ge=1, le=100)):
     try:
         events = [
-            with_realtime_alert_timing(event)
+            serialize_event_for_dashboard(with_realtime_alert_timing(event))
             for event in list_recent_events(limit=limit)
         ]
     except Exception as exc:
@@ -10350,6 +10373,7 @@ def device_status():
         devices = merge_device_status_rows_with_live_nodes(devices)
         devices = enrich_device_status_rows(devices)
         devices = dashboard_device_location_payloads(devices)
+        devices = [serialize_node_for_dashboard(device) for device in devices]
     except Exception as exc:
         return degraded_read_payload(
             source="device_status",
@@ -11070,7 +11094,7 @@ async def dashboard_websocket(websocket: WebSocket):
         dashboard_manager.disconnect(websocket)
 
 
-@app.get("/dashboard", response_class=HTMLResponse)
+@app.get("/dashboard/legacy", response_class=HTMLResponse)
 def dashboard_v4_clean():
     maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
@@ -14579,6 +14603,22 @@ def dashboard_v4_clean():
         "true" if DASHBOARD_EVENT_ORDER_GUARD_ENABLED else "false",
     )
     return HTMLResponse(content=html)
+
+
+def dashboard_v2_4() -> HTMLResponse:
+    return HTMLResponse(
+        content=render_dashboard_v2_4(
+            maps_api_key=os.getenv("GOOGLE_MAPS_API_KEY", ""),
+            experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
+        )
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    if DASHBOARD_V2_ENABLED:
+        return dashboard_v2_4()
+    return dashboard_v4_clean()
 
 
 def dashboard_legacy_unused():
