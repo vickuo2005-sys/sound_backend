@@ -178,6 +178,35 @@ state, last update, and current time.
 Loading, empty, unavailable, disconnected, and error states are explicit.
 Unknown optional fields and unknown WebSocket types are ignored.
 
+## V2.4.1 Node Control restoration
+
+The Dashboard home remains monitor-first. Each Node Status row has one
+`Control` entry that opens the Nodes view and selects that node. The Nodes view
+uses a master/detail layout: a compact node list on the left and the selected
+node's operational state and controls on the right. Below 900 px the two areas
+stack.
+
+The control surface reuses the existing `/device-command` protocol and only
+offers the verified command strings `start_listening`, `stop_listening`,
+`set_detection_mode`, and `set_collection_mode`. Every action opens a themed,
+keyboard-contained confirmation dialog. Offline, backend-disconnected,
+unknown-listening-state, and in-progress states disable conflicting controls.
+The node state returned by `/device-status` remains the operational source of
+truth; command success never mutates `is_listening` or `upload_mode` directly in
+the browser.
+
+After POST, the UI records the returned command id and actual delivery value.
+`device_command_ack` and `device_command_result` are consumed first. A bounded
+one-second poll of `/device-command/{device_id}?command_id={id}` supplies status
+when the Dashboard WebSocket update is missed. Polling stops on terminal state
+or after 30 seconds. Success triggers a fresh REST snapshot. The original
+Flutter pending-command poll without `command_id` is unchanged.
+
+Live audio stays under Advanced and remains unavailable in V2.4.1 until the
+existing subscriber path is explicitly validated in isolated staging. This is
+separate from GCS audio upload configuration. The Legacy Dashboard remains the
+only temporary live-audio control surface. Simulated alerts are not restored.
+
 ## Responsive layout
 
 - Target: 1920x1080, 1440x900, and 1366x768.

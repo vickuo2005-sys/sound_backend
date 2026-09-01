@@ -7605,6 +7605,42 @@ def get_pending_device_command(device_id: str) -> Optional[dict]:
         connection.close()
 
 
+def get_device_command_by_id(device_id: str, command_id: int) -> Optional[dict]:
+    """Return one command without changing the legacy pending-command poll path."""
+    columns = ", ".join(DEVICE_COMMAND_COLUMNS)
+
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            row = connection.execute(
+                f"""
+                SELECT {columns}
+                FROM device_commands
+                WHERE id = ? AND device_id = ?
+                LIMIT 1
+                """,
+                (command_id, device_id),
+            ).fetchone()
+            return serialize_db_row(dict(row)) if row else None
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT {columns}
+                    FROM device_commands
+                    WHERE id = %s AND device_id = %s
+                    LIMIT 1
+                    """,
+                    (command_id, device_id),
+                )
+                row = cursor.fetchone()
+                return serialize_db_row(dict(row)) if row else None
+    finally:
+        connection.close()
+
+
 def acknowledge_device_command(ack: DeviceCommandAck) -> dict:
     normalized_status = ack.status.strip().lower()
     if normalized_status not in {"done", "failed"}:
@@ -9536,6 +9572,9 @@ async def runtime_status():
         "classification_v1_websocket_enabled": CLASSIFICATION_V1_WEBSOCKET_ENABLED,
         "dashboard_v2_enabled": DASHBOARD_V2_ENABLED,
         "dashboard_v2_experimental_motion_enabled": DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
+        "node_websocket_enabled": NODE_WEBSOCKET_ENABLED,
+        "command_websocket_enabled": COMMAND_WEBSOCKET_ENABLED,
+        "live_audio_enabled": LIVE_AUDIO_ENABLED,
         "motion_shadow_enabled": MOTION_SHADOW_ENABLED,
         "motion_field_telemetry_enabled": MOTION_FIELD_TELEMETRY_ENABLED,
         "motion_outlier_speed_guard_enabled": MOTION_OUTLIER_SPEED_GUARD_ENABLED,
@@ -10613,7 +10652,25 @@ async def device_command(command: DeviceCommandCreate):
 
 
 @app.get("/device-command/{device_id}")
-def device_command_poll(device_id: str):
+def device_command_poll(
+    device_id: str,
+    command_id: Optional[int] = Query(default=None, ge=1),
+):
+    if command_id is not None:
+        command = get_device_command_by_id(device_id, command_id)
+        if not command:
+            return {"has_command": False, "command_id": command_id}
+        return {
+            "has_command": True,
+            "command_id": command.get("id"),
+            "command": command.get("command"),
+            "value": command.get("value"),
+            "status": command.get("status"),
+            "ack_message": command.get("ack_message"),
+            "created_at": command.get("created_at"),
+            "executed_at": command.get("executed_at"),
+        }
+
     command = get_pending_device_command(device_id)
     if not command:
         return {"has_command": False}

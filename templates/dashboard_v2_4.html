@@ -197,6 +197,7 @@
         .ghost-button:hover, .filter-button:hover, .action-button:hover { border-color: #3d6684; }
         .filter-button.active { color: var(--primary); border-color: #21708b; background: var(--primary-muted); }
         .action-button.primary { color: #04212a; border-color: var(--primary); background: var(--primary); font-weight: 800; }
+        .action-button.danger { color: #ffe7e7; border-color: #8d3e46; background: #5c252d; font-weight: 800; }
         .action-button:disabled { cursor: not-allowed; opacity: .45; }
         .map-legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--text-secondary); font-size: 11px; }
         .legend-symbol { color: var(--primary); font-weight: 900; }
@@ -254,11 +255,59 @@
         .raw-ids { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
         audio { width: 100%; margin-top: 10px; }
 
-        .node-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .node-grid { display: block; }
+        .node-control-layout { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); gap: 14px; align-items: start; }
+        .node-picker { display: grid; gap: 7px; padding: 10px; }
+        .node-select-row {
+            width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 9px; align-items: center;
+            padding: 10px; color: inherit; text-align: left; border: 1px solid transparent; border-radius: 10px; background: #0b1726;
+        }
+        .node-select-row:hover, .node-select-row.selected { border-color: #2c7188; background: #11263a; }
+        .node-select-row.selected { box-shadow: inset 3px 0 var(--primary); }
+        .node-select-copy strong, .node-select-copy span { display: block; }
+        .node-select-copy span { margin-top: 2px; color: var(--text-secondary); font-size: 11px; }
+        .selected-node-card { overflow: hidden; }
+        .selected-node-body { padding: 16px; }
+        .selected-node-title { display: flex; align-items: center; gap: 9px; }
         .node-detail-card { padding: 14px; }
         .node-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
         .node-detail-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; color: var(--text-secondary); font-size: 12px; }
         .node-detail-list strong { display: block; color: var(--text-primary); margin-top: 2px; }
+        .control-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+        .control-heading { margin: 0 0 11px; color: var(--text-secondary); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+        .control-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+        .control-copy span, .control-copy strong { display: block; }
+        .control-copy span { color: var(--text-secondary); font-size: 11px; }
+        .control-copy strong { margin-top: 3px; }
+        .primary-control { min-width: 170px; min-height: 42px; }
+        .mode-segment { display: inline-grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 11px; background: #091524; }
+        .mode-button { min-height: 34px; padding: 6px 12px; border: 0; border-radius: 8px; color: var(--text-secondary); background: transparent; }
+        .mode-button.active { color: #dffaff; background: #17445a; box-shadow: inset 0 0 0 1px #267491; }
+        .mode-button:disabled { cursor: not-allowed; opacity: .45; }
+        .control-helper { margin-top: 8px; color: var(--text-secondary); font-size: 11px; }
+        .command-panel { padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: #0a1727; }
+        .command-panel.pending { border-color: #806226; background: #231e12; }
+        .command-panel.success { border-color: #246b4a; background: #10251d; }
+        .command-panel.failure { border-color: #833d45; background: #29171c; }
+        .command-status-line { display: flex; align-items: flex-start; gap: 9px; }
+        .command-status-line strong, .command-status-line span { display: block; }
+        .command-status-line span { margin-top: 3px; color: var(--text-secondary); font-size: 11px; }
+        .command-meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 9px; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+        .advanced-control { margin-top: 14px; }
+        .advanced-control summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+        .advanced-body { margin-top: 10px; padding: 11px; border: 1px solid var(--border); border-radius: 10px; background: #0b1726; }
+        .node-row { grid-template-columns: 32px minmax(0, 1fr) auto auto; }
+        .node-focus-entry { grid-column: 1 / 3; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 9px; align-items: center; color: inherit; text-align: left; background: transparent; border: 0; }
+        .node-control-entry { min-height: 29px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--primary); background: var(--surface-2); font-size: 11px; }
+
+        .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(2, 8, 18, .76); }
+        .modal-backdrop[hidden] { display: none; }
+        .confirm-modal { width: min(460px, 100%); border: 1px solid #31516b; border-radius: 16px; background: #0f1d2e; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
+        .confirm-modal header { padding: 17px 18px 0; }
+        .confirm-modal h2 { margin: 0; font-size: 18px; }
+        .confirm-modal-body { padding: 12px 18px 18px; color: var(--text-secondary); }
+        .confirm-node { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-primary); background: #0a1727; }
+        .confirm-modal-actions { display: flex; justify-content: flex-end; gap: 9px; padding: 0 18px 18px; }
 
         .toast {
             position: fixed; right: 20px; bottom: 20px; z-index: 100;
@@ -289,6 +338,8 @@
             .operational-grid, .event-browser { grid-template-columns: 1fr; }
             .event-browser .detail-panel { min-height: auto; }
             #map, .map-fallback { min-height: 380px; }
+            .node-control-layout { grid-template-columns: 1fr; }
+            .node-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (max-width: 620px) {
             .topbar { display: block; padding: 11px 12px; }
@@ -298,7 +349,7 @@
             .detection-layout { grid-template-columns: 1fr; }
             .detection-icon { width: 58px; height: 58px; border-radius: 17px; }
             .score-row { grid-template-columns: 94px minmax(60px, 1fr) 54px; }
-            .node-grid { grid-template-columns: 1fr; }
+            .node-picker { grid-template-columns: 1fr; }
             .detail-grid { grid-template-columns: 1fr; }
             .detail-wide { grid-column: auto; }
         }
@@ -425,6 +476,20 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+    <div id="commandConfirmBackdrop" class="modal-backdrop" hidden>
+        <section id="commandConfirmModal" class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="commandConfirmTitle" aria-describedby="commandConfirmDescription">
+            <header><h2 id="commandConfirmTitle">確認節點命令</h2></header>
+            <div class="confirm-modal-body">
+                <div id="commandConfirmDescription">即將向節點發送命令。</div>
+                <div id="commandConfirmNode" class="confirm-node"></div>
+            </div>
+            <div class="confirm-modal-actions">
+                <button id="commandConfirmCancel" class="action-button" type="button">取消</button>
+                <button id="commandConfirmSubmit" class="action-button primary" type="button">確認</button>
+            </div>
+        </section>
+    </div>
+
     <script>
         'use strict';
         const experimentalMotionEnabled = __EXPERIMENTAL_MOTION_ENABLED__;
@@ -437,7 +502,8 @@
             events: [], devices: new Map(), tracks: new Map(), groups: new Map(),
             health: null, runtime: null, backendConnected: false, wsConnected: false,
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
-            selectedEventId: null, targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all'
+            selectedEventId: null, selectedNodeId: 'node_A01', commands: new Map(), confirmAction: null,
+            targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all'
         };
         let map = null;
         let mapInfoWindow = null;
@@ -449,6 +515,8 @@
         let uncertaintyCircle = null;
         let wsRetryAttempt = 0;
         let toastTimer = null;
+        let commandPollSerial = 0;
+        let modalPreviousFocus = null;
 
         function safe(value) {
             return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -747,6 +815,45 @@
             if (deviceOnline(device)) return {text:device.is_listening === true ? 'LISTENING' : 'ONLINE', css:'ok'};
             return {text:'OFFLINE', css:'off'};
         }
+        const commandCopy = {
+            start_listening: {label:'開始監聽', title:'開始監聽？', description:id=>`即將向 Node ${id} 發送開始監聽命令。`, confirm:'確認開始'},
+            stop_listening: {label:'停止監聽', title:'停止監聽？', description:id=>`即將停止 Node ${id} 的聲音監聽。`, confirm:'確認停止'},
+            set_detection_mode: {label:'切換至偵測模式', title:'切換至偵測模式？', description:id=>`Node ${id} 將切換至偵測模式。`, confirm:'確認切換'},
+            set_collection_mode: {label:'切換至蒐集模式', title:'切換至蒐集模式？', description:id=>`Node ${id} 將由偵測模式切換至蒐集模式。`, confirm:'確認切換'}
+        };
+        function commandState(deviceId) { return state.commands.get(deviceId) || {phase:'idle'}; }
+        function commandInProgress(command) { return ['sending','pending','delivered'].includes(command?.phase); }
+        function normalizedMode(device) {
+            const mode = String(device?.upload_mode || '').toLowerCase();
+            if (mode.includes('collect')) return 'collection';
+            if (mode.includes('detect')) return 'detection';
+            return null;
+        }
+        function commandDisabledReason(device) {
+            if (!state.backendConnected) return '後端連線中斷，無法發送命令';
+            if (!state.devices.has(device.device_id) || !deviceOnline(device)) return '節點離線，無法發送命令';
+            if (commandInProgress(commandState(device.device_id))) return '目前命令尚未完成';
+            return '';
+        }
+        function commandStatusMarkup(device) {
+            const current = commandState(device.device_id);
+            const copy = commandCopy[current.command] || {label:current.command || '節點命令'};
+            const delivery = current.delivery === 'websocket' ? 'WebSocket' : (current.delivery === 'polling' ? 'Polling' : null);
+            const meta = [current.commandId ? `Command #${current.commandId}` : null, delivery ? `送達方式：${delivery}` : null, current.finishedAt ? formatTime(current.finishedAt) : null].filter(Boolean);
+            if (current.phase === 'idle') return `<div class="command-panel"><div class="command-status-line"><span class="status-symbol info">○</span><div><strong>尚無進行中的命令</strong><span>選擇控制操作後會顯示完整 lifecycle。</span></div></div></div>`;
+            const states = {
+                sending:{kind:'pending', symbol:'○', title:'正在發送命令…', detail:'正在建立 Backend command。'},
+                pending:{kind:'pending', symbol:'○', title:'命令已建立', detail:'等待節點接收…'},
+                delivered:{kind:'pending', symbol:'○', title:'命令已送達節點', detail:'等待 ACK / 執行結果…'},
+                ack_success:{kind:'success', symbol:'✓', title:'命令執行成功', detail:current.message || '節點已回報成功。'},
+                ack_failed:{kind:'failure', symbol:'✕', title:'命令執行失敗', detail:current.message || '節點回報失敗。'},
+                timeout:{kind:'failure', symbol:'!', title:'節點未在期限內確認', detail:'已停止輪詢；可重新確認後重試。'},
+                error:{kind:'failure', symbol:'✕', title:'命令建立失敗', detail:current.message || 'Backend command API error。'}
+            };
+            const view = states[current.phase] || states.error;
+            const retry = current.phase === 'timeout' ? `<button class="action-button" type="button" data-command-retry="${safe(current.command)}">重試</button>` : '';
+            return `<div class="command-panel ${view.kind}"><div class="command-status-line"><span class="status-symbol ${view.kind === 'success' ? 'ok' : (view.kind === 'failure' ? 'error' : 'warn')}">${view.symbol}</span><div><strong>${safe(view.title)}</strong><span>${safe(copy.label)} · ${safe(view.detail)}</span></div></div>${meta.length ? `<div class="command-meta">${meta.map(item=>`<span>${safe(item)}</span>`).join('')}</div>` : ''}${retry ? `<div style="margin-top:10px">${retry}</div>` : ''}</div>`;
+        }
         function renderNodeStatus() {
             const devices = deviceSlots();
             const reported = devices.filter(device => state.devices.has(device.device_id)).length;
@@ -755,24 +862,131 @@
             list.innerHTML = devices.map(device => {
                 const status = nodeState(device); const gps = finite(device.gps_accuracy_m);
                 const activity = state.devices.has(device.device_id) ? (device.is_listening === true ? 'Listening' : (device.is_listening === false ? 'Not listening' : 'No listening telemetry')) : 'No telemetry';
-                return `<button class="node-row" data-node-id="${safe(device.device_id)}" aria-label="在地圖查看 ${safe(shortNodeId(device.device_id))}"><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><span><span class="node-name">${safe(shortNodeId(device.device_id))}</span><span class="node-meta">${safe(activity)} · GPS ${gps === null ? '—' : `±${gps.toFixed(0)}m`}</span></span><span class="state-text ${status.css}">${status.text}</span></button>`;
+                return `<div class="node-row"><button class="node-focus-entry" type="button" data-node-focus="${safe(device.device_id)}" aria-label="在地圖查看 ${safe(shortNodeId(device.device_id))}"><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><span><span class="node-name">${safe(shortNodeId(device.device_id))}</span><span class="node-meta">${safe(activity)} · GPS ${gps === null ? '—' : `±${gps.toFixed(0)}m`}</span></span></button><span class="state-text ${status.css}">${status.text}</span><button class="node-control-entry" type="button" data-node-control="${safe(device.device_id)}" aria-label="控制 ${safe(shortNodeId(device.device_id))}">控制</button></div>`;
             }).join('');
-            list.querySelectorAll('[data-node-id]').forEach(button => button.addEventListener('click', () => focusNodeOnMap(button.dataset.nodeId)));
+            list.querySelectorAll('[data-node-focus]').forEach(button => button.addEventListener('click', () => focusNodeOnMap(button.dataset.nodeFocus)));
+            list.querySelectorAll('[data-node-control]').forEach(button => button.addEventListener('click', () => openNodeControl(button.dataset.nodeControl)));
         }
         function renderNodesView() {
             const grid = document.getElementById('nodeGrid');
-            grid.innerHTML = deviceSlots().map(device => {
-                const status = nodeState(device); const location = nodeLocation(device);
-                return `<article class="card node-detail-card"><div class="node-detail-head"><div><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><strong>${safe(shortNodeId(device.device_id))}</strong></div><span class="state-text ${status.css}">${status.text}</span></div><div class="node-detail-list">
-                    <div>Listening<strong>${device.is_listening === true ? 'YES' : (device.is_listening === false ? 'NO' : '—')}</strong></div>
-                    <div>GPS<strong>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : '—'}</strong></div>
-                    <div>AI<strong>${safe(device.ai_status || 'No telemetry')}</strong></div>
-                    <div>Backend<strong>${safe(device.backend_status || 'No telemetry')}</strong></div>
-                    <div>Queue state<strong>${safe(device.last_upload_status || device.metadata_upload_status || 'No telemetry')}</strong></div>
-                    <div>Last event<strong>${safe(formatDateTime(device.last_event_at))}</strong></div>
-                </div><button class="ghost-button" data-node-id="${safe(device.device_id)}" style="margin-top:12px">Focus map</button></article>`;
+            const devices = deviceSlots();
+            if (!devices.some(device => device.device_id === state.selectedNodeId)) state.selectedNodeId = devices[0]?.device_id || null;
+            const selected = devices.find(device => device.device_id === state.selectedNodeId);
+            const nodeList = devices.map(device => {
+                const status = nodeState(device); const mode = normalizedMode(device);
+                const activity = device.is_listening === true ? '監聽中' : (device.is_listening === false ? '已停止' : '監聽狀態未知');
+                return `<button class="node-select-row ${device.device_id === state.selectedNodeId ? 'selected' : ''}" type="button" data-select-node="${safe(device.device_id)}" aria-pressed="${device.device_id === state.selectedNodeId}"><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><span class="node-select-copy"><strong>${safe(shortNodeId(device.device_id))}</strong><span>${safe(activity)} · ${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '模式未知')} · ${safe(formatTime(device.last_seen))}</span></span><span class="state-text ${status.css}">${status.text}</span></button>`;
             }).join('');
-            grid.querySelectorAll('[data-node-id]').forEach(button => button.addEventListener('click', () => { switchView('dashboard'); focusNodeOnMap(button.dataset.nodeId); }));
+            if (!selected) { grid.innerHTML = '<div class="empty-state"><div><strong>沒有可選節點</strong>等待 node telemetry</div></div>'; return; }
+            const status = nodeState(selected); const location = nodeLocation(selected); const mode = normalizedMode(selected);
+            const baseReason = commandDisabledReason(selected); const listeningKnown = typeof selected.is_listening === 'boolean';
+            const startCommand = selected.is_listening === true ? 'stop_listening' : 'start_listening';
+            const startDisabled = baseReason || (!listeningKnown ? '監聽狀態尚未確認' : '');
+            const liveAudioEnabled = state.runtime?.live_audio_enabled === true;
+            grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">Node List</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} REPORTED</span></div><div class="node-picker">${nodeList}</div></article>
+                <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">Node ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
+                    <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>GPS<strong>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}${finite(selected.gps_accuracy_m) === null ? '' : ` · ±${finite(selected.gps_accuracy_m).toFixed(0)}m`}` : '—'}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div></div>
+                    <section class="control-section"><h3 class="control-heading">Node Control</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
+                    <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>Backend node state</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
+                    <section class="control-section"><h3 class="control-heading">Command Status</h3>${commandStatusMarkup(selected)}</section>
+                    <details class="advanced-control"><summary>進階控制</summary><div class="advanced-body"><strong>即時監聽</strong><p class="control-helper">${liveAudioEnabled ? '既有 live audio pipeline 已配置，但本頁尚未完成安全訂閱驗證；請暫用 Legacy Dashboard。' : '目前 staging 不可用。GCS 上傳狀態與 live monitoring 無關。'}</p><button class="action-button" type="button" disabled aria-disabled="true">開始即時監聽</button></div></details>
+                    <button class="ghost-button" type="button" data-focus-selected style="margin-top:14px">Focus map</button>
+                </div></article></div>`;
+            grid.querySelectorAll('[data-select-node]').forEach(button => button.addEventListener('click', () => { state.selectedNodeId = button.dataset.selectNode; renderNodesView(); }));
+            grid.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.command)));
+            grid.querySelectorAll('[data-command-retry]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.commandRetry)));
+            grid.querySelector('[data-focus-selected]')?.addEventListener('click', () => { switchView('dashboard'); focusNodeOnMap(selected.device_id); });
+        }
+
+        function openNodeControl(deviceId) {
+            state.selectedNodeId = deviceId || 'node_A01';
+            switchView('nodes');
+            requestAnimationFrame(() => document.querySelector(`[data-select-node="${CSS.escape(state.selectedNodeId)}"]`)?.focus());
+        }
+        function openCommandConfirm(deviceId, command) {
+            const device = state.devices.get(deviceId);
+            const copy = commandCopy[command];
+            if (!device || !copy) { showToast('找不到可控制的節點或命令'); return; }
+            const reason = commandDisabledReason(device);
+            if (reason) { showToast(reason); return; }
+            if ((command === 'start_listening' || command === 'stop_listening') && typeof device.is_listening !== 'boolean') { showToast('監聽狀態尚未確認'); return; }
+            state.confirmAction = {deviceId, command};
+            modalPreviousFocus = document.activeElement;
+            document.getElementById('commandConfirmTitle').textContent = copy.title;
+            document.getElementById('commandConfirmDescription').textContent = copy.description(shortNodeId(deviceId));
+            document.getElementById('commandConfirmNode').textContent = `節點：${shortNodeId(deviceId)} · 動作：${copy.label}`;
+            const submit = document.getElementById('commandConfirmSubmit');
+            submit.textContent = copy.confirm;
+            submit.classList.toggle('danger', command === 'stop_listening');
+            submit.classList.toggle('primary', command !== 'stop_listening');
+            document.getElementById('commandConfirmBackdrop').hidden = false;
+            submit.focus();
+        }
+        function closeCommandConfirm() {
+            document.getElementById('commandConfirmBackdrop').hidden = true;
+            state.confirmAction = null;
+            if (modalPreviousFocus?.focus && document.contains(modalPreviousFocus)) modalPreviousFocus.focus();
+            modalPreviousFocus = null;
+        }
+        function updateCommandState(deviceId, patch) {
+            const previous = commandState(deviceId);
+            state.commands.set(deviceId, {...previous, ...patch});
+            renderNodesView();
+        }
+        function finishCommand(deviceId, phase, message, finishedAt = new Date().toISOString()) {
+            const current = commandState(deviceId);
+            if (!current.command && current.phase === 'idle') return;
+            updateCommandState(deviceId, {phase, message:message || current.message || '', finishedAt});
+            refreshSnapshot(`command-${phase}`).catch(() => {});
+        }
+        function applyCommandStatusPayload(data) {
+            if (!data?.device_id || !data.command_id) return;
+            const current = commandState(data.device_id);
+            if (current.commandId && Number(current.commandId) !== Number(data.command_id)) return;
+            if (!current.commandId && current.phase !== 'sending') return;
+            const status = String(data.status || '').toLowerCase();
+            const base = {commandId:Number(data.command_id), message:data.message || data.ack_message || current.message || ''};
+            if (['done','success','succeeded','ok'].includes(status)) finishCommand(data.device_id, 'ack_success', base.message, data.executed_at);
+            else if (status === 'expired') finishCommand(data.device_id, 'timeout', base.message, data.executed_at);
+            else if (['failed','rejected'].includes(status)) finishCommand(data.device_id, 'ack_failed', base.message, data.executed_at);
+            else if (['sent','acknowledged','accepted','running','started'].includes(status)) updateCommandState(data.device_id, {...base, phase:'delivered'});
+            else if (status === 'pending') updateCommandState(data.device_id, {...base, phase:'pending'});
+        }
+        async function pollCommandStatus(deviceId, commandId, pollToken, deadline) {
+            const current = commandState(deviceId);
+            if (current.pollToken !== pollToken || !commandInProgress(current)) return;
+            if (Date.now() >= deadline) { finishCommand(deviceId, 'timeout', '30 秒內未收到節點執行結果'); return; }
+            try {
+                const response = await fetch(`/device-command/${encodeURIComponent(deviceId)}?command_id=${encodeURIComponent(commandId)}`, {cache:'no-store'});
+                if (response.ok) {
+                    const body = await response.json();
+                    if (body.has_command) applyCommandStatusPayload({...body, device_id:deviceId});
+                }
+            } catch (_) {
+                // WebSocket may still complete the command; bounded polling continues until deadline.
+            }
+            const latest = commandState(deviceId);
+            if (latest.pollToken === pollToken && commandInProgress(latest)) setTimeout(() => pollCommandStatus(deviceId, commandId, pollToken, deadline), 1000);
+        }
+        async function sendConfirmedCommand() {
+            const action = state.confirmAction;
+            if (!action) return;
+            const device = state.devices.get(action.deviceId);
+            const reason = device ? commandDisabledReason(device) : '找不到節點';
+            if (reason) { closeCommandConfirm(); showToast(reason); return; }
+            closeCommandConfirm();
+            const pollToken = ++commandPollSerial;
+            updateCommandState(action.deviceId, {phase:'sending', command:action.command, commandId:null, delivery:null, message:'', startedAt:new Date().toISOString(), finishedAt:null, pollToken});
+            try {
+                const response = await fetch('/device-command', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({device_id:action.deviceId, command:action.command, value:null, issued_by:'dashboard_v2_4_1'})});
+                const body = await response.json().catch(() => ({}));
+                if (!response.ok || !body.command_id) throw new Error(body.detail || `HTTP ${response.status}`);
+                const phase = body.status === 'sent' ? 'delivered' : 'pending';
+                updateCommandState(action.deviceId, {phase, commandId:Number(body.command_id), delivery:body.delivery || null, message:phase === 'delivered' ? '等待節點執行結果' : '等待節點接收'});
+                pollCommandStatus(action.deviceId, Number(body.command_id), pollToken, Date.now() + 30000);
+            } catch (error) {
+                finishCommand(action.deviceId, 'error', String(error?.message || error));
+            }
         }
 
         function healthRow(label, stateText, kind) { return `<div class="health-row"><span>${safe(label)}</span><span class="health-state"><span class="status-symbol ${kind}">${kind === 'ok' ? '●' : (kind === 'error' ? '!' : '○')}</span>${safe(stateText)}</span></div>`; }
@@ -980,7 +1194,12 @@
                 const group = data.group || data; if (group.id) state.groups.set(String(group.id), group); state.lastUpdate = new Date(); renderMap(); renderCommandBar();
             } else if (data.type === 'track_update') {
                 const track = data.track || data; if (track.id) state.tracks.set(String(track.id), track); state.lastUpdate = new Date(); renderMotion(); renderMap(); renderCommandBar();
-            } else if (['tracks_rebuilt','event_audio_update','device_command_ack'].includes(data.type)) {
+            } else if (data.type === 'device_command_created') {
+                const current = commandState(data.device_id);
+                if (current.phase === 'sending' && (!current.command || current.command === data.command)) updateCommandState(data.device_id, {command:data.command || current.command, commandId:Number(data.command_id), delivery:data.delivery || current.delivery, phase:data.status === 'sent' ? 'delivered' : 'pending'});
+            } else if (['device_command_ack','device_command_result'].includes(data.type)) {
+                applyCommandStatusPayload(data);
+            } else if (['tracks_rebuilt','event_audio_update'].includes(data.type)) {
                 refreshSnapshot('incremental-gap');
             }
             // Unknown fields and message types are intentionally ignored for backward compatibility.
@@ -1002,6 +1221,18 @@
         document.getElementById('nodeFilter').addEventListener('change', event => { state.nodeFilter = event.target.value; renderEventsView(); });
         document.getElementById('timeFilter').addEventListener('change', event => { state.timeFilter = event.target.value; renderEventsView(); });
         document.getElementById('fitMapButton').addEventListener('click', fitMap);
+        document.getElementById('commandConfirmCancel').addEventListener('click', closeCommandConfirm);
+        document.getElementById('commandConfirmSubmit').addEventListener('click', sendConfirmedCommand);
+        document.getElementById('commandConfirmBackdrop').addEventListener('mousedown', event => { if (event.target === event.currentTarget) closeCommandConfirm(); });
+        document.getElementById('commandConfirmModal').addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); closeCommandConfirm(); return; }
+            if (event.key !== 'Tab') return;
+            const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
+            if (!buttons.length) return;
+            const first = buttons[0]; const last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
         setInterval(() => { document.getElementById('currentTime').textContent = new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date()); }, 1000);
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('currentTime').textContent = new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
