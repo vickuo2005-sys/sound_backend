@@ -515,6 +515,7 @@
         let uncertaintyCircle = null;
         let wsRetryAttempt = 0;
         let toastTimer = null;
+        let deviceSnapshotPollInFlight = false;
         let commandPollSerial = 0;
         let modalPreviousFocus = null;
 
@@ -645,6 +646,29 @@
             renderAll();
             if (!state.backendConnected) showToast('Backend snapshot 讀取失敗，將於 WebSocket 重連後再試');
             if (reason === 'reconnect') showToast('即時連線已恢復，snapshot 已同步');
+        }
+
+        async function refreshDeviceSnapshot() {
+            if (deviceSnapshotPollInFlight) return;
+            deviceSnapshotPollInFlight = true;
+            try {
+                const result = await fetchJson('/device-status', 5000);
+                if (!Array.isArray(result.devices)) return;
+                state.devices.clear();
+                result.devices.forEach(upsertDevice);
+                state.lastUpdate = new Date();
+                renderMetrics();
+                renderNodeStatus();
+                renderNodesView();
+                renderHealth();
+                renderMap();
+                renderCommandBar();
+            } catch (_) {
+                // WebSocket remains primary. The next bounded poll or reconnect
+                // snapshot retries without leaving a permanent loading state.
+            } finally {
+                deviceSnapshotPollInFlight = false;
+            }
         }
 
         function renderCommandBar() {
@@ -1237,6 +1261,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('currentTime').textContent = new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
             bootstrap();
+            setInterval(() => { refreshDeviceSnapshot().catch(() => {}); }, 5000);
             setTimeout(() => { if (!mapStarted) showMapFallback(); }, 5000);
         });
     </script>

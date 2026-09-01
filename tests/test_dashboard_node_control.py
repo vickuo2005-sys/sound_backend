@@ -36,6 +36,14 @@ def test_pending_command_disables_conflicting_controls() -> None:
     assert "目前命令尚未完成" in html
 
 
+def test_node_status_has_bounded_refresh_for_missed_offline_transition() -> None:
+    html = dashboard_html()
+    assert "async function refreshDeviceSnapshot()" in html
+    assert "fetchJson('/device-status', 5000)" in html
+    assert "deviceSnapshotPollInFlight" in html
+    assert "setInterval(() => { refreshDeviceSnapshot().catch(() => {}); }, 5000)" in html
+
+
 def test_start_uses_themed_confirm_modal() -> None:
     html = dashboard_html()
     assert 'id="commandConfirmModal"' in html

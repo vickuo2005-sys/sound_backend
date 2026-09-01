@@ -80,6 +80,8 @@ node operational state are deliberately separate:
 - Node WebSocket results are persisted as `running`, `succeeded`, or `failed`.
 - A WebSocket command envelope expires after 30 seconds.
 - Dashboard fallback polling runs once per second and stops after 30 seconds.
+- Device status refresh runs every five seconds to cover heartbeat expiry when
+  no final WebSocket disconnect frame is emitted.
 - Timeout is a local unresolved presentation state; retry requires a new
   confirmation and the existing Backend supersede behavior handles an older
   pending command.
