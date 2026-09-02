@@ -27,6 +27,7 @@ def render_dashboard_v2_4(
         )
         maps_script_tag = f'<script async defer src="{maps_url}"></script>'
     simulation_controls = ""
+    simulation_watermark = ""
     simulation_panel = ""
     simulation_scenario_script = ""
     if simulation_enabled:
@@ -35,11 +36,13 @@ def render_dashboard_v2_4(
             Simulation / 模擬展示
         </button>
         """
-        simulation_panel = """
+        simulation_watermark = """
         <div id="simulationWatermark" class="simulation-watermark" hidden>
             <strong>SIMULATION / 模擬展示</strong>
             <span>NOT FIELD VALIDATED</span>
         </div>
+        """
+        simulation_panel = """
         <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
             <div class="simulation-banner">
                 <div><strong>SIMULATION / 模擬展示</strong><span>approach_site_demo_v1 · NOT FIELD VALIDATED</span></div>
@@ -78,6 +81,7 @@ def render_dashboard_v2_4(
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
         .replace("__SIMULATION_CONTROLS__", simulation_controls)
+        .replace("__SIMULATION_WATERMARK__", simulation_watermark)
         .replace("__SIMULATION_PANEL__", simulation_panel)
         .replace("__SIMULATION_SCENARIO_SCRIPT__", simulation_scenario_script)
         .replace("__MAPS_CONFIGURED__", "true" if maps_api_key else "false")

@@ -40,6 +40,7 @@ def test_flag_off_omits_entry_panel_and_scenario_payload() -> None:
     html = production_safe_html()
     assert 'id="simulationOpenButton"' not in html
     assert 'id="simulationPanel"' not in html
+    assert 'id="simulationWatermark"' not in html
     assert "approach_site_demo_v1: Object.freeze" not in html
     assert "const dashboardSimulationEnabled = false" in html
 
