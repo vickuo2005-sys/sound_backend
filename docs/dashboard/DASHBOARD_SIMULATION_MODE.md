@@ -51,6 +51,10 @@ Opening the mode, including with `?simulation=1`, stops at `ready` and never
 autoplays. Controls provide play/pause, restart, exit, 0.5×/1×/2× speed, seek,
 and optional follow-target map panning. Animation uses
 `requestAnimationFrame`; position and metrics are interpolated continuously.
+Google Maps objects are created once and updated in place. Map geometry follows
+the animation frame, while text/control DOM updates are limited to 8 Hz. Follow
+Target pans only when the marker enters the outer 18% of the visible bounds;
+it never calls `fitBounds` per frame.
 
 Exit cancels the animation frame, removes every simulation-only Google Maps
 object, restores the normal operational overlay opacity, and does not reload

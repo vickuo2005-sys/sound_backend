@@ -50,6 +50,7 @@ def test_flag_on_renders_explicit_demo_only_labels() -> None:
     assert "SIMULATION / 模擬展示" in html
     assert "NOT FIELD VALIDATED" in html
     assert "approach_site_demo_v1" in html
+    assert "不代表目前實際偵測結果或已驗證預測能力" in html
 
 
 def test_runtime_status_exposes_additive_flag(monkeypatch) -> None:
@@ -134,8 +135,9 @@ def test_dynamic_motion_metrics_are_present() -> None:
         "Simulated heading",
         "Relative motion",
         "Demo site distance",
-        "Simulated closest",
-        "Simulated ETA",
+        "Predicted closest distance",
+        "Estimated arrival in simulation",
+        "Simulated quality",
     ):
         assert label in html
     assert "APPROACHING" in html and "DEPARTING" in html and "STATIONARY" in html
@@ -150,6 +152,7 @@ def test_controls_cover_play_pause_restart_exit_speed_seek_and_follow() -> None:
         "simulationSpeed",
         "simulationSeek",
         "simulationFollowTarget",
+        "simulationScenario",
     ):
         assert f'id="{element_id}"' in html
     assert '<option value="0.5">0.5×</option>' in html
@@ -197,7 +200,9 @@ def test_operational_overlays_are_dimmed_not_removed_during_simulation() -> None
 
 def test_follow_target_is_user_controlled() -> None:
     html = simulation_html()
-    assert "if (simulationPlayback.followTarget) map.panTo(metrics.position)" in html
+    assert "simulationTargetNearViewportEdge(metrics.position)" in html
+    assert "map.panTo(metrics.position)" in html
+    assert "const latPadding" in html
     assert "simulationPlayback.followTarget = event.target.checked" in html
 
 
@@ -211,6 +216,21 @@ def test_simulation_panel_has_responsive_overflow_guards() -> None:
 def test_simulation_controller_snapshot_is_explicitly_tagged() -> None:
     html = simulation_html()
     assert "snapshot: () => ({simulation:true" in html
+
+
+def test_metrics_are_throttled_while_map_animation_remains_frame_driven() -> None:
+    html = simulation_html()
+    assert "frameTime - simulationPlayback.lastDomUpdateAt >= 125" in html
+    assert "updateSimulationFrame(false, now)" in html
+    assert "renderSimulationMap(simulationPlayback.metrics)" in html
+
+
+def test_watermark_is_fixed_and_timeline_has_ticks() -> None:
+    html = simulation_html()
+    assert "position: fixed; z-index: 90" in html
+    assert 'id="simulationTimelineTicks"' in html
+    assert "00:15" in html and "01:15" in html
+    assert "模擬 CV 預測" in html
 
 
 def test_isolated_staging_manifests_enable_the_flag() -> None:
