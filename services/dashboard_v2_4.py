@@ -27,6 +27,7 @@ def render_dashboard_v2_4(
         )
         maps_script_tag = f'<script async defer src="{maps_url}"></script>'
     simulation_controls = ""
+    simulation_topbar_badge = ""
     simulation_watermark = ""
     simulation_panel = ""
     simulation_scenario_script = ""
@@ -35,6 +36,11 @@ def render_dashboard_v2_4(
         <button id="simulationOpenButton" class="ghost-button simulation-entry" type="button">
             Simulation / 模擬展示
         </button>
+        """
+        simulation_topbar_badge = """
+        <span id="simulationTopbarBadge" class="simulation-topbar-badge" hidden>
+            <strong>SIMULATION / 模擬展示</strong><span>NOT FIELD VALIDATED</span>
+        </span>
         """
         simulation_watermark = """
         <div id="simulationWatermark" class="simulation-watermark" hidden>
@@ -81,6 +87,7 @@ def render_dashboard_v2_4(
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
         .replace("__SIMULATION_CONTROLS__", simulation_controls)
+        .replace("__SIMULATION_TOPBAR_BADGE__", simulation_topbar_badge)
         .replace("__SIMULATION_WATERMARK__", simulation_watermark)
         .replace("__SIMULATION_PANEL__", simulation_panel)
         .replace("__SIMULATION_SCENARIO_SCRIPT__", simulation_scenario_script)

@@ -41,6 +41,7 @@ def test_flag_off_omits_entry_panel_and_scenario_payload() -> None:
     assert 'id="simulationOpenButton"' not in html
     assert 'id="simulationPanel"' not in html
     assert 'id="simulationWatermark"' not in html
+    assert 'id="simulationTopbarBadge"' not in html
     assert "approach_site_demo_v1: Object.freeze" not in html
     assert "const dashboardSimulationEnabled = false" in html
 
@@ -229,6 +230,8 @@ def test_metrics_are_throttled_while_map_animation_remains_frame_driven() -> Non
 def test_watermark_is_fixed_and_timeline_has_ticks() -> None:
     html = simulation_html()
     assert "position: fixed; z-index: 90" in html
+    assert 'id="simulationTopbarBadge"' in html
+    assert "topbarBadge.hidden = !visible" in html
     assert 'id="simulationTimelineTicks"' in html
     assert "00:15" in html and "01:15" in html
     assert "模擬 CV 預測" in html

@@ -301,6 +301,13 @@
         .node-control-entry { min-height: 29px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--primary); background: var(--surface-2); font-size: 11px; }
 
         .simulation-entry { color: #d8f9ff; border-color: #287f94; background: #123c4a; font-weight: 800; }
+        .simulation-topbar-badge {
+            display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 5px 10px;
+            border: 1px solid #c084fccc; border-radius: 999px; color: #f3e8ff;
+            background: #321947; font-size: 10px; letter-spacing: .07em;
+        }
+        .simulation-topbar-badge[hidden] { display: none; }
+        .simulation-topbar-badge span { color: #dec5f3; font-size: 8px; font-weight: 900; letter-spacing: .11em; }
         .simulation-watermark {
             position: fixed; z-index: 90; top: 74px; right: 18px; display: grid; gap: 2px;
             max-width: calc(100% - 36px); padding: 8px 11px; pointer-events: none;
@@ -405,6 +412,7 @@
         </div>
         <div class="command-status" aria-label="連線狀態">
             <span class="environment-badge">STAGING</span>
+            __SIMULATION_TOPBAR_BADGE__
             <span class="command-chip"><span id="backendSymbol" class="status-symbol info">○</span><span id="backendStatus">Backend 連線中</span></span>
             <span class="command-chip"><span id="wsSymbol" class="status-symbol info">○</span><span id="wsStatus">WebSocket 連線中</span></span>
             <span class="command-chip"><span aria-hidden="true">↻</span><span id="lastUpdate">尚未更新</span></span>
@@ -640,9 +648,10 @@
             if (!dashboardSimulationEnabled) return;
             const panel = document.getElementById('simulationPanel');
             const watermark = document.getElementById('simulationWatermark');
-            if (!panel || !watermark) return;
+            const topbarBadge = document.getElementById('simulationTopbarBadge');
+            if (!panel || !watermark || !topbarBadge) return;
             const visible = simulationIsVisible();
-            panel.hidden = !visible; watermark.hidden = !visible;
+            panel.hidden = !visible; watermark.hidden = !visible; topbarBadge.hidden = !visible;
             if (!visible) return;
             const duration = simulationPlayback.scenario.duration_seconds;
             const playButton = document.getElementById('simulationPlayButton');
