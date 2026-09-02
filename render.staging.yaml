@@ -35,6 +35,8 @@ services:
         value: "true"
       - key: DASHBOARD_EVENT_ORDER_GUARD_ENABLED
         value: "true"
+      - key: DASHBOARD_SIMULATION_ENABLED
+        value: "true"
       - key: STAGING_DB_LATENCY_PROBE_ENABLED
         value: "false"
       - key: CLASSIFICATION_V1_ENABLED

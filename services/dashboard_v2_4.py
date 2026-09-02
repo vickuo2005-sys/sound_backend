@@ -5,12 +5,18 @@ from urllib.parse import quote
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "dashboard_v2_4.html"
+SIMULATION_SCENARIO_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "static"
+    / "dashboard_simulation_scenarios.js"
+)
 
 
 def render_dashboard_v2_4(
     *,
     maps_api_key: str,
     experimental_motion_enabled: bool,
+    simulation_enabled: bool = False,
 ) -> str:
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
     maps_script_tag = ""
@@ -20,9 +26,57 @@ def render_dashboard_v2_4(
             f"key={quote(maps_api_key)}&callback=initOperationalMap"
         )
         maps_script_tag = f'<script async defer src="{maps_url}"></script>'
+    simulation_controls = ""
+    simulation_panel = ""
+    simulation_scenario_script = ""
+    if simulation_enabled:
+        simulation_controls = """
+        <button id="simulationOpenButton" class="ghost-button simulation-entry" type="button">
+            Simulation / 模擬展示
+        </button>
+        """
+        simulation_panel = """
+        <div id="simulationWatermark" class="simulation-watermark" hidden>
+            <strong>SIMULATION / 模擬展示</strong>
+            <span>NOT FIELD VALIDATED</span>
+        </div>
+        <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
+            <div class="simulation-banner">
+                <div><strong>SIMULATION / 模擬展示</strong><span>approach_site_demo_v1 · NOT FIELD VALIDATED</span></div>
+                <button id="simulationExitButton" class="ghost-button" type="button">Exit simulation</button>
+            </div>
+            <div class="simulation-controls">
+                <button id="simulationPlayButton" class="action-button primary" type="button">Play</button>
+                <button id="simulationRestartButton" class="action-button" type="button">Restart</button>
+                <label>Speed
+                    <select id="simulationSpeed" class="select-control" aria-label="模擬播放速度">
+                        <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
+                    </select>
+                </label>
+                <label class="simulation-follow"><input id="simulationFollowTarget" type="checkbox" checked> Follow target</label>
+                <span id="simulationStateBadge" class="badge experimental">READY</span>
+            </div>
+            <div class="simulation-timeline">
+                <input id="simulationSeek" type="range" min="0" max="75" value="0" step="0.1" aria-label="模擬時間軸">
+                <output id="simulationTime" for="simulationSeek">00:00 / 01:15</output>
+            </div>
+        </section>
+        """
+        simulation_scenario_script = (
+            "<script>\n"
+            + SIMULATION_SCENARIO_PATH.read_text(encoding="utf-8")
+            + "\n</script>"
+        )
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace("__SIMULATION_CONTROLS__", simulation_controls)
+        .replace("__SIMULATION_PANEL__", simulation_panel)
+        .replace("__SIMULATION_SCENARIO_SCRIPT__", simulation_scenario_script)
         .replace("__MAPS_CONFIGURED__", "true" if maps_api_key else "false")
+        .replace(
+            "__DASHBOARD_SIMULATION_ENABLED__",
+            "true" if simulation_enabled else "false",
+        )
         .replace(
             "__EXPERIMENTAL_MOTION_ENABLED__",
             "true" if experimental_motion_enabled else "false",

@@ -291,6 +291,9 @@ DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED = (
     os.getenv("DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED", "false").lower()
     == "true"
 )
+DASHBOARD_SIMULATION_ENABLED = (
+    os.getenv("DASHBOARD_SIMULATION_ENABLED", "false").lower() == "true"
+)
 MOTION_SHADOW_ENABLED = os.getenv("MOTION_SHADOW_ENABLED", "false").lower() == "true"
 MOTION_FIELD_TELEMETRY_ENABLED = (
     os.getenv("MOTION_FIELD_TELEMETRY_ENABLED", "false").lower() == "true"
@@ -9572,6 +9575,7 @@ async def runtime_status():
         "classification_v1_websocket_enabled": CLASSIFICATION_V1_WEBSOCKET_ENABLED,
         "dashboard_v2_enabled": DASHBOARD_V2_ENABLED,
         "dashboard_v2_experimental_motion_enabled": DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
+        "dashboard_simulation_enabled": DASHBOARD_SIMULATION_ENABLED,
         "node_websocket_enabled": NODE_WEBSOCKET_ENABLED,
         "command_websocket_enabled": COMMAND_WEBSOCKET_ENABLED,
         "live_audio_enabled": LIVE_AUDIO_ENABLED,
@@ -14667,6 +14671,7 @@ def dashboard_v2_4() -> HTMLResponse:
         content=render_dashboard_v2_4(
             maps_api_key=os.getenv("GOOGLE_MAPS_API_KEY", ""),
             experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
+            simulation_enabled=DASHBOARD_SIMULATION_ENABLED,
         )
     )
 

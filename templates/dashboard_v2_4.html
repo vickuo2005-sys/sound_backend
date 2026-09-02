@@ -300,6 +300,34 @@
         .node-focus-entry { grid-column: 1 / 3; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 9px; align-items: center; color: inherit; text-align: left; background: transparent; border: 0; }
         .node-control-entry { min-height: 29px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--primary); background: var(--surface-2); font-size: 11px; }
 
+        .simulation-entry { color: #d8f9ff; border-color: #287f94; background: #123c4a; font-weight: 800; }
+        .simulation-watermark {
+            position: absolute; z-index: 8; top: 74px; right: 12px; display: grid; gap: 2px;
+            max-width: calc(100% - 24px); padding: 8px 11px; pointer-events: none;
+            border: 1px solid #22d3eebb; border-radius: 10px; color: #d9fbff;
+            background: rgba(5, 36, 48, .9); box-shadow: 0 8px 28px #0009;
+            text-align: right; letter-spacing: .05em;
+        }
+        .simulation-watermark[hidden] { display: none; }
+        .simulation-watermark strong { font-size: 12px; }
+        .simulation-watermark span { color: #b6dce5; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
+        .simulation-panel { padding: 12px 14px 14px; border-top: 1px solid #225a6c; background: #091d2a; }
+        .simulation-panel[hidden] { display: none; }
+        .simulation-banner, .simulation-controls, .simulation-timeline { display: flex; align-items: center; gap: 10px; }
+        .simulation-banner { justify-content: space-between; }
+        .simulation-banner strong, .simulation-banner span { display: block; }
+        .simulation-banner strong { color: #a5f3fc; font-size: 13px; letter-spacing: .07em; }
+        .simulation-banner span { margin-top: 2px; color: var(--text-secondary); font-size: 10px; letter-spacing: .08em; }
+        .simulation-controls { margin-top: 10px; flex-wrap: wrap; }
+        .simulation-controls label { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; }
+        .simulation-controls .select-control { min-height: 32px; padding-top: 4px; padding-bottom: 4px; }
+        .simulation-follow input { accent-color: var(--primary); }
+        .simulation-timeline { margin-top: 10px; }
+        .simulation-timeline input { flex: 1; min-width: 100px; accent-color: var(--primary); }
+        .simulation-timeline output { min-width: 94px; color: #bdebf4; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+        .simulation-motion-note { margin-top: 10px; padding: 9px; border-left: 3px solid var(--primary); color: #bdebf4; background: #0b3140; font-size: 11px; }
+        .map-card { position: relative; }
+
         .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(2, 8, 18, .76); }
         .modal-backdrop[hidden] { display: none; }
         .confirm-modal { width: min(460px, 100%); border: 1px solid #31516b; border-radius: 16px; background: #0f1d2e; box-shadow: 0 24px 70px rgba(0,0,0,.55); }
@@ -352,6 +380,11 @@
             .node-picker { grid-template-columns: 1fr; }
             .detail-grid { grid-template-columns: 1fr; }
             .detail-wide { grid-column: auto; }
+            .simulation-banner { align-items: flex-start; }
+            .simulation-controls { align-items: stretch; }
+            .simulation-controls > button { flex: 1 1 auto; }
+            .simulation-timeline { align-items: stretch; flex-direction: column; }
+            .simulation-timeline output { text-align: left; }
         }
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
@@ -419,7 +452,7 @@
                     <article class="card map-card">
                         <div class="card-header">
                             <div><h2 class="card-title">Map &amp; Tracks</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> Node</span><span><b class="legend-symbol event">●</b> Detection</span><span><b class="legend-symbol track">━</b> Historical track</span></div></div>
-                            <div class="map-tools"><button id="fitMapButton" class="ghost-button" aria-label="縮放以顯示所有節點與事件">Fit map</button></div>
+                            <div class="map-tools">__SIMULATION_CONTROLS__<button id="fitMapButton" class="ghost-button" aria-label="縮放以顯示所有節點與事件">Fit map</button></div>
                         </div>
                         <div id="map" role="application" aria-label="Google Maps 節點與事件地圖"></div>
                         <div id="mapFallback" class="map-fallback">
@@ -432,6 +465,7 @@
                                 <div id="coordinateFooter" class="coordinate-footer"><span>等待位置 telemetry</span><span>● Node　● Latest detection</span></div>
                             </div>
                         </div>
+                        __SIMULATION_PANEL__
                     </article>
                     <article class="card motion-card">
                         <div class="card-header"><h2 class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span class="badge experimental">EXPERIMENTAL</span></div>
@@ -490,9 +524,11 @@
         </section>
     </div>
 
+    __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
         const experimentalMotionEnabled = __EXPERIMENTAL_MOTION_ENABLED__;
+        const dashboardSimulationEnabled = __DASHBOARD_SIMULATION_ENABLED__;
         const mapsConfigured = __MAPS_CONFIGURED__;
         const canonicalClasses = ['Airplane', 'Car', 'Drone', 'Electric_saw', 'Rainfall'];
         const classNamesZh = {Airplane: '航空器聲音', Car: '車輛聲音', Drone: '無人機聲音', Electric_saw: '電鋸聲音', Rainfall: '降雨聲音'};
@@ -518,6 +554,202 @@
         let deviceSnapshotPollInFlight = false;
         let commandPollSerial = 0;
         let modalPreviousFocus = null;
+        const simulationPlayback = {
+            phase: 'inactive', scenario: null, elapsed: 0, rate: 1,
+            followTarget: true, lastFrameAt: null, animationFrame: null, metrics: null
+        };
+        const simulationMapObjects = {
+            historyLine: null, predictionLine: null, currentMarker: null,
+            siteMarker: null, uncertaintyCircle: null, predictionMarkers: []
+        };
+        const simulationClosestDistanceCache = new WeakMap();
+
+        function simulationIsVisible() {
+            return dashboardSimulationEnabled && simulationPlayback.phase !== 'inactive';
+        }
+        function simulationScenario() {
+            return window.DashboardSimulationScenarios?.approach_site_demo_v1 || null;
+        }
+        function toRadians(value) { return value * Math.PI / 180; }
+        function toDegrees(value) { return value * 180 / Math.PI; }
+        function haversineMeters(a, b) {
+            const earthRadius = 6371000;
+            const dLat = toRadians(b.lat - a.lat);
+            const dLng = toRadians(b.lng - a.lng);
+            const lat1 = toRadians(a.lat); const lat2 = toRadians(b.lat);
+            const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+            return 2 * earthRadius * Math.asin(Math.min(1, Math.sqrt(value)));
+        }
+        function bearingDegrees(a, b) {
+            const lat1 = toRadians(a.lat); const lat2 = toRadians(b.lat);
+            const dLng = toRadians(b.lng - a.lng);
+            const y = Math.sin(dLng) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+            return (toDegrees(Math.atan2(y, x)) + 360) % 360;
+        }
+        function interpolatePosition(a, b, ratio) {
+            return {simulation:true, lat:a.lat + (b.lat - a.lat) * ratio, lng:a.lng + (b.lng - a.lng) * ratio};
+        }
+        function simulationSampleAt(elapsedSeconds) {
+            const scenario = simulationPlayback.scenario || simulationScenario();
+            if (!scenario?.simulation || !Array.isArray(scenario.points) || scenario.points.length < 2) return null;
+            const elapsed = Math.max(0, Math.min(scenario.duration_seconds, elapsedSeconds));
+            let index = scenario.points.findIndex((point, pointIndex) => pointIndex > 0 && elapsed <= point.t);
+            if (index < 1) index = scenario.points.length - 1;
+            const start = scenario.points[index - 1]; const end = scenario.points[index];
+            const segmentSeconds = Math.max(.001, end.t - start.t);
+            const ratio = Math.max(0, Math.min(1, (elapsed - start.t) / segmentSeconds));
+            const position = interpolatePosition(start, end, ratio);
+            const speedMps = haversineMeters(start, end) / segmentSeconds;
+            const headingDeg = bearingDegrees(start, end);
+            const history = scenario.points.filter(point => point.t < elapsed).map(point => ({simulation:true, lat:point.lat, lng:point.lng}));
+            history.push(position);
+            const latPerSecond = (end.lat - start.lat) / segmentSeconds;
+            const lngPerSecond = (end.lng - start.lng) / segmentSeconds;
+            const predictionOffsets = [5, 10, 15, 30];
+            const predictions = predictionOffsets.map(offset => ({
+                simulation:true, offset,
+                lat:position.lat + latPerSecond * offset,
+                lng:position.lng + lngPerSecond * offset
+            }));
+            const site = scenario.site;
+            const distanceM = haversineMeters(position, site);
+            const oneSecondPrediction = {lat:position.lat + latPerSecond, lng:position.lng + lngPerSecond};
+            const distanceDelta = distanceM - haversineMeters(oneSecondPrediction, site);
+            const motionState = distanceDelta > .4 ? 'APPROACHING' : (distanceDelta < -.4 ? 'DEPARTING' : 'STATIONARY');
+            const etaSeconds = motionState === 'APPROACHING' && distanceDelta > .05 ? distanceM / distanceDelta : null;
+            const closestDistanceM = simulationClosestDistance(scenario);
+            return {
+                simulation:true, elapsed, position, history, predictions,
+                speedMps, headingDeg, motionState, distanceM, closestDistanceM,
+                etaSeconds, uncertaintyM: 32 + 8 * Math.abs(Math.sin(elapsed / 9))
+            };
+        }
+        function simulationClosestDistance(scenario) {
+            if (simulationClosestDistanceCache.has(scenario)) return simulationClosestDistanceCache.get(scenario);
+            let closest = Infinity;
+            for (let index = 1; index < scenario.points.length; index += 1) {
+                const start = scenario.points[index - 1]; const end = scenario.points[index];
+                const steps = Math.max(1, Math.ceil((end.t - start.t) * 4));
+                for (let step = 0; step <= steps; step += 1) closest = Math.min(closest, haversineMeters(interpolatePosition(start, end, step / steps), scenario.site));
+            }
+            simulationClosestDistanceCache.set(scenario, closest);
+            return closest;
+        }
+        function formatSimulationClock(seconds) {
+            const value = Math.max(0, Math.round(seconds));
+            return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+        }
+        function renderSimulationControls() {
+            if (!dashboardSimulationEnabled) return;
+            const panel = document.getElementById('simulationPanel');
+            const watermark = document.getElementById('simulationWatermark');
+            if (!panel || !watermark) return;
+            const visible = simulationIsVisible();
+            panel.hidden = !visible; watermark.hidden = !visible;
+            if (!visible) return;
+            const duration = simulationPlayback.scenario.duration_seconds;
+            const playButton = document.getElementById('simulationPlayButton');
+            playButton.textContent = simulationPlayback.phase === 'playing' ? 'Pause' : (simulationPlayback.phase === 'completed' ? 'Replay' : 'Play');
+            playButton.setAttribute('aria-pressed', simulationPlayback.phase === 'playing' ? 'true' : 'false');
+            document.getElementById('simulationStateBadge').textContent = simulationPlayback.phase.toUpperCase();
+            const seek = document.getElementById('simulationSeek');
+            seek.max = String(duration); seek.value = String(simulationPlayback.elapsed);
+            document.getElementById('simulationTime').textContent = `${formatSimulationClock(simulationPlayback.elapsed)} / ${formatSimulationClock(duration)}`;
+        }
+        function renderSimulationMotion() {
+            const metrics = simulationPlayback.metrics || simulationSampleAt(simulationPlayback.elapsed);
+            if (!metrics) return;
+            const eta = metrics.etaSeconds === null ? '—' : `${Math.round(metrics.etaSeconds)} s`;
+            document.getElementById('motionBody').innerHTML = `<div class="motion-grid">
+                <div class="motion-value"><span>Simulated speed</span><strong>${metrics.speedMps.toFixed(1)} m/s</strong></div>
+                <div class="motion-value"><span>Simulated heading</span><strong>${headingText(metrics.headingDeg)}</strong></div>
+                <div class="motion-value"><span>Relative motion</span><strong>${safe(metrics.motionState)}</strong></div>
+                <div class="motion-value"><span>Demo site distance</span><strong>${Math.round(metrics.distanceM)} m</strong></div>
+                <div class="motion-value"><span>Simulated closest</span><strong>${Math.round(metrics.closestDistanceM)} m</strong></div>
+                <div class="motion-value"><span>Simulated ETA</span><strong>${eta}</strong></div>
+            </div><div class="simulation-motion-note"><strong>SIMULATION / 模擬展示</strong> · NOT FIELD VALIDATED<br>Constant-velocity demo prediction only; not a production tracking result.</div>`;
+        }
+        function renderSimulationMap(metrics) {
+            if (!simulationIsVisible() || !metrics || !map || !window.google?.maps) return;
+            const scenario = simulationPlayback.scenario;
+            const historyOptions = {map, path:metrics.history, geodesic:true, strokeColor:'#f59e0b', strokeOpacity:.95, strokeWeight:4, clickable:false, zIndex:20};
+            if (!simulationMapObjects.historyLine) simulationMapObjects.historyLine = new google.maps.Polyline(historyOptions); else simulationMapObjects.historyLine.setOptions(historyOptions);
+            const currentOptions = {map, position:metrics.position, title:'SIMULATION current target', zIndex:24, icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW, rotation:metrics.headingDeg, fillColor:'#22d3ee', fillOpacity:1, strokeColor:'#d9fbff', strokeWeight:2, scale:7}};
+            if (!simulationMapObjects.currentMarker) simulationMapObjects.currentMarker = new google.maps.Marker(currentOptions); else simulationMapObjects.currentMarker.setOptions(currentOptions);
+            const predictionPath = [metrics.position, ...metrics.predictions];
+            const predictionOptions = {map, path:predictionPath, geodesic:true, strokeOpacity:0, clickable:false, zIndex:21, icons:[{icon:{path:'M 0,-1 0,1', strokeOpacity:1, strokeColor:'#22d3ee', scale:3}, offset:'0', repeat:'12px'}]};
+            if (!simulationMapObjects.predictionLine) simulationMapObjects.predictionLine = new google.maps.Polyline(predictionOptions); else simulationMapObjects.predictionLine.setOptions(predictionOptions);
+            while (simulationMapObjects.predictionMarkers.length < metrics.predictions.length) simulationMapObjects.predictionMarkers.push(new google.maps.Marker());
+            simulationMapObjects.predictionMarkers.forEach((marker, index) => {
+                const prediction = metrics.predictions[index];
+                marker.setOptions({map, position:prediction, title:`SIMULATION prediction +${prediction.offset}s`, zIndex:23, label:{text:`+${prediction.offset}`, color:'#d9fbff', fontSize:'10px', fontWeight:'800'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#0e7490', fillOpacity:.85, strokeColor:'#67e8f9', strokeWeight:1.5, scale:5}});
+            });
+            const siteOptions = {map, position:scenario.site, title:'SIMULATION demo site', zIndex:22, label:{text:'SITE', color:'#f3e8ff', fontSize:'10px', fontWeight:'900'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#a855f7', fillOpacity:.95, strokeColor:'#f3e8ff', strokeWeight:2, scale:9}};
+            if (!simulationMapObjects.siteMarker) simulationMapObjects.siteMarker = new google.maps.Marker(siteOptions); else simulationMapObjects.siteMarker.setOptions(siteOptions);
+            const uncertaintyOptions = {map, center:metrics.position, radius:metrics.uncertaintyM, fillColor:'#22d3ee', fillOpacity:.08, strokeColor:'#67e8f9', strokeOpacity:.55, strokeWeight:1, zIndex:19};
+            if (!simulationMapObjects.uncertaintyCircle) simulationMapObjects.uncertaintyCircle = new google.maps.Circle(uncertaintyOptions); else simulationMapObjects.uncertaintyCircle.setOptions(uncertaintyOptions);
+            if (simulationPlayback.followTarget) map.panTo(metrics.position);
+        }
+        function clearSimulationMap() {
+            ['historyLine','predictionLine','currentMarker','siteMarker','uncertaintyCircle'].forEach(key => {
+                simulationMapObjects[key]?.setMap(null); simulationMapObjects[key] = null;
+            });
+            simulationMapObjects.predictionMarkers.forEach(marker => marker.setMap(null));
+            simulationMapObjects.predictionMarkers = [];
+        }
+        function updateSimulationFrame() {
+            if (!simulationIsVisible()) return;
+            simulationPlayback.metrics = simulationSampleAt(simulationPlayback.elapsed);
+            renderSimulationControls(); renderSimulationMotion(); renderSimulationMap(simulationPlayback.metrics);
+        }
+        function simulationAnimationFrame(now) {
+            if (simulationPlayback.phase !== 'playing') return;
+            if (simulationPlayback.lastFrameAt !== null) simulationPlayback.elapsed += Math.min(.25, (now - simulationPlayback.lastFrameAt) / 1000) * simulationPlayback.rate;
+            simulationPlayback.lastFrameAt = now;
+            if (simulationPlayback.elapsed >= simulationPlayback.scenario.duration_seconds) {
+                simulationPlayback.elapsed = simulationPlayback.scenario.duration_seconds;
+                simulationPlayback.phase = 'completed'; simulationPlayback.lastFrameAt = null;
+                updateSimulationFrame(); return;
+            }
+            updateSimulationFrame();
+            simulationPlayback.animationFrame = requestAnimationFrame(simulationAnimationFrame);
+        }
+        function fitSimulationMap() {
+            if (!map || !window.google?.maps || !simulationPlayback.scenario) return;
+            const bounds = new google.maps.LatLngBounds();
+            simulationPlayback.scenario.points.forEach(point => bounds.extend(point)); bounds.extend(simulationPlayback.scenario.site);
+            map.fitBounds(bounds, 72);
+        }
+        function enterSimulationMode() {
+            if (!dashboardSimulationEnabled) return;
+            const scenario = simulationScenario();
+            if (!scenario?.simulation) { showToast('Simulation scenario 無法載入'); return; }
+            cancelAnimationFrame(simulationPlayback.animationFrame);
+            Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, animationFrame:null});
+            renderMap(); updateSimulationFrame(); fitSimulationMap();
+        }
+        function playPauseSimulation() {
+            if (!simulationIsVisible()) return;
+            if (simulationPlayback.phase === 'playing') {
+                simulationPlayback.phase = 'paused'; simulationPlayback.lastFrameAt = null;
+                cancelAnimationFrame(simulationPlayback.animationFrame); updateSimulationFrame(); return;
+            }
+            if (simulationPlayback.phase === 'completed') simulationPlayback.elapsed = 0;
+            simulationPlayback.phase = 'playing'; simulationPlayback.lastFrameAt = null;
+            updateSimulationFrame(); simulationPlayback.animationFrame = requestAnimationFrame(simulationAnimationFrame);
+        }
+        function restartSimulation() {
+            if (!simulationIsVisible()) return;
+            cancelAnimationFrame(simulationPlayback.animationFrame);
+            simulationPlayback.elapsed = 0; simulationPlayback.phase = 'playing'; simulationPlayback.lastFrameAt = null;
+            updateSimulationFrame(); simulationPlayback.animationFrame = requestAnimationFrame(simulationAnimationFrame);
+        }
+        function exitSimulationMode() {
+            cancelAnimationFrame(simulationPlayback.animationFrame); clearSimulationMap();
+            Object.assign(simulationPlayback, {phase:'inactive', scenario:null, elapsed:0, lastFrameAt:null, animationFrame:null, metrics:null});
+            renderSimulationControls(); renderMotion(); renderMap();
+        }
 
         function safe(value) {
             return String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
@@ -1036,6 +1268,7 @@
             return `${heading.toFixed(0)}° ${directions[Math.round((heading % 360) / 45) % 8]}`;
         }
         function renderMotion() {
+            if (simulationIsVisible()) { renderSimulationMotion(); return; }
             const track = latestTrack();
             const body = document.getElementById('motionBody');
             const enabled = experimentalMotionEnabled;
@@ -1071,6 +1304,7 @@
             mapInfoWindow = new google.maps.InfoWindow();
             document.getElementById('mapFallback').style.display = 'none';
             renderMap();
+            if (simulationIsVisible()) { updateSimulationFrame(); fitSimulationMap(); }
             bootstrap();
         };
         function showMapFallback() {
@@ -1120,7 +1354,8 @@
             canonicalDevices().forEach(device => {
                 const position = nodeLocation(device); if (!position) return;
                 activeNodeIds.add(device.device_id);
-                const options = {map, position, title:`Node ${shortNodeId(device.device_id)} - ${nodeState(device).text}`, icon:nodeMarkerIcon(device, deviceOnline(device)), label:{text:shortNodeId(device.device_id), color:'#f8fbff', fontSize:'10px', fontWeight:'700'}, opacity:deviceOnline(device) ? 1 : .55};
+                const operationalOpacity = simulationIsVisible() ? .28 : 1;
+                const options = {map, position, title:`Node ${shortNodeId(device.device_id)} - ${nodeState(device).text}`, icon:nodeMarkerIcon(device, deviceOnline(device)), label:{text:shortNodeId(device.device_id), color:'#f8fbff', fontSize:'10px', fontWeight:'700'}, opacity:(deviceOnline(device) ? 1 : .55) * operationalOpacity};
                 let marker = nodeMarkers.get(device.device_id);
                 if (!marker) { marker = new google.maps.Marker(options); marker.addListener('click', () => showNodeInfo(device.device_id)); nodeMarkers.set(device.device_id, marker); }
                 else marker.setOptions(options);
@@ -1129,12 +1364,12 @@
 
             const detection = latestDetection(); const location = eventLocation(detection);
             if (location) {
-                const options = {map, position:location, title:`${classLabel(detection)} - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
+                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
                 if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
                 else detectionMarker.setOptions(options);
                 const radius = finite(detection.uncertainty_radius_m);
                 if (radius !== null && radius > 0) {
-                    const circleOptions = {map, center:location, radius, fillColor:'#f59e0b', fillOpacity:.08, strokeColor:'#f59e0b', strokeOpacity:.55, strokeWeight:1};
+                    const circleOptions = {map, center:location, radius, fillColor:'#f59e0b', fillOpacity:simulationIsVisible() ? .02 : .08, strokeColor:'#f59e0b', strokeOpacity:simulationIsVisible() ? .18 : .55, strokeWeight:1};
                     if (!uncertaintyCircle) uncertaintyCircle = new google.maps.Circle(circleOptions); else uncertaintyCircle.setOptions(circleOptions);
                 } else if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
             } else {
@@ -1147,7 +1382,7 @@
                 const points = (Array.isArray(track.points) ? track.points : []).slice(-200).map(point => ({lat:finite(point.filtered_lat ?? point.measured_lat), lng:finite(point.filtered_lng ?? point.measured_lng)})).filter(point => point.lat !== null && point.lng !== null);
                 if (points.length < 2) return;
                 activeTracks.add(id);
-                const options = {map, path:points, geodesic:true, strokeColor:'#60a5fa', strokeOpacity:.85, strokeWeight:3, clickable:true};
+                const options = {map, path:points, geodesic:true, strokeColor:'#60a5fa', strokeOpacity:simulationIsVisible() ? .22 : .85, strokeWeight:3, clickable:true};
                 let line = trackLines.get(id);
                 if (!line) { line = new google.maps.Polyline(options); trackLines.set(id,line); }
                 else line.setOptions(options);
@@ -1245,6 +1480,24 @@
         document.getElementById('nodeFilter').addEventListener('change', event => { state.nodeFilter = event.target.value; renderEventsView(); });
         document.getElementById('timeFilter').addEventListener('change', event => { state.timeFilter = event.target.value; renderEventsView(); });
         document.getElementById('fitMapButton').addEventListener('click', fitMap);
+        if (dashboardSimulationEnabled) {
+            document.getElementById('simulationOpenButton')?.addEventListener('click', enterSimulationMode);
+            document.getElementById('simulationExitButton')?.addEventListener('click', exitSimulationMode);
+            document.getElementById('simulationPlayButton')?.addEventListener('click', playPauseSimulation);
+            document.getElementById('simulationRestartButton')?.addEventListener('click', restartSimulation);
+            document.getElementById('simulationSpeed')?.addEventListener('change', event => { simulationPlayback.rate = Number(event.target.value) || 1; });
+            document.getElementById('simulationFollowTarget')?.addEventListener('change', event => { simulationPlayback.followTarget = event.target.checked; });
+            document.getElementById('simulationSeek')?.addEventListener('input', event => {
+                simulationPlayback.elapsed = Math.max(0, Math.min(simulationPlayback.scenario?.duration_seconds || 0, Number(event.target.value) || 0));
+                if (simulationPlayback.phase === 'completed' && simulationPlayback.elapsed < simulationPlayback.scenario.duration_seconds) simulationPlayback.phase = 'paused';
+                simulationPlayback.lastFrameAt = null; updateSimulationFrame();
+            });
+            window.dashboardSimulationController = Object.freeze({
+                enter: enterSimulationMode, playPause: playPauseSimulation, restart: restartSimulation, exit: exitSimulationMode,
+                seek: seconds => { const input = document.getElementById('simulationSeek'); input.value = String(seconds); input.dispatchEvent(new Event('input', {bubbles:true})); },
+                snapshot: () => ({simulation:true, phase:simulationPlayback.phase, elapsed:simulationPlayback.elapsed, metrics:simulationPlayback.metrics ? {...simulationPlayback.metrics} : null})
+            });
+        }
         document.getElementById('commandConfirmCancel').addEventListener('click', closeCommandConfirm);
         document.getElementById('commandConfirmSubmit').addEventListener('click', sendConfirmedCommand);
         document.getElementById('commandConfirmBackdrop').addEventListener('mousedown', event => { if (event.target === event.currentTarget) closeCommandConfirm(); });
@@ -1263,6 +1516,7 @@
             bootstrap();
             setInterval(() => { refreshDeviceSnapshot().catch(() => {}); }, 5000);
             setTimeout(() => { if (!mapStarted) showMapFallback(); }, 5000);
+            if (dashboardSimulationEnabled && new URLSearchParams(location.search).get('simulation') === '1') enterSimulationMode();
         });
     </script>
     __MAPS_SCRIPT_TAG__
