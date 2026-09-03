@@ -335,6 +335,16 @@
         .simulation-timeline output { min-width: 94px; color: #bdebf4; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
         .simulation-ticks { display: flex; justify-content: space-between; margin: 2px 94px 0 0; color: #7890a8; font-size: 9px; font-variant-numeric: tabular-nums; }
         .simulation-motion-note { margin-top: 10px; padding: 9px; border-left: 3px solid var(--primary); color: #bdebf4; background: #0b3140; font-size: 11px; }
+        .simulation-site-panel { margin-top: 10px; padding: 10px; border: 1px solid #563579; border-radius: 8px; background: #17112b; }
+        .simulation-site-panel header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+        .simulation-site-panel header strong { color: #e9d5ff; font-size: 12px; }
+        .simulation-site-panel header span { color: #bda4d7; font-size: 10px; font-variant-numeric: tabular-nums; }
+        .simulation-distance-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+        .simulation-distance-grid div { min-width: 0; padding: 6px; border-radius: 6px; background: #0c2735; text-align: center; }
+        .simulation-distance-grid span, .simulation-distance-grid strong { display: block; }
+        .simulation-distance-grid span { color: var(--text-secondary); font-size: 9px; }
+        .simulation-distance-grid strong { margin-top: 2px; color: #d9fbff; font-size: 11px; font-variant-numeric: tabular-nums; }
+        .simulation-status-reason { color: #dec5f3; font-size: 10px; overflow-wrap: anywhere; }
         .map-card { position: relative; }
 
         .modal-backdrop { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(2, 8, 18, .76); }
@@ -395,6 +405,7 @@
             .simulation-timeline { align-items: stretch; flex-direction: column; }
             .simulation-timeline output { text-align: left; }
             .simulation-ticks { margin-right: 0; }
+            .simulation-distance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         }
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
@@ -566,76 +577,56 @@
         let deviceSnapshotPollInFlight = false;
         let commandPollSerial = 0;
         let modalPreviousFocus = null;
+        const simulationPredictionEngine = window.DashboardSimulationPrediction || null;
         const simulationPlayback = {
             phase: 'inactive', scenario: null, elapsed: 0, rate: 1,
             followTarget: true, lastFrameAt: null, lastDomUpdateAt: null,
-            animationFrame: null, metrics: null
+            lastPredictionAt: null, animationFrame: null, metrics: null,
+            animationSample: null, prediction: null
         };
         const simulationMapObjects = {
             historyLine: null, predictionLine: null, currentMarker: null,
-            siteMarker: null, uncertaintyCircle: null, predictionMarkers: []
+            siteMarker: null, siteRadius: null, uncertaintyCircle: null, predictionMarkers: []
         };
 
         function simulationIsVisible() {
             return dashboardSimulationEnabled && simulationPlayback.phase !== 'inactive';
         }
         function simulationScenario() {
-            return window.DashboardSimulationScenarios?.approach_site_demo_v1 || null;
-        }
-        function toRadians(value) { return value * Math.PI / 180; }
-        function toDegrees(value) { return value * 180 / Math.PI; }
-        function haversineMeters(a, b) {
-            const earthRadius = 6371000;
-            const dLat = toRadians(b.lat - a.lat);
-            const dLng = toRadians(b.lng - a.lng);
-            const lat1 = toRadians(a.lat); const lat2 = toRadians(b.lat);
-            const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-            return 2 * earthRadius * Math.asin(Math.min(1, Math.sqrt(value)));
-        }
-        function bearingDegrees(a, b) {
-            const lat1 = toRadians(a.lat); const lat2 = toRadians(b.lat);
-            const dLng = toRadians(b.lng - a.lng);
-            const y = Math.sin(dLng) * Math.cos(lat2);
-            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-            return (toDegrees(Math.atan2(y, x)) + 360) % 360;
+            const selected = document.getElementById('simulationScenario')?.value || 'approach_site_demo_v1';
+            return window.DashboardSimulationScenarios?.[selected] || null;
         }
         function interpolatePosition(a, b, ratio) {
             return {simulation:true, lat:a.lat + (b.lat - a.lat) * ratio, lng:a.lng + (b.lng - a.lng) * ratio};
         }
-        function simulationSampleAt(elapsedSeconds) {
+        function simulationAnimationSampleAt(elapsedSeconds) {
             const scenario = simulationPlayback.scenario || simulationScenario();
             if (!scenario?.simulation || !Array.isArray(scenario.points) || scenario.points.length < 2) return null;
             const elapsed = Math.max(0, Math.min(scenario.duration_seconds, elapsedSeconds));
-            let index = scenario.points.findIndex((point, pointIndex) => pointIndex > 0 && elapsed <= point.t);
-            if (index < 1) index = scenario.points.length - 1;
+            let index = scenario.points.findIndex((point, pointIndex) => pointIndex > 0 && elapsed < point.t);
+            if (index < 1) index = Math.min(1, scenario.points.length - 1);
+            if (elapsed >= scenario.points[scenario.points.length - 1].t) index = scenario.points.length - 1;
             const start = scenario.points[index - 1]; const end = scenario.points[index];
             const segmentSeconds = Math.max(.001, end.t - start.t);
             const ratio = Math.max(0, Math.min(1, (elapsed - start.t) / segmentSeconds));
             const position = interpolatePosition(start, end, ratio);
-            const speedMps = haversineMeters(start, end) / segmentSeconds;
-            const headingDeg = bearingDegrees(start, end);
-            const history = scenario.points.filter(point => point.t < elapsed).map(point => ({simulation:true, lat:point.lat, lng:point.lng}));
-            history.push(position);
-            const latPerSecond = (end.lat - start.lat) / segmentSeconds;
-            const lngPerSecond = (end.lng - start.lng) / segmentSeconds;
-            const predictionOffsets = [5, 10, 15, 30];
-            const predictions = predictionOffsets.map(offset => ({
-                simulation:true, offset,
-                lat:position.lat + latPerSecond * offset,
-                lng:position.lng + lngPerSecond * offset
-            }));
-            const site = scenario.site;
-            const distanceM = haversineMeters(position, site);
-            const oneSecondPrediction = {lat:position.lat + latPerSecond, lng:position.lng + lngPerSecond};
-            const distanceDelta = distanceM - haversineMeters(oneSecondPrediction, site);
-            const motionState = distanceDelta > .4 ? 'APPROACHING' : (distanceDelta < -.4 ? 'DEPARTING' : 'STATIONARY');
-            const etaSeconds = motionState === 'APPROACHING' && distanceDelta > .05 ? distanceM / distanceDelta : null;
-            const closestDistanceM = Math.min(distanceM, ...predictions.map(prediction => haversineMeters(prediction, site)));
-            return {
-                simulation:true, elapsed, position, history, predictions,
-                speedMps, headingDeg, motionState, distanceM, closestDistanceM,
-                etaSeconds, uncertaintyM: 32 + 8 * Math.abs(Math.sin(elapsed / 9))
-            };
+            const rawHistory = scenario.points.filter(point => point.t <= elapsed).map(point => ({simulation:true, t:point.t, lat:point.lat, lng:point.lng}));
+            const mapHistory = rawHistory.map(point => ({simulation:true, lat:point.lat, lng:point.lng}));
+            const last = rawHistory[rawHistory.length - 1];
+            if (!last || last.t < elapsed) mapHistory.push(position);
+            return {simulation:true, elapsed, position, rawHistory, mapHistory};
+        }
+        function computeSimulationPrediction(animationSample) {
+            const scenario = simulationPlayback.scenario;
+            if (!simulationPredictionEngine || !animationSample || !scenario) return null;
+            return simulationPredictionEngine.computeSimulationPredictionTick({
+                simulation: true,
+                history: animationSample.rawHistory,
+                current_position: animationSample.position,
+                site: scenario.site,
+                position_uncertainty_m: scenario.position_uncertainty_m,
+                options: {estimator_window_sec: scenario.estimator_window_sec || 5}
+            });
         }
         function formatSimulationClock(seconds) {
             const value = Math.max(0, Math.round(seconds));
@@ -661,41 +652,75 @@
             const seek = document.getElementById('simulationSeek');
             seek.max = String(duration); seek.value = String(simulationPlayback.elapsed);
             document.getElementById('simulationTime').textContent = `${formatSimulationClock(simulationPlayback.elapsed)} / ${formatSimulationClock(duration)}`;
+            document.getElementById('simulationScenarioName').textContent = `${simulationPlayback.scenario.id} · NOT FIELD VALIDATED`;
         }
         function renderSimulationMotion() {
-            const metrics = simulationPlayback.metrics || simulationSampleAt(simulationPlayback.elapsed);
-            if (!metrics) return;
-            const eta = metrics.etaSeconds === null ? '—' : formatSimulationClock(metrics.etaSeconds);
+            const result = simulationPlayback.prediction;
+            if (!result) return;
+            const predictionDistance = horizon => result.predictions.find(item => item.horizon_sec === horizon)?.distance_to_site_m;
+            const distanceCell = (label, value) => `<div><span>${label}</span><strong>${value === null || value === undefined ? '—' : formatSimulationDistance(value)}</strong></div>`;
+            const speed = result.current.speed_mps === null ? '—' : `${result.current.speed_mps.toFixed(1)} m/s`;
+            const heading = result.display.show_heading ? headingText(result.current.heading_deg) : '—';
+            const closing = result.motion.radial_closing_speed_mps === null ? '—' : `${result.motion.radial_closing_speed_mps.toFixed(1)} m/s`;
+            const cpaDistance = result.site_metrics.predicted_closest_distance_m;
+            const cpaTime = result.site_metrics.predicted_closest_time_sec;
+            const eta = result.display.show_eta ? formatSimulationClock(result.site_metrics.simulated_eta_sec) : '—';
+            const cpaTimeDisplay = cpaTime === null ? '—' : (result.motion.trend === 'DEPARTING' && cpaTime === 0 ? 'No future closer approach' : `+${formatSimulationClock(cpaTime)}`);
+            const etaReasonLabels = {NO_SITE_INTERSECTION:'Predicted path does not enter protected radius', MOVING_AWAY_OR_PAST_INTERSECTION:'Intersection is behind current motion', DEPARTING:'Target is moving away from site', TREND_UNCERTAIN:'Approach evidence is insufficient', LOW_SPEED:'Speed is below reliable prediction threshold', AT_SITE:'Already inside protected radius', OK:'Protected-radius intersection exists'};
+            const statusReason = result.status_reasons.length ? result.status_reasons.join(', ') : (etaReasonLabels[result.site_metrics.eta_reason] || result.site_metrics.eta_reason);
             document.getElementById('motionBody').innerHTML = `<div class="motion-grid">
-                <div class="motion-value"><span>Simulated speed</span><strong>${metrics.speedMps.toFixed(1)} m/s</strong></div>
-                <div class="motion-value"><span>Simulated heading</span><strong>${headingText(metrics.headingDeg)}</strong></div>
-                <div class="motion-value"><span>Relative motion</span><strong>${safe(metrics.motionState)}</strong></div>
-                <div class="motion-value"><span>Demo site distance</span><strong>${formatSimulationDistance(metrics.distanceM)}</strong></div>
-                <div class="motion-value"><span>Predicted closest distance</span><strong>${formatSimulationDistance(metrics.closestDistanceM)}</strong></div>
-                <div class="motion-value"><span>Estimated arrival in simulation</span><strong>${eta}</strong></div>
-                <div class="motion-value detail-wide"><span>Simulated quality</span><strong>SIMULATED</strong></div>
-            </div><div class="simulation-motion-note"><strong>SIMULATION / 模擬展示</strong> · NOT FIELD VALIDATED<br>模擬 CV 預測 / constant-velocity demo prediction only; not a production tracking result.</div>`;
+                <div class="motion-value"><span>Current speed</span><strong>${speed}</strong></div>
+                <div class="motion-value"><span>Current heading</span><strong>${heading}</strong></div>
+                <div class="motion-value"><span>Site trend</span><strong>${safe(result.motion.trend)}</strong></div>
+                <div class="motion-value"><span>Radial closing speed</span><strong>${closing}</strong></div>
+                <div class="motion-value"><span>Site bearing</span><strong>${result.site.bearing_to_site_deg === null ? '—' : headingText(result.site.bearing_to_site_deg)}</strong></div>
+                <div class="motion-value"><span>Heading error</span><strong>${result.motion.heading_to_site_error_deg === null ? '—' : `${result.motion.heading_to_site_error_deg.toFixed(1)}°`}</strong></div>
+                <div class="motion-value"><span>CPA distance</span><strong>${cpaDistance === null ? '—' : formatSimulationDistance(cpaDistance)}</strong></div>
+                <div class="motion-value"><span>CPA time</span><strong>${cpaTimeDisplay}</strong></div>
+                <div class="motion-value"><span>SIMULATED ETA</span><strong>${eta}</strong></div>
+                <div class="motion-value detail-wide"><span>Prediction status</span><strong>${safe(result.status)}</strong><small class="simulation-status-reason">${safe(statusReason || 'OK')}</small></div>
+            </div><section class="simulation-site-panel"><header><strong>${safe(result.site.name || 'DEMO SITE')}</strong><span>R ${Math.round(result.site.radius_m || 0)} m · ${result.site.lat?.toFixed(5)}, ${result.site.lng?.toFixed(5)}</span></header><div class="simulation-distance-grid">
+                ${distanceCell('NOW', result.site.current_distance_m)}${distanceCell('+5 s', predictionDistance(5))}${distanceCell('+10 s', predictionDistance(10))}${distanceCell('+15 s', predictionDistance(15))}${distanceCell('+30 s', predictionDistance(30))}
+            </div></section><div class="simulation-motion-note"><strong>SIMULATION / 模擬展示</strong> · NOT FIELD VALIDATED<br>History-only constant-velocity prediction. Fixed site is assessed after prediction and never influences the trajectory. ${safe(statusReason)}.</div>`;
         }
         function renderSimulationMap(metrics) {
             if (!simulationIsVisible() || !metrics || !map || !window.google?.maps) return;
             const scenario = simulationPlayback.scenario;
-            const historyOptions = {map, path:metrics.history, geodesic:true, strokeColor:'#f59e0b', strokeOpacity:.95, strokeWeight:4, clickable:false, zIndex:20};
+            const animation = metrics.animation;
+            const result = metrics.prediction;
+            const historyOptions = {map, path:animation.mapHistory, geodesic:true, strokeColor:'#f59e0b', strokeOpacity:.95, strokeWeight:4, clickable:false, zIndex:20};
             if (!simulationMapObjects.historyLine) simulationMapObjects.historyLine = new google.maps.Polyline(historyOptions); else simulationMapObjects.historyLine.setOptions(historyOptions);
-            const currentOptions = {map, position:metrics.position, title:'SIMULATION current target', zIndex:24, icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW, rotation:metrics.headingDeg, fillColor:'#22d3ee', fillOpacity:1, strokeColor:'#d9fbff', strokeWeight:2, scale:7}};
+            const currentOptions = {map, position:animation.position, title:'SIMULATION current target', zIndex:24, icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW, rotation:result?.display.show_heading ? result.current.heading_deg : 0, fillColor:'#22d3ee', fillOpacity:1, strokeColor:'#d9fbff', strokeWeight:2, scale:7}};
             if (!simulationMapObjects.currentMarker) simulationMapObjects.currentMarker = new google.maps.Marker(currentOptions); else simulationMapObjects.currentMarker.setOptions(currentOptions);
-            const predictionPath = [metrics.position, ...metrics.predictions];
+            const predictions = result?.display.show_prediction ? result.predictions : [];
+            const predictionPath = [animation.position, ...predictions];
             const predictionOptions = {map, path:predictionPath, geodesic:true, strokeOpacity:0, clickable:false, zIndex:21, icons:[{icon:{path:'M 0,-1 0,1', strokeOpacity:1, strokeColor:'#22d3ee', scale:3}, offset:'0', repeat:'12px'}]};
             if (!simulationMapObjects.predictionLine) simulationMapObjects.predictionLine = new google.maps.Polyline(predictionOptions); else simulationMapObjects.predictionLine.setOptions(predictionOptions);
-            while (simulationMapObjects.predictionMarkers.length < metrics.predictions.length) simulationMapObjects.predictionMarkers.push(new google.maps.Marker());
+            simulationMapObjects.predictionLine.setMap(predictions.length ? map : null);
+            while (simulationMapObjects.predictionMarkers.length < predictions.length) {
+                const marker = new google.maps.Marker();
+                marker.addListener('click', () => {
+                    const prediction = marker.__simulationPrediction;
+                    if (!prediction || !mapInfoWindow) return;
+                    mapInfoWindow.setContent(`<strong>SIMULATION prediction +${prediction.horizon_sec}s</strong><br>${prediction.lat.toFixed(6)}, ${prediction.lng.toFixed(6)}<br>Distance to ${safe(scenario.site.name)}: ${formatSimulationDistance(prediction.distance_to_site_m)}<br><em>Simulation only · not field validated</em>`);
+                    mapInfoWindow.open({map, anchor:marker});
+                });
+                simulationMapObjects.predictionMarkers.push(marker);
+            }
             simulationMapObjects.predictionMarkers.forEach((marker, index) => {
-                const prediction = metrics.predictions[index];
-                marker.setOptions({map, position:prediction, title:`SIMULATION prediction +${prediction.offset}s`, zIndex:23, label:{text:`+${prediction.offset}`, color:'#d9fbff', fontSize:'10px', fontWeight:'800'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#0e7490', fillOpacity:.85, strokeColor:'#67e8f9', strokeWeight:1.5, scale:5}});
+                const prediction = predictions[index];
+                marker.__simulationPrediction = prediction || null;
+                if (!prediction) { marker.setMap(null); return; }
+                marker.setOptions({map, position:prediction, title:`SIMULATION prediction +${prediction.horizon_sec}s`, zIndex:23, label:{text:`+${prediction.horizon_sec}`, color:'#d9fbff', fontSize:'10px', fontWeight:'800'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#0e7490', fillOpacity:.85, strokeColor:'#67e8f9', strokeWeight:1.5, scale:5}});
             });
-            const siteOptions = {map, position:scenario.site, title:'SIMULATION demo site', zIndex:22, label:{text:'SITE', color:'#f3e8ff', fontSize:'10px', fontWeight:'900'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#a855f7', fillOpacity:.95, strokeColor:'#f3e8ff', strokeWeight:2, scale:9}};
+            const siteOptions = {map, position:scenario.site, title:'SIMULATION fixed site · DEMO SITE ALPHA', zIndex:22, label:{text:'SITE', color:'#f3e8ff', fontSize:'10px', fontWeight:'900'}, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#a855f7', fillOpacity:.95, strokeColor:'#f3e8ff', strokeWeight:2, scale:9}};
             if (!simulationMapObjects.siteMarker) simulationMapObjects.siteMarker = new google.maps.Marker(siteOptions); else simulationMapObjects.siteMarker.setOptions(siteOptions);
-            const uncertaintyOptions = {map, center:metrics.position, radius:metrics.uncertaintyM, fillColor:'#a855f7', fillOpacity:.08, strokeColor:'#c084fc', strokeOpacity:.55, strokeWeight:1, zIndex:19};
+            const siteRadiusOptions = {map, center:scenario.site, radius:scenario.site.radius_m, clickable:false, fillColor:'#a855f7', fillOpacity:.10, strokeColor:'#c084fc', strokeOpacity:.9, strokeWeight:2, zIndex:18};
+            if (!simulationMapObjects.siteRadius) simulationMapObjects.siteRadius = new google.maps.Circle(siteRadiusOptions); else simulationMapObjects.siteRadius.setOptions(siteRadiusOptions);
+            const showUncertainty = Boolean(result?.display.show_uncertainty);
+            const uncertaintyOptions = {map:showUncertainty ? map : null, center:animation.position, radius:scenario.position_uncertainty_m, fillColor:'#22d3ee', fillOpacity:.06, strokeColor:'#67e8f9', strokeOpacity:.35, strokeWeight:1, zIndex:19};
             if (!simulationMapObjects.uncertaintyCircle) simulationMapObjects.uncertaintyCircle = new google.maps.Circle(uncertaintyOptions); else simulationMapObjects.uncertaintyCircle.setOptions(uncertaintyOptions);
-            if (simulationPlayback.followTarget && simulationTargetNearViewportEdge(metrics.position)) map.panTo(metrics.position);
+            if (simulationPlayback.followTarget && simulationTargetNearViewportEdge(animation.position)) map.panTo(animation.position);
         }
         function simulationTargetNearViewportEdge(position) {
             const bounds = map?.getBounds(); if (!bounds) return false;
@@ -705,7 +730,7 @@
             return position.lat > northEast.lat() - latPadding || position.lat < southWest.lat() + latPadding || position.lng > northEast.lng() - lngPadding || position.lng < southWest.lng() + lngPadding;
         }
         function clearSimulationMap() {
-            ['historyLine','predictionLine','currentMarker','siteMarker','uncertaintyCircle'].forEach(key => {
+            ['historyLine','predictionLine','currentMarker','siteMarker','siteRadius','uncertaintyCircle'].forEach(key => {
                 simulationMapObjects[key]?.setMap(null); simulationMapObjects[key] = null;
             });
             simulationMapObjects.predictionMarkers.forEach(marker => marker.setMap(null));
@@ -713,7 +738,12 @@
         }
         function updateSimulationFrame(forceDom = true, frameTime = performance.now()) {
             if (!simulationIsVisible()) return;
-            simulationPlayback.metrics = simulationSampleAt(simulationPlayback.elapsed);
+            simulationPlayback.animationSample = simulationAnimationSampleAt(simulationPlayback.elapsed);
+            if (simulationPlayback.lastPredictionAt === null || frameTime - simulationPlayback.lastPredictionAt >= 200) {
+                simulationPlayback.prediction = computeSimulationPrediction(simulationPlayback.animationSample);
+                simulationPlayback.lastPredictionAt = frameTime;
+            }
+            simulationPlayback.metrics = simulationPlayback.animationSample && simulationPlayback.prediction ? {simulation:true, animation:simulationPlayback.animationSample, prediction:simulationPlayback.prediction} : null;
             if (forceDom || simulationPlayback.lastDomUpdateAt === null || frameTime - simulationPlayback.lastDomUpdateAt >= 125) {
                 renderSimulationControls(); renderSimulationMotion(); simulationPlayback.lastDomUpdateAt = frameTime;
             }
@@ -740,9 +770,9 @@
         function enterSimulationMode() {
             if (!dashboardSimulationEnabled) return;
             const scenario = simulationScenario();
-            if (!scenario?.simulation) { showToast('Simulation scenario 無法載入'); return; }
+            if (!scenario?.simulation || !simulationPredictionEngine) { showToast('Simulation prediction module 無法載入'); return; }
             cancelAnimationFrame(simulationPlayback.animationFrame);
-            Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, lastDomUpdateAt:null, animationFrame:null});
+            Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
             renderMap(); updateSimulationFrame(); fitSimulationMap();
         }
         function playPauseSimulation() {
@@ -751,7 +781,7 @@
                 simulationPlayback.phase = 'paused'; simulationPlayback.lastFrameAt = null;
                 cancelAnimationFrame(simulationPlayback.animationFrame); updateSimulationFrame(); return;
             }
-            if (simulationPlayback.phase === 'completed') simulationPlayback.elapsed = 0;
+            if (simulationPlayback.phase === 'completed') { simulationPlayback.elapsed = 0; simulationPlayback.lastPredictionAt = null; }
             simulationPlayback.phase = 'playing'; simulationPlayback.lastFrameAt = null;
             updateSimulationFrame(); simulationPlayback.animationFrame = requestAnimationFrame(simulationAnimationFrame);
         }
@@ -759,11 +789,12 @@
             if (!simulationIsVisible()) return;
             cancelAnimationFrame(simulationPlayback.animationFrame);
             simulationPlayback.elapsed = 0; simulationPlayback.phase = 'playing'; simulationPlayback.lastFrameAt = null;
+            simulationPlayback.lastPredictionAt = null;
             updateSimulationFrame(); simulationPlayback.animationFrame = requestAnimationFrame(simulationAnimationFrame);
         }
         function exitSimulationMode() {
             cancelAnimationFrame(simulationPlayback.animationFrame); clearSimulationMap();
-            Object.assign(simulationPlayback, {phase:'inactive', scenario:null, elapsed:0, lastFrameAt:null, lastDomUpdateAt:null, animationFrame:null, metrics:null});
+            Object.assign(simulationPlayback, {phase:'inactive', scenario:null, elapsed:0, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
             renderSimulationControls(); renderMotion(); renderMap();
         }
 
@@ -1501,6 +1532,12 @@
             document.getElementById('simulationExitButton')?.addEventListener('click', exitSimulationMode);
             document.getElementById('simulationPlayButton')?.addEventListener('click', playPauseSimulation);
             document.getElementById('simulationRestartButton')?.addEventListener('click', restartSimulation);
+            document.getElementById('simulationScenario')?.addEventListener('change', () => {
+                if (!simulationIsVisible()) return;
+                cancelAnimationFrame(simulationPlayback.animationFrame);
+                clearSimulationMap();
+                enterSimulationMode();
+            });
             document.getElementById('simulationSpeed')?.addEventListener('change', event => { simulationPlayback.rate = Number(event.target.value) || 1; });
             document.getElementById('simulationFollowTarget')?.addEventListener('change', event => { simulationPlayback.followTarget = event.target.checked; });
             document.getElementById('simulationSeek')?.addEventListener('input', event => {
@@ -1508,10 +1545,15 @@
                 if (simulationPlayback.phase === 'completed' && simulationPlayback.elapsed < simulationPlayback.scenario.duration_seconds) simulationPlayback.phase = 'paused';
                 simulationPlayback.lastFrameAt = null; updateSimulationFrame();
             });
+            document.getElementById('simulationSeek')?.addEventListener('change', () => {
+                simulationPlayback.lastPredictionAt = null;
+                updateSimulationFrame();
+            });
             window.dashboardSimulationController = Object.freeze({
                 enter: enterSimulationMode, playPause: playPauseSimulation, restart: restartSimulation, exit: exitSimulationMode,
-                seek: seconds => { const input = document.getElementById('simulationSeek'); input.value = String(seconds); input.dispatchEvent(new Event('input', {bubbles:true})); },
-                snapshot: () => ({simulation:true, phase:simulationPlayback.phase, elapsed:simulationPlayback.elapsed, metrics:simulationPlayback.metrics ? {...simulationPlayback.metrics} : null})
+                seek: seconds => { const input = document.getElementById('simulationSeek'); input.value = String(seconds); input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); },
+                selectScenario: id => { const input = document.getElementById('simulationScenario'); input.value = id; input.dispatchEvent(new Event('change', {bubbles:true})); },
+                snapshot: () => ({simulation:true, phase:simulationPlayback.phase, elapsed:simulationPlayback.elapsed, scenario_id:simulationPlayback.scenario?.id || null, prediction:simulationPlayback.prediction ? {...simulationPlayback.prediction} : null})
             });
         }
         document.getElementById('commandConfirmCancel').addEventListener('click', closeCommandConfirm);

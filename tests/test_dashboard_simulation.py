@@ -11,6 +11,11 @@ SCENARIO_PATH = (
     / "static"
     / "dashboard_simulation_scenarios.js"
 )
+PREDICTION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "static"
+    / "dashboard_simulation_prediction.js"
+)
 
 
 def simulation_html() -> str:
@@ -70,21 +75,48 @@ def test_dashboard_route_passes_runtime_flag(monkeypatch) -> None:
     assert 'id="simulationOpenButton"' in response.text
 
 
-def test_scenario_is_static_demo_data_with_75_second_duration() -> None:
+def test_scenarios_are_static_demo_data_with_90_second_duration() -> None:
     source = SCENARIO_PATH.read_text(encoding="utf-8")
-    assert "duration_seconds: 75" in source
+    assert "duration_seconds: 90" in source
     assert "source: 'static_demo_scenario'" in source
     assert "field_validated: false" in source
-    assert source.count("simulation:true") >= 8
+    for scenario_id in (
+        "approach_site_demo_v1",
+        "parallel_flyby_demo_v1",
+        "departing_demo_v1",
+    ):
+        assert scenario_id in source
     assert "Object.freeze" in source
 
 
-def test_scenario_contains_a_turn_and_no_private_identifiers() -> None:
+def test_scenario_has_fixed_site_radius_and_no_private_identifiers() -> None:
     source = SCENARIO_PATH.read_text(encoding="utf-8")
-    assert "t:60" in source and "t:66" in source and "t:75" in source
     assert "demo_site_alpha" in source
+    assert "DEMO SITE ALPHA" in source
+    assert "radius_m: 100" in source
     assert "node_A01" not in source
     assert "device_id" not in source
+
+
+def test_pure_prediction_module_loads_before_scenarios() -> None:
+    html = simulation_html()
+    assert html.index("function computeSimulationPredictionTick") < html.index(
+        "function attachSimulationScenarios"
+    )
+
+
+def test_pure_prediction_module_has_no_runtime_or_nondeterministic_dependencies() -> None:
+    source = PREDICTION_PATH.read_text(encoding="utf-8")
+    for forbidden in (
+        "Date.now",
+        "Math.random",
+        "fetch(",
+        "WebSocket(",
+        "document.",
+        "google.maps",
+    ):
+        assert forbidden not in source
+    assert "function computeSimulationPredictionTick(input)" in source
 
 
 def test_state_machine_has_all_required_states() -> None:
@@ -116,33 +148,37 @@ def test_history_current_and_prediction_styles_are_distinct() -> None:
 
 def test_constant_velocity_prediction_has_required_horizons() -> None:
     html = simulation_html()
-    assert "const predictionOffsets = [5, 10, 15, 30]" in html
-    assert "latPerSecond * offset" in html
-    assert "lngPerSecond * offset" in html
+    assert "Object.freeze([5, 10, 15, 30])" in html
+    assert "projectConstantVelocity(current, velocity, horizons)" in html
+    assert "model:'CONSTANT_VELOCITY'" in html
     assert "Kalman" not in html
 
 
 def test_demo_site_and_uncertainty_are_simulation_overlays() -> None:
     html = simulation_html()
     assert "fillColor:'#a855f7'" in html
-    assert "SIMULATION demo site" in html
-    assert "uncertaintyM" in html
+    assert "SIMULATION fixed site · DEMO SITE ALPHA" in html
+    assert "simulationMapObjects.siteRadius" in html
+    assert "radius:scenario.site.radius_m" in html
     assert "simulationMapObjects.uncertaintyCircle" in html
 
 
 def test_dynamic_motion_metrics_are_present() -> None:
     html = simulation_html()
     for label in (
-        "Simulated speed",
-        "Simulated heading",
-        "Relative motion",
-        "Demo site distance",
-        "Predicted closest distance",
-        "Estimated arrival in simulation",
-        "Simulated quality",
+        "Current speed",
+        "Current heading",
+        "Site trend",
+        "Radial closing speed",
+        "CPA distance",
+        "CPA time",
+        "SIMULATED ETA",
+        "Prediction status",
     ):
         assert label in html
     assert "APPROACHING" in html and "DEPARTING" in html and "STATIONARY" in html
+    for horizon in ("+5 s", "+10 s", "+15 s", "+30 s"):
+        assert horizon in html
 
 
 def test_controls_cover_play_pause_restart_exit_speed_seek_and_follow() -> None:
@@ -202,8 +238,8 @@ def test_operational_overlays_are_dimmed_not_removed_during_simulation() -> None
 
 def test_follow_target_is_user_controlled() -> None:
     html = simulation_html()
-    assert "simulationTargetNearViewportEdge(metrics.position)" in html
-    assert "map.panTo(metrics.position)" in html
+    assert "simulationTargetNearViewportEdge(animation.position)" in html
+    assert "map.panTo(animation.position)" in html
     assert "const latPadding" in html
     assert "simulationPlayback.followTarget = event.target.checked" in html
 
@@ -223,6 +259,7 @@ def test_simulation_controller_snapshot_is_explicitly_tagged() -> None:
 def test_metrics_are_throttled_while_map_animation_remains_frame_driven() -> None:
     html = simulation_html()
     assert "frameTime - simulationPlayback.lastDomUpdateAt >= 125" in html
+    assert "frameTime - simulationPlayback.lastPredictionAt >= 200" in html
     assert "updateSimulationFrame(false, now)" in html
     assert "renderSimulationMap(simulationPlayback.metrics)" in html
 
@@ -233,8 +270,8 @@ def test_watermark_is_fixed_and_timeline_has_ticks() -> None:
     assert 'id="simulationTopbarBadge"' in html
     assert "topbarBadge.hidden = !visible" in html
     assert 'id="simulationTimelineTicks"' in html
-    assert "00:15" in html and "01:15" in html
-    assert "模擬 CV 預測" in html
+    assert "00:15" in html and "01:30" in html
+    assert "History-only constant-velocity prediction" in html
 
 
 def test_isolated_staging_manifests_enable_the_flag() -> None:

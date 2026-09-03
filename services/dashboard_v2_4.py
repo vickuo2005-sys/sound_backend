@@ -5,6 +5,11 @@ from urllib.parse import quote
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "dashboard_v2_4.html"
+SIMULATION_PREDICTION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "static"
+    / "dashboard_simulation_prediction.js"
+)
 SIMULATION_SCENARIO_PATH = (
     Path(__file__).resolve().parents[1]
     / "static"
@@ -51,7 +56,7 @@ def render_dashboard_v2_4(
         simulation_panel = """
         <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
             <div class="simulation-banner">
-                <div><strong>SIMULATION / 模擬展示</strong><span>approach_site_demo_v1 · NOT FIELD VALIDATED</span></div>
+                <div><strong>SIMULATION / 模擬展示</strong><span id="simulationScenarioName">approach_site_demo_v1 · NOT FIELD VALIDATED</span></div>
                 <button id="simulationExitButton" class="ghost-button" type="button">Exit simulation</button>
             </div>
             <p class="simulation-disclaimer">此畫面為展示用模擬資料，不代表目前實際偵測結果或已驗證預測能力。</p>
@@ -60,7 +65,9 @@ def render_dashboard_v2_4(
                 <button id="simulationRestartButton" class="action-button" type="button">Restart</button>
                 <label>Scenario
                     <select id="simulationScenario" class="select-control" aria-label="模擬情境">
-                        <option value="approach_site_demo_v1">接近據點 / Approaching Site</option>
+                        <option value="approach_site_demo_v1">A · Direct Approach</option>
+                        <option value="parallel_flyby_demo_v1">B · Parallel Fly-by</option>
+                        <option value="departing_demo_v1">C · Departing</option>
                     </select>
                 </label>
                 <label>Speed
@@ -72,15 +79,17 @@ def render_dashboard_v2_4(
                 <span id="simulationStateBadge" class="badge experimental">READY</span>
             </div>
             <div class="simulation-timeline">
-                <input id="simulationSeek" type="range" min="0" max="75" value="0" step="0.1" list="simulationTimelineTicks" aria-label="模擬時間軸">
-                <output id="simulationTime" for="simulationSeek">00:00 / 01:15</output>
+                <input id="simulationSeek" type="range" min="0" max="90" value="0" step="0.1" list="simulationTimelineTicks" aria-label="模擬時間軸">
+                <output id="simulationTime" for="simulationSeek">00:00 / 01:30</output>
             </div>
-            <datalist id="simulationTimelineTicks"><option value="0" label="00:00"></option><option value="15" label="00:15"></option><option value="30" label="00:30"></option><option value="45" label="00:45"></option><option value="60" label="01:00"></option><option value="75" label="01:15"></option></datalist>
-            <div class="simulation-ticks" aria-hidden="true"><span>00:00</span><span>00:15</span><span>00:30</span><span>00:45</span><span>01:00</span><span>01:15</span></div>
+            <datalist id="simulationTimelineTicks"><option value="0" label="00:00"></option><option value="15" label="00:15"></option><option value="30" label="00:30"></option><option value="45" label="00:45"></option><option value="60" label="01:00"></option><option value="75" label="01:15"></option><option value="90" label="01:30"></option></datalist>
+            <div class="simulation-ticks" aria-hidden="true"><span>00:00</span><span>00:15</span><span>00:30</span><span>00:45</span><span>01:00</span><span>01:15</span><span>01:30</span></div>
         </section>
         """
         simulation_scenario_script = (
             "<script>\n"
+            + SIMULATION_PREDICTION_PATH.read_text(encoding="utf-8")
+            + "\n</script>\n<script>\n"
             + SIMULATION_SCENARIO_PATH.read_text(encoding="utf-8")
             + "\n</script>"
         )

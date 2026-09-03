@@ -24,25 +24,26 @@ Dashboard V2 switch or experimental motion switch.
 
 ## Scenario contract
 
-The static source is `static/dashboard_simulation_scenarios.js`. Scenario
-`approach_site_demo_v1` lasts 75 seconds, includes a direction change, and uses
-arbitrary demo coordinates near the Dashboard's default map center. It does
-not identify a real site, device, flight, or person. The scenario, site, every
-point, every interpolation result, every prediction, and the public test
-snapshot carry `simulation: true`.
+The static source is `static/dashboard_simulation_scenarios.js`. Three 90-second
+scenarios cover direct approach, parallel fly-by, and departing motion around
+the arbitrary fixed `DEMO SITE ALPHA`. They do not identify a real site,
+device, flight, or person. The scenario, site, every point, every interpolation
+result, every prediction, and the public test snapshot carry `simulation:
+true`.
 
 The overlay uses:
 
 - orange for simulated history;
 - cyan for the simulated current position;
 - a cyan dashed line and markers for +5, +10, +15, and +30 second predictions;
-- purple for the arbitrary demo site;
+- purple for the arbitrary fixed demo site and its 100 m protected radius;
 - a cyan uncertainty circle for presentation only.
 
-Prediction is straight-line constant velocity derived from the active static
-scenario segment. It is deliberately not Kalman filtering, production
-tracking, threat prediction, or a validated ETA. The Motion card labels all
-derived values as simulated.
+Prediction is straight-line constant velocity derived only from recent static
+history. The fixed site is assessed after projection and cannot attract or
+bias the predicted trajectory. It is deliberately not Kalman filtering,
+production tracking, threat prediction, or a validated ETA. See
+`DASHBOARD_SIMULATION_PREDICTION.md` for formulas, gates, and reason codes.
 
 ## Runtime behavior
 
@@ -50,9 +51,10 @@ The state machine is `inactive → ready → playing ↔ paused → completed`.
 Opening the mode, including with `?simulation=1`, stops at `ready` and never
 autoplays. Controls provide play/pause, restart, exit, 0.5×/1×/2× speed, seek,
 and optional follow-target map panning. Animation uses
-`requestAnimationFrame`; position and metrics are interpolated continuously.
+`requestAnimationFrame`; position is interpolated continuously.
 Google Maps objects are created once and updated in place. Map geometry follows
-the animation frame, while text/control DOM updates are limited to 8 Hz. Follow
+the animation frame, prediction/site math is limited to 5 Hz, and text/control
+DOM updates are limited to 8 Hz. Follow
 Target pans only when the marker enters the outer 18% of the visible bounds;
 it never calls `fitBounds` per frame.
 
@@ -79,13 +81,14 @@ Flutter code, or production environment is changed by this mode.
 2. Open `/dashboard?simulation=1` and confirm state is READY with no movement.
 3. Exercise play, pause, resume, seek, both non-default speeds, restart,
    follow-target off/on, completion, replay, and exit.
-4. Confirm history grows; current position, prediction, speed, heading,
-   distance, relative motion, closest distance, and ETA change.
+4. Exercise all three scenarios. Confirm history grows and current position,
+   predictions, speed, heading, current/future site distances, trend, closing
+   speed, CPA, and gated ETA/reason change while the site and radius stay fixed.
 5. While playing, confirm the real WebSocket stays connected, Node Status and
    Node Controls remain usable, and no simulated item appears in Live
    Detection or Recent Events.
-6. Repeat at 1366×768 and 1920×1080. Check for horizontal overflow and browser
-   console errors.
+6. Repeat at 1024×768, 1366×768, and 1920×1080. Check for horizontal overflow
+   and browser console errors.
 
 ## Rollback
 
