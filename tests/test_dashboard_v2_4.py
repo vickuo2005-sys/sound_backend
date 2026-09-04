@@ -48,7 +48,7 @@ def test_dashboard_flag_on_returns_v2_4(monkeypatch) -> None:
     assert "Operational Intelligence" in html
     assert "STAGING" in html
     assert "DASHBOARD V2.4" not in html  # Product UI, not an internal version banner.
-    assert "Prediction / ETA：未提供" in html
+    assert "Prediction / ETA：僅模擬，未完成實地驗證" in html
 
 
 def test_legacy_route_is_always_available(monkeypatch) -> None:

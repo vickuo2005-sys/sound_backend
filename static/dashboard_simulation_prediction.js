@@ -36,6 +36,9 @@
         const lat = finite(point?.lat); const lng = finite(point?.lng);
         return lat !== null && lng !== null && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
     }
+    function siteProtectedRadiusM(site) {
+        return finite(site?.protected_radius_m ?? site?.radius_m);
+    }
     function localOffsetMeters(origin, target) {
         const lat0 = toRadians(origin.lat); const lat1 = toRadians(target.lat);
         const deltaLat = lat1 - lat0;
@@ -211,7 +214,7 @@
         return {simulation:true, reliable:true, reason:rawTime < 0 ? 'DEPARTING' : 'OK', time_sec:time, raw_time_sec:rawTime, distance_m:Math.hypot(east, north)};
     }
     function computeProtectedRadiusIntersection(current, site, velocity, options = {}) {
-        const settings = {...DEFAULTS, ...options}; const radius = Number(site.radius_m);
+        const settings = {...DEFAULTS, ...options}; const radius = siteProtectedRadiusM(site);
         const siteToCurrent = localOffsetMeters(site, current);
         const currentDistance = Math.hypot(siteToCurrent.east_m, siteToCurrent.north_m);
         if (currentDistance <= radius) return {simulation:true, status:'AT_SITE', eta_sec:0, discriminant:null};
@@ -223,11 +226,11 @@
         if (discriminant < 0 && discriminant >= -settings.discriminant_epsilon) discriminant = 0;
         if (discriminant < 0) return {simulation:true, status:'NO_SITE_INTERSECTION', eta_sec:null, discriminant};
         const root = Math.sqrt(discriminant); const roots = [(-b - root) / (2 * a), (-b + root) / (2 * a)].filter(value => value >= 0).sort((x, y) => x - y);
-        if (!roots.length) return {simulation:true, status:'MOVING_AWAY_OR_PAST_INTERSECTION', eta_sec:null, discriminant};
+        if (!roots.length) return {simulation:true, status:'NO_FUTURE_INTERSECTION', eta_sec:null, discriminant};
         if (roots[0] > settings.eta_search_horizon_sec) return {simulation:true, status:'NO_SITE_INTERSECTION', eta_sec:null, discriminant};
         return {simulation:true, status:'OK', eta_sec:roots[0], discriminant};
     }
-    function computeSimulationSiteMetrics(current, site, velocity, predictions, motion, options = {}) {
+    function computeSiteApproachAssessment(current, site, velocity, predictions, motion, options = {}) {
         const settings = {...DEFAULTS, ...options};
         const currentDistance = haversineDistanceM(current, site);
         const predictionWithDistance = predictions.map(prediction => ({...prediction, distance_to_site_m:haversineDistanceM(prediction, site)}));
@@ -240,18 +243,36 @@
         else if (distanceDeltaFive >= settings.distance_trend_tolerance_m && closingSpeed <= -settings.radial_speed_tolerance_mps) trend = 'DEPARTING';
         const cpa = computeClosestPointOfApproach(current, site, velocity, settings.eta_search_horizon_sec);
         const intersection = computeProtectedRadiusIntersection(current, site, velocity, settings);
-        return {simulation:true, current_distance_m:currentDistance, predictions:predictionWithDistance, trend, radial_closing_speed_mps:closingSpeed, distance_delta_5s_m:distanceDeltaFive, cpa, intersection};
+        const cpaPosition = cpa.reliable && cpa.time_sec !== null
+            ? localOffsetToLatLng(current, velocity.east_mps * cpa.time_sec, velocity.north_mps * cpa.time_sec)
+            : null;
+        const entryPosition = intersection.eta_sec !== null
+            ? localOffsetToLatLng(current, velocity.east_mps * intersection.eta_sec, velocity.north_mps * intersection.eta_sec)
+            : null;
+        return {
+            simulation:true,
+            current_distance_m:currentDistance,
+            predictions:predictionWithDistance,
+            trend,
+            closing_speed_mps:closingSpeed,
+            distance_delta_5s_m:distanceDeltaFive,
+            cpa:{...cpa, lat:cpaPosition?.lat ?? null, lng:cpaPosition?.lng ?? null},
+            intersection:{...intersection, lat:entryPosition?.lat ?? null, lng:entryPosition?.lng ?? null}
+        };
     }
     function emptyContract(current, site, reasons) {
         const currentDistance = validPosition(current) && validPosition(site) ? haversineDistanceM(current, site) : null;
+        const protectedRadius = siteProtectedRadiusM(site);
+        const approach = {simulation:true, predicted_closest_distance_m:null, predicted_closest_time_sec:null, predicted_closest_lat:null, predicted_closest_lng:null, simulated_eta_sec:null, eta_reason:reasons[0] || 'DATA_INSUFFICIENT', predicted_entry_lat:null, predicted_entry_lng:null};
         return {
-            simulation:true, status:'DATA_INSUFFICIENT', status_reasons:[...new Set(reasons)], model:'CONSTANT_VELOCITY',
+            simulation:true, status:'DATA_INSUFFICIENT', status_reasons:[...new Set(reasons)], model:'CV',
             current:{simulation:true, lat:finite(current?.lat), lng:finite(current?.lng), speed_mps:null, heading_deg:null, heading_reliable:false, turn_rate_deg_s:null},
-            site:{simulation:true, id:site?.id || null, name:site?.name || null, lat:finite(site?.lat), lng:finite(site?.lng), radius_m:finite(site?.radius_m), current_distance_m:currentDistance, bearing_to_site_deg:validPosition(current)&&validPosition(site)?computeBearingToSite(current,site):null},
-            motion:{simulation:true, trend:'DATA_INSUFFICIENT', radial_closing_speed_mps:null, heading_to_site_error_deg:null},
+            site:{simulation:true, id:site?.id || null, name:site?.name || null, lat:finite(site?.lat), lng:finite(site?.lng), protected_radius_m:protectedRadius, current_distance_m:currentDistance, bearing_to_site_deg:validPosition(current)&&validPosition(site)?computeBearingToSite(current,site):null},
+            motion:{simulation:true, trend:'UNCERTAIN', closing_speed_mps:null},
             predictions:[],
-            site_metrics:{simulation:true, predicted_closest_distance_m:null, predicted_closest_time_sec:null, simulated_eta_sec:null, eta_reason:reasons[0] || 'DATA_INSUFFICIENT'},
-            display:{simulation:true, show_prediction:false, show_heading:false, show_eta:false, show_uncertainty:false}
+            approach,
+            site_metrics:approach,
+            display:{simulation:true, show_prediction:false, show_heading:false, show_eta:false, show_entry_point:false, show_closest_point:false, show_uncertainty:false}
         };
     }
     function computeSimulationPredictionTick(input) {
@@ -260,33 +281,44 @@
         const quality = evaluatePredictionDataQuality(history, {...settings, position_uncertainty_m:input?.position_uncertainty_m});
         const current = validPosition(input?.current_position) ? {simulation:true, lat:Number(input.current_position.lat), lng:Number(input.current_position.lng)} : quality.points[quality.points.length - 1];
         const reasons = [...quality.status_reasons];
-        if (!validPosition(site) || !(finite(site.radius_m) > 0)) reasons.push('INVALID_POSITION');
+        if (!validPosition(site) || !(siteProtectedRadiusM(site) > 0)) reasons.push('INVALID_POSITION');
         if (!validPosition(current)) reasons.push('INVALID_POSITION');
         if (reasons.length) return emptyContract(current, site, reasons);
         const motion = estimateMotionState(quality.points, settings);
         if (!motion) return emptyContract(current, site, ['TOO_FEW_POINTS']);
         const headingReliable = motion.speed_mps > settings.minimum_motion_speed_mps;
-        if (!headingReliable) return {...emptyContract(current, site, ['LOW_SPEED']), current:{simulation:true, lat:current.lat, lng:current.lng, speed_mps:motion.speed_mps, heading_deg:motion.heading_deg, heading_reliable:false, turn_rate_deg_s:motion.turn_rate_deg_s}, motion:{simulation:true, trend:'STATIONARY', radial_closing_speed_mps:0, heading_to_site_error_deg:null}};
+        if (!headingReliable) return {...emptyContract(current, site, ['LOW_SPEED']), current:{simulation:true, lat:current.lat, lng:current.lng, speed_mps:motion.speed_mps, heading_deg:motion.heading_deg, heading_reliable:false, turn_rate_deg_s:motion.turn_rate_deg_s}, motion:{simulation:true, trend:'STATIONARY', closing_speed_mps:0}};
         const velocity = {east_mps:motion.east_mps, north_mps:motion.north_mps};
         const horizons = Array.isArray(input?.horizons_sec) ? input.horizons_sec : DEFAULT_HORIZONS_SEC;
         const rawPredictions = projectConstantVelocity(current, velocity, horizons);
-        const siteAssessment = computeSimulationSiteMetrics(current, site, velocity, rawPredictions, motion, settings);
+        const siteAssessment = computeSiteApproachAssessment(current, site, velocity, rawPredictions, motion, settings);
         const bearing = computeBearingToSite(current, site);
-        const headingError = circularDifferenceDeg(motion.heading_deg, bearing);
         const etaMathematicallyExists = ['OK','AT_SITE'].includes(siteAssessment.intersection.status);
         const etaGate = siteAssessment.intersection.status === 'AT_SITE' || (
-            siteAssessment.trend === 'APPROACHING' && siteAssessment.radial_closing_speed_mps > settings.radial_speed_tolerance_mps && etaMathematicallyExists
+            siteAssessment.trend === 'APPROACHING' && siteAssessment.closing_speed_mps > settings.radial_speed_tolerance_mps && etaMathematicallyExists
         );
         let etaReason = siteAssessment.intersection.status;
         if (etaMathematicallyExists && !etaGate) etaReason = siteAssessment.trend === 'DEPARTING' ? 'DEPARTING' : 'TREND_UNCERTAIN';
+        const approach = {
+            simulation:true,
+            predicted_closest_distance_m:siteAssessment.cpa.distance_m,
+            predicted_closest_time_sec:siteAssessment.cpa.time_sec,
+            predicted_closest_lat:siteAssessment.cpa.lat,
+            predicted_closest_lng:siteAssessment.cpa.lng,
+            simulated_eta_sec:etaGate?siteAssessment.intersection.eta_sec:null,
+            eta_reason:etaReason,
+            predicted_entry_lat:etaGate?siteAssessment.intersection.lat:null,
+            predicted_entry_lng:etaGate?siteAssessment.intersection.lng:null
+        };
         return {
-            simulation:true, status:'OK', status_reasons:[], model:'CONSTANT_VELOCITY',
+            simulation:true, status:'OK', status_reasons:[], model:'CV',
             current:{simulation:true, lat:current.lat, lng:current.lng, speed_mps:motion.speed_mps, heading_deg:motion.heading_deg, heading_reliable:headingReliable, turn_rate_deg_s:motion.turn_rate_deg_s},
-            site:{simulation:true, id:site.id, name:site.name, lat:Number(site.lat), lng:Number(site.lng), radius_m:Number(site.radius_m), current_distance_m:siteAssessment.current_distance_m, bearing_to_site_deg:bearing},
-            motion:{simulation:true, trend:siteAssessment.trend, radial_closing_speed_mps:siteAssessment.radial_closing_speed_mps, heading_to_site_error_deg:headingError},
+            site:{simulation:true, id:site.id, name:site.name, lat:Number(site.lat), lng:Number(site.lng), protected_radius_m:siteProtectedRadiusM(site), current_distance_m:siteAssessment.current_distance_m, bearing_to_site_deg:bearing},
+            motion:{simulation:true, trend:siteAssessment.trend, closing_speed_mps:siteAssessment.closing_speed_mps},
             predictions:siteAssessment.predictions,
-            site_metrics:{simulation:true, predicted_closest_distance_m:siteAssessment.cpa.distance_m, predicted_closest_time_sec:siteAssessment.cpa.time_sec, simulated_eta_sec:etaGate?siteAssessment.intersection.eta_sec:null, eta_reason:etaReason},
-            display:{simulation:true, show_prediction:true, show_heading:true, show_eta:etaGate, show_uncertainty:finite(input?.position_uncertainty_m)!==null}
+            approach,
+            site_metrics:approach,
+            display:{simulation:true, show_prediction:true, show_heading:true, show_eta:etaGate, show_entry_point:siteAssessment.intersection.status === 'OK' && etaGate && approach.predicted_entry_lat !== null, show_closest_point:siteAssessment.cpa.reliable && siteAssessment.cpa.time_sec > 0, show_uncertainty:finite(input?.position_uncertainty_m)!==null}
         };
     }
 
@@ -294,12 +326,16 @@
         EARTH_RADIUS_M, DEFAULT_HORIZONS_SEC, DEFAULTS,
         normalizeHeadingDeg, circularDifferenceDeg, localOffsetMeters,
         localOffsetToLatLng, haversineDistanceM, computeBearingToSite,
+        bearingToSiteDeg:computeBearingToSite,
         velocityFromSpeedHeading, speedHeadingFromVelocity,
         normalizeSimulationHistory, unwrapHeadings, estimateTurnRate,
         evaluatePredictionDataQuality, estimateMotionState,
         projectConstantVelocity, projectConstantTurn,
-        computeRadialClosingSpeed, computeClosestPointOfApproach,
-        computeProtectedRadiusIntersection, computeSimulationSiteMetrics,
+        computeRadialClosingSpeed, computeClosingSpeed:computeRadialClosingSpeed,
+        computeClosestPointOfApproach, computeCPA:computeClosestPointOfApproach,
+        computeProtectedRadiusIntersection,
+        computeSimulationSiteMetrics:computeSiteApproachAssessment,
+        computeSiteApproachAssessment,
         computeSimulationPredictionTick
     });
 })(typeof window === 'object' ? window : globalThis);

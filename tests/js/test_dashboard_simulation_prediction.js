@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 require('../../static/dashboard_simulation_prediction.js');
 
 const prediction = globalThis.DashboardSimulationPrediction;
-const site = Object.freeze({simulation:true, id:'test_site', name:'TEST SITE', lat:25.039, lng:121.5752, radius_m:100});
+const site = Object.freeze({simulation:true, id:'test_site', name:'TEST SITE', lat:25.039, lng:121.5752, protected_radius_m:100});
 
 function near(actual, expected, tolerance, label) {
     assert.ok(Math.abs(actual - expected) <= tolerance, `${label}: ${actual} != ${expected} ± ${tolerance}`);
@@ -52,12 +52,18 @@ near(prediction.haversineDistanceM({lat:0,lng:179.9}, {lat:0,lng:-179.9}), 22238
 const directHistory = historyEndingAt(-1000, 0, 10, 0);
 const direct = tick(directHistory);
 assert.equal(direct.status, 'OK');
+assert.equal(direct.model, 'CV');
 assert.equal(direct.motion.trend, 'APPROACHING');
 near(direct.current.speed_mps, 10, .02, 'direct speed');
-near(direct.motion.radial_closing_speed_mps, 10, .02, 'direct closing');
-near(direct.site_metrics.predicted_closest_distance_m, 0, .2, 'direct CPA distance');
-near(direct.site_metrics.predicted_closest_time_sec, 100, .1, 'direct CPA time');
-near(direct.site_metrics.simulated_eta_sec, 90, .1, 'direct ETA');
+near(direct.motion.closing_speed_mps, 10, .02, 'direct closing');
+near(direct.approach.predicted_closest_distance_m, 0, .2, 'direct CPA distance');
+near(direct.approach.predicted_closest_time_sec, 100, .1, 'direct CPA time');
+near(direct.approach.simulated_eta_sec, 90, .1, 'direct ETA');
+assert.equal(direct.display.show_entry_point, true);
+near(prediction.haversineDistanceM({lat:direct.approach.predicted_entry_lat,lng:direct.approach.predicted_entry_lng}, site), 100, .3, 'entry point radius');
+for (const [horizon, expectedDistance] of [[5,950],[10,900],[15,850],[30,700]]) {
+    near(direct.predictions.find(item => item.horizon_sec === horizon).distance_to_site_m, expectedDistance, .3, `direct +${horizon}s distance`);
+}
 
 const repeated = tick(directHistory);
 assert.deepEqual(repeated, direct, 'same input must be deterministic');
@@ -80,12 +86,13 @@ assert.equal(parallel.site_metrics.eta_reason, 'NO_SITE_INTERSECTION');
 
 const departing = tick(historyEndingAt(-1000, 0, -10, 0));
 assert.equal(departing.motion.trend, 'DEPARTING');
-near(departing.motion.radial_closing_speed_mps, -10, .02, 'departing closing');
+near(departing.motion.closing_speed_mps, -10, .02, 'departing closing');
 assert.equal(departing.site_metrics.simulated_eta_sec, null);
 
 const inside = tick(historyEndingAt(50, 0, 10, 0));
 assert.equal(inside.site_metrics.simulated_eta_sec, 0);
 assert.equal(inside.site_metrics.eta_reason, 'AT_SITE');
+assert.equal(inside.display.show_entry_point, false);
 
 const tangent = tick(historyEndingAt(-1000, 100, 10, 0));
 near(tangent.site_metrics.predicted_closest_distance_m, 100, .3, 'tangent CPA distance');
@@ -97,6 +104,11 @@ assert.equal(lowSpeed.status, 'DATA_INSUFFICIENT');
 assert.deepEqual(lowSpeed.status_reasons, ['LOW_SPEED']);
 assert.equal(lowSpeed.display.show_heading, false);
 assert.equal(lowSpeed.site_metrics.simulated_eta_sec, null);
+
+assert.equal(typeof prediction.bearingToSiteDeg, 'function');
+assert.equal(typeof prediction.computeClosingSpeed, 'function');
+assert.equal(typeof prediction.computeCPA, 'function');
+assert.equal(typeof prediction.computeSiteApproachAssessment, 'function');
 
 const unwrapped = prediction.unwrapHeadings([
     {t:0,heading_deg:358}, {t:1,heading_deg:359}, {t:2,heading_deg:0}, {t:3,heading_deg:1}, {t:4,heading_deg:2}
@@ -124,6 +136,13 @@ const uncertain = tick(directHistory, {position_uncertainty_m:1000});
 assert.equal(uncertain.status, 'DATA_INSUFFICIENT');
 assert.ok(uncertain.status_reasons.includes('UNCERTAINTY_EXCEEDS_MOTION'));
 
+const seekAtFive = tick(directHistory);
+const seekHistory = historyEndingAt(-500, 0, 10, 0);
+const seekAtFiftyFive = tick(seekHistory);
+assert.notEqual(seekAtFive.site.current_distance_m, seekAtFiftyFive.site.current_distance_m, 'timeline seek must recompute current distance');
+assert.notEqual(seekAtFive.approach.simulated_eta_sec, seekAtFiftyFive.approach.simulated_eta_sec, 'timeline seek must recompute ETA');
+assert.notDeepEqual(seekAtFive.predictions, seekAtFiftyFive.predictions, 'timeline seek must recompute predicted positions');
+
 require('../../static/dashboard_simulation_scenarios.js');
 const scenarios = globalThis.DashboardSimulationScenarios;
 function scenarioAtFive(id) {
@@ -143,14 +162,14 @@ near(prediction.haversineDistanceM(scenarios.parallel_flyby_demo_v1.points[0], s
 near(prediction.haversineDistanceM(scenarios.departing_demo_v1.points[0], site), 1000, .2, 'departing scenario initial distance');
 const directScenario = scenarioAtFive('approach_site_demo_v1');
 assert.equal(directScenario.motion.trend, 'APPROACHING');
-assert.ok(directScenario.site_metrics.predicted_closest_distance_m < site.radius_m);
+assert.ok(directScenario.approach.predicted_closest_distance_m < site.protected_radius_m);
 near(directScenario.site_metrics.simulated_eta_sec, 85, .2, 'direct scenario ETA at t=5');
 const parallelScenario = scenarioAtFive('parallel_flyby_demo_v1');
-assert.ok(parallelScenario.site_metrics.predicted_closest_distance_m > site.radius_m);
+assert.ok(parallelScenario.approach.predicted_closest_distance_m > site.protected_radius_m);
 assert.equal(parallelScenario.site_metrics.simulated_eta_sec, null);
 const departingScenario = scenarioAtFive('departing_demo_v1');
 assert.equal(departingScenario.motion.trend, 'DEPARTING');
-assert.ok(departingScenario.motion.radial_closing_speed_mps < 0);
+assert.ok(departingScenario.motion.closing_speed_mps < 0);
 assert.equal(departingScenario.site_metrics.simulated_eta_sec, null);
 assert.equal(scenarios.approach_site_demo_v1.site, scenarios.parallel_flyby_demo_v1.site);
 assert.equal(scenarios.approach_site_demo_v1.site, scenarios.departing_demo_v1.site);

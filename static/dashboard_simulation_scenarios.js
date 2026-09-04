@@ -12,7 +12,7 @@
         name: 'DEMO SITE ALPHA',
         lat: 25.0390,
         lng: 121.5752,
-        radius_m: 100
+        protected_radius_m: 100
     });
 
     function freezePoint(t, eastM, northM) {

@@ -93,7 +93,7 @@ def test_scenario_has_fixed_site_radius_and_no_private_identifiers() -> None:
     source = SCENARIO_PATH.read_text(encoding="utf-8")
     assert "demo_site_alpha" in source
     assert "DEMO SITE ALPHA" in source
-    assert "radius_m: 100" in source
+    assert "protected_radius_m: 100" in source
     assert "node_A01" not in source
     assert "device_id" not in source
 
@@ -150,35 +150,53 @@ def test_constant_velocity_prediction_has_required_horizons() -> None:
     html = simulation_html()
     assert "Object.freeze([5, 10, 15, 30])" in html
     assert "projectConstantVelocity(current, velocity, horizons)" in html
-    assert "model:'CONSTANT_VELOCITY'" in html
+    assert "model:'CV'" in html
     assert "Kalman" not in html
 
 
 def test_demo_site_and_uncertainty_are_simulation_overlays() -> None:
     html = simulation_html()
     assert "fillColor:'#a855f7'" in html
-    assert "SIMULATION fixed site · DEMO SITE ALPHA" in html
+    assert "SIMULATION fixed site · ${scenario.site.name}" in html
     assert "simulationMapObjects.siteRadius" in html
-    assert "radius:scenario.site.radius_m" in html
+    assert "radius:scenario.site.protected_radius_m" in html
     assert "simulationMapObjects.uncertaintyCircle" in html
 
 
-def test_dynamic_motion_metrics_are_present() -> None:
+def test_site_approach_is_primary_and_motion_details_are_secondary() -> None:
     html = simulation_html()
     for label in (
-        "Current speed",
-        "Current heading",
-        "Site trend",
-        "Radial closing speed",
-        "CPA distance",
-        "CPA time",
+        "Site Approach",
+        "據點接近預測",
+        "目前距離",
+        "保護半徑",
+        "預測最近距離",
+        "最近接近",
         "SIMULATED ETA",
-        "Prediction status",
+        "Prediction Details / 預測細節",
+        "Closing Speed",
     ):
         assert label in html
     assert "APPROACHING" in html and "DEPARTING" in html and "STATIONARY" in html
     for horizon in ("+5 s", "+10 s", "+15 s", "+30 s"):
         assert horizon in html
+
+
+def test_site_approach_map_has_entry_and_cpa_markers() -> None:
+    html = simulation_html()
+    assert "entryMarker" in html
+    assert "cpaMarker" in html
+    assert "text:'ENTRY'" in html
+    assert "text:'CPA'" in html
+    assert "show_entry_point" in html
+    assert "predicted_entry_lat" in html
+
+
+def test_simulation_does_not_add_evacuation_or_threat_policy() -> None:
+    html = simulation_html()
+    simulation_code = html.split("function simulationIsVisible()", 1)[1].split("function safe", 1)[0]
+    for forbidden in ("Evacuate now", "撤離", "Risk score", "Critical", "Emergency"):
+        assert forbidden not in simulation_code
 
 
 def test_controls_cover_play_pause_restart_exit_speed_seek_and_follow() -> None:
@@ -271,7 +289,7 @@ def test_watermark_is_fixed_and_timeline_has_ticks() -> None:
     assert "topbarBadge.hidden = !visible" in html
     assert 'id="simulationTimelineTicks"' in html
     assert "00:15" in html and "01:30" in html
-    assert "History-only constant-velocity prediction" in html
+    assert "Based on current motion vector" in html
 
 
 def test_isolated_staging_manifests_enable_the_flag() -> None:

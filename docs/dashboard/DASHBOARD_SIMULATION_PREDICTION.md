@@ -98,7 +98,7 @@ protected-circle intersection:
 ```
 
 The result distinguishes `AT_SITE`, `LOW_SPEED`, `NO_SITE_INTERSECTION`, and
-`MOVING_AWAY_OR_PAST_INTERSECTION`. Search is capped at 300 seconds. The UI
+`NO_FUTURE_INTERSECTION`. Search is capped at 300 seconds. The UI
 shows a simulated ETA only when the prediction is valid, movement is
 approaching, closing speed passes its gate, and a future radius intersection
 exists. Otherwise it shows an em dash and the reason.
@@ -114,7 +114,9 @@ Every result is tagged `simulation: true` and returns:
 - `site` identity, coordinate, radius, current distance, and bearing;
 - `motion` trend, radial closing speed, and heading-to-site error;
 - `predictions` with horizon, coordinate, and distance to site;
-- `site_metrics` with CPA distance/time, simulated ETA, and ETA reason;
+- `approach` with CPA distance/time/location, simulated ETA, reason, and the
+  protected-radius entry location (`site_metrics` remains a temporary
+  presentation compatibility alias);
 - `display` quality gates for prediction, heading, ETA, and uncertainty.
 
 Uncertainty is a conservative visibility gate only. If configured position

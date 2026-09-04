@@ -33,6 +33,7 @@ def render_dashboard_v2_4(
         maps_script_tag = f'<script async defer src="{maps_url}"></script>'
     simulation_controls = ""
     simulation_topbar_badge = ""
+    simulation_map_legend = ""
     simulation_watermark = ""
     simulation_panel = ""
     simulation_scenario_script = ""
@@ -52,6 +53,11 @@ def render_dashboard_v2_4(
             <strong>SIMULATION / 模擬展示</strong>
             <span>NOT FIELD VALIDATED</span>
         </div>
+        """
+        simulation_map_legend = """
+        <span class="simulation-legend"><b class="legend-symbol simulation-history">━</b> Simulation history</span>
+        <span class="simulation-legend"><b class="legend-symbol simulation-prediction">┄</b> Predicted path</span>
+        <span class="simulation-legend"><b class="legend-symbol simulation-site">●</b> Fixed site / radius</span>
         """
         simulation_panel = """
         <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
@@ -98,6 +104,7 @@ def render_dashboard_v2_4(
         .replace("__SIMULATION_CONTROLS__", simulation_controls)
         .replace("__SIMULATION_TOPBAR_BADGE__", simulation_topbar_badge)
         .replace("__SIMULATION_WATERMARK__", simulation_watermark)
+        .replace("__SIMULATION_MAP_LEGEND__", simulation_map_legend)
         .replace("__SIMULATION_PANEL__", simulation_panel)
         .replace("__SIMULATION_SCENARIO_SCRIPT__", simulation_scenario_script)
         .replace("__MAPS_CONFIGURED__", "true" if maps_api_key else "false")
