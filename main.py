@@ -7916,6 +7916,7 @@ def list_events_for_export() -> list[dict]:
             connection.close()
 
     with get_sqlite_connection() as connection:
+        columns = event_select_clause(sqlite_connection=connection)
         rows = connection.execute(
             f"""
             SELECT {columns}

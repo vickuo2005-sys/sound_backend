@@ -255,6 +255,19 @@
         .raw-ids { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
         audio { width: 100%; margin-top: 10px; }
 
+        .intelligence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+        .intelligence-list { display: grid; gap: 9px; max-height: 660px; overflow-y: auto; }
+        .intelligence-item { padding: 12px; border: 1px solid var(--border); border-radius: 11px; background: #0b1726; }
+        .intelligence-item.selected { border-color: #d38b18; box-shadow: inset 3px 0 var(--warning); background: #211b10; }
+        .intelligence-item-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .intelligence-item-head strong, .intelligence-item-head span { display: block; }
+        .intelligence-item-head span { color: var(--text-secondary); font-size: 11px; }
+        .intelligence-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 10px; }
+        .intelligence-meta div { min-width: 0; padding: 7px 8px; border-radius: 8px; background: #0f2033; color: var(--text-secondary); font-size: 10px; }
+        .intelligence-meta strong { display: block; margin-top: 2px; color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
+        .intelligence-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        .intelligence-note { margin-top: 12px; color: var(--text-secondary); font-size: 11px; }
+
         .node-grid { display: block; }
         .node-control-layout { display: grid; grid-template-columns: minmax(240px, 30%) minmax(0, 1fr); gap: 14px; align-items: start; }
         .node-picker { display: grid; gap: 7px; padding: 10px; }
@@ -355,6 +368,12 @@
         .confirm-modal-body { padding: 12px 18px 18px; color: var(--text-secondary); }
         .confirm-node { margin-top: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 9px; color: var(--text-primary); background: #0a1727; }
         .confirm-modal-actions { display: flex; justify-content: flex-end; gap: 9px; padding: 0 18px 18px; }
+        .location-form { display: grid; gap: 10px; margin-top: 12px; }
+        .location-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+        .location-form label { color: var(--text-secondary); font-size: 11px; }
+        .location-form input { width: 100%; min-height: 37px; margin-top: 4px; padding: 7px 9px; color: var(--text-primary); border: 1px solid var(--border); border-radius: 9px; background: #091524; }
+        .location-token-note { padding: 8px 9px; border-left: 3px solid var(--info); color: var(--text-secondary); background: #0b2035; font-size: 11px; }
+        .location-source-chip { display: inline-flex; margin-left: 6px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 99px; color: var(--text-secondary); font-size: 9px; }
 
         .toast {
             position: fixed; right: 20px; bottom: 20px; z-index: 100;
@@ -383,6 +402,7 @@
             .main { padding: 12px; }
             .rail { display: grid; grid-template-columns: 1fr; padding: 0 12px 12px; }
             .operational-grid, .event-browser { grid-template-columns: 1fr; }
+            .intelligence-grid { grid-template-columns: 1fr; }
             .event-browser .detail-panel { min-height: auto; }
             #map, .map-fallback { min-height: 380px; }
             .node-control-layout { grid-template-columns: 1fr; }
@@ -438,6 +458,7 @@
             <nav class="nav-list">
                 <button class="nav-button active" data-view-target="dashboard" aria-current="page"><span class="nav-icon">⌂</span>Dashboard</button>
                 <button class="nav-button" data-view-target="events"><span class="nav-icon">≡</span>Events</button>
+                <button class="nav-button" data-view-target="tracks"><span class="nav-icon">⌁</span>Tracks</button>
                 <button class="nav-button" data-view-target="nodes"><span class="nav-icon">◉</span>Nodes</button>
             </nav>
             <div class="sidebar-note">Verified classification<br>Experimental motion<br>No prediction / ETA</div>
@@ -474,7 +495,7 @@
                 <div class="operational-grid">
                     <article class="card map-card">
                         <div class="card-header">
-                            <div><h2 class="card-title">Map &amp; Tracks</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> Node</span><span><b class="legend-symbol event">●</b> Detection</span><span><b class="legend-symbol track">━</b> Historical track</span></div></div>
+                            <div><h2 class="card-title">Map &amp; Tracks</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> Node</span><span><b class="legend-symbol event">●</b> Detection</span><span><b class="legend-symbol event">◎</b> Fused estimate</span><span><b class="legend-symbol track">━</b> Historical track</span></div></div>
                             <div class="map-tools">__SIMULATION_CONTROLS__<button id="fitMapButton" class="ghost-button" aria-label="縮放以顯示所有節點與事件">Fit map</button></div>
                         </div>
                         <div id="map" role="application" aria-label="Google Maps 節點與事件地圖"></div>
@@ -503,7 +524,7 @@
             </section>
 
             <section id="view-events" class="view" aria-labelledby="eventsTitle">
-                <div class="page-heading"><div><h1 id="eventsTitle" class="page-title">Events</h1><p class="page-description">即時與歷史事件瀏覽；legacy payload 安全降級</p></div></div>
+                <div class="page-heading"><div><h1 id="eventsTitle" class="page-title">Events</h1><p class="page-description">即時與歷史事件瀏覽；legacy payload 安全降級</p></div><a class="ghost-button" href="/events/export.csv" download>Export CSV</a></div>
                 <div class="filter-bar" aria-label="事件篩選">
                     <button class="filter-button active" data-target-filter="all">全部</button>
                     <button class="filter-button" data-target-filter="target">目標</button>
@@ -515,6 +536,14 @@
                 <div class="event-browser">
                     <article class="card"><div class="table-wrap"><table><thead><tr><th>Time</th><th>Node</th><th>Class</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
                     <article class="card detail-panel"><div class="card-header"><h2 class="card-title">Event Detail</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div></article>
+                </div>
+            </section>
+
+            <section id="view-tracks" class="view" aria-labelledby="tracksTitle">
+                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">Tracks &amp; Estimates</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
+                <div class="intelligence-grid">
+                    <article class="card"><div class="card-header"><h2 class="card-title">Fused Region Estimates</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">Historical Tracks</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">回放只重現已儲存 measurement path，不做平滑、補點或 future-path prediction。</div></div></article>
                 </div>
             </section>
 
@@ -547,6 +576,33 @@
         </section>
     </div>
 
+    <div id="locationEditorBackdrop" class="modal-backdrop" hidden>
+        <section id="locationEditorModal" class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="locationEditorTitle" aria-describedby="locationEditorDescription">
+            <header><h2 id="locationEditorTitle">固定節點位置</h2></header>
+            <div class="confirm-modal-body">
+                <div id="locationEditorDescription">設定後，fusion 與地圖會優先使用此固定位置。</div>
+                <div id="locationEditorNode" class="confirm-node"></div>
+                <div class="location-form">
+                    <div class="location-form-grid">
+                        <label>Latitude<input id="locationLatitude" type="number" min="-90" max="90" step="0.000001" inputmode="decimal"></label>
+                        <label>Longitude<input id="locationLongitude" type="number" min="-180" max="180" step="0.000001" inputmode="decimal"></label>
+                    </div>
+                    <div class="location-form-grid">
+                        <label>Accuracy (m, optional)<input id="locationAccuracy" type="number" min="0" step="0.1" inputmode="decimal"></label>
+                        <label>Staging write token<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
+                    </div>
+                    <button id="locationUseGps" class="action-button" type="button">Use current GPS</button>
+                    <div class="location-token-note">Token 只用於這一次請求，關閉視窗後立即清除，不寫入 localStorage 或 sessionStorage。</div>
+                </div>
+            </div>
+            <div class="confirm-modal-actions">
+                <button id="locationClear" class="action-button danger" type="button">Clear fixed</button>
+                <button id="locationCancel" class="action-button" type="button">取消</button>
+                <button id="locationSave" class="action-button primary" type="button">Save fixed</button>
+            </div>
+        </section>
+    </div>
+
     __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
@@ -561,7 +617,8 @@
             events: [], devices: new Map(), tracks: new Map(), groups: new Map(),
             health: null, runtime: null, backendConnected: false, wsConnected: false,
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
-            selectedEventId: null, selectedNodeId: 'node_A01', commands: new Map(), confirmAction: null,
+            selectedEventId: null, selectedNodeId: 'node_A01', selectedGroupId: null, selectedTrackId: null,
+            commands: new Map(), confirmAction: null, locationEditDeviceId: null, locationBusy: false, locationClearArmed: false,
             targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all'
         };
         let map = null;
@@ -572,11 +629,17 @@
         let trackLines = new Map();
         let detectionMarker = null;
         let uncertaintyCircle = null;
+        let estimateMarker = null;
+        let estimateCircle = null;
+        let replayMarker = null;
+        let replayLine = null;
+        let replayAnimationFrame = null;
         let wsRetryAttempt = 0;
         let toastTimer = null;
         let deviceSnapshotPollInFlight = false;
         let commandPollSerial = 0;
         let modalPreviousFocus = null;
+        let locationModalPreviousFocus = null;
         const simulationPredictionEngine = window.DashboardSimulationPrediction || null;
         const simulationPlayback = {
             phase: 'inactive', scenario: null, elapsed: 0, rate: 1,
@@ -771,6 +834,7 @@
             if (!dashboardSimulationEnabled) return;
             const scenario = simulationScenario();
             if (!scenario?.simulation || !simulationPredictionEngine) { showToast('Simulation prediction module 無法載入'); return; }
+            clearTrackReplayObjects(); state.selectedTrackId = null;
             cancelAnimationFrame(simulationPlayback.animationFrame);
             Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
             renderMap(); updateSimulationFrame(); fitSimulationMap();
@@ -876,6 +940,71 @@
             return canonicalDevices();
         }
         function latestTrack() { return [...state.tracks.values()].sort((a, b) => (parseTime(b.updated_at) || 0) - (parseTime(a.updated_at) || 0))[0] || null; }
+        function groupId(group) { return String(group?.id ?? group?.group_id ?? ''); }
+        function trackId(track) { return String(track?.id ?? track?.track_id ?? ''); }
+        function groupTime(group) { return parseTime(group?.region_updated_at || group?.last_event_time || group?.updated_at || group?.created_at) || 0; }
+        function groupLocation(group) {
+            const lat = finite(group?.region_center_lat ?? group?.estimated_lat);
+            const lng = finite(group?.region_center_lng ?? group?.estimated_lng);
+            return lat === null || lng === null ? null : {lat, lng};
+        }
+        function groupDeviceIds(group) {
+            const candidates = [group?.active_device_ids, group?.device_ids, group?.devices, group?.member_device_ids];
+            for (const candidate of candidates) {
+                if (Array.isArray(candidate)) return [...new Set(candidate.map(value => typeof value === 'object' ? value.device_id : value).filter(Boolean).map(String))];
+                if (typeof candidate === 'string' && candidate.trim()) {
+                    try { const parsed = JSON.parse(candidate); if (Array.isArray(parsed)) return [...new Set(parsed.map(String))]; }
+                    catch (_) { return [...new Set(candidate.split(',').map(value => value.trim()).filter(Boolean))]; }
+                }
+            }
+            if (Array.isArray(group?.events)) return [...new Set(group.events.map(event => event?.device_id).filter(Boolean).map(String))];
+            return [];
+        }
+        function groupLabel(group) { return group?.label || group?.model_label || group?.operational_class || 'Target'; }
+        function trackPointTime(point, fallbackIndex = 0) {
+            return parseTime(point?.measurement_timestamp || point?.event_time || point?.timestamp || point?.created_at) ?? fallbackIndex;
+        }
+        function trackPath(track) {
+            return (Array.isArray(track?.points) ? track.points : []).map((point, index) => ({
+                lat: finite(point?.filtered_lat ?? point?.measured_lat ?? point?.estimated_lat ?? point?.latitude),
+                lng: finite(point?.filtered_lng ?? point?.measured_lng ?? point?.estimated_lng ?? point?.longitude),
+                time: trackPointTime(point, index), index
+            })).filter(point => point.lat !== null && point.lng !== null).sort((a, b) => a.time - b.time || a.index - b.index);
+        }
+        function trackEndTime(track) {
+            return parseTime(track?.last_event_time || track?.ended_at || track?.updated_at) || trackPath(track).at(-1)?.time || 0;
+        }
+        function formatCoordinate(location) { return location ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}` : '—'; }
+        function formatMeters(value) { const number = finite(value); return number === null ? '—' : `±${number.toFixed(0)} m`; }
+        function displayLocationSource(device) {
+            const source = String(device?.effective_location_source || device?.marker_location_source || 'none').toLowerCase();
+            if (source === 'fixed' || source.includes('fixed')) return 'Fixed';
+            if (source === 'event_gps' || source.includes('gps')) return 'GPS';
+            return 'None';
+        }
+
+        function renderTracksView() {
+            const estimateList = document.getElementById('targetEstimateList');
+            const trackList = document.getElementById('historyTrackList');
+            if (!estimateList || !trackList) return;
+            const groups = [...state.groups.values()].filter(group => groupLocation(group)).sort((a,b) => groupTime(b) - groupTime(a));
+            document.getElementById('estimateCountBadge').textContent = `${groups.length} LOCATED`;
+            estimateList.innerHTML = groups.length ? groups.map(group => {
+                const id = groupId(group); const location = groupLocation(group); const devices = groupDeviceIds(group);
+                const uncertainty = finite(group.uncertainty_radius_m); const selected = id === state.selectedGroupId;
+                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(groupLabel(group))}</strong><span>${safe(group.region_type || group.status || 'Fused event group')}</span></div><span>${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}</span></div><div class="intelligence-meta"><div>Center<strong>${safe(formatCoordinate(location))}</strong></div><div>Uncertainty<strong>${safe(formatMeters(uncertainty))}</strong></div><div>Reporting nodes<strong>${devices.length || finite(group.node_count) || '—'}</strong></div><div>Group ID<strong>${safe(id || '—')}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-preview-group="${safe(id)}">${selected ? 'Focused on map' : 'Focus on map'}</button></div></article>`;
+            }).join('') : '<div class="empty-state"><div><strong>尚無可定位區域</strong>等待 Backend fusion 提供中心座標</div></div>';
+
+            const tracks = [...state.tracks.values()].filter(track => trackPath(track).length >= 2).sort((a,b) => trackEndTime(b) - trackEndTime(a));
+            document.getElementById('trackCountBadge').textContent = `${tracks.length} TRACKS`;
+            trackList.innerHTML = tracks.length ? tracks.map(track => {
+                const id = trackId(track); const points = trackPath(track); const selected = id === state.selectedTrackId;
+                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(track.label || 'Target track')}</strong><span>${safe(track.status || 'unknown')}</span></div><span>${safe(formatDateTime(track.last_event_time || track.updated_at))}</span></div><div class="intelligence-meta"><div>Recorded points<strong>${points.length}</strong></div><div>Speed<strong>${formatNumber(track.last_speed_mps,1,' m/s')}</strong></div><div>Heading<strong>${safe(headingText(track.last_heading_deg))}</strong></div><div>Confidence<strong>${formatPercent(track.last_confidence)}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-replay-track="${safe(id)}">${selected ? 'Replay again' : 'Replay on map'}</button>${selected ? '<button class="action-button" type="button" data-close-track>Close replay</button>' : ''}</div></article>`;
+            }).join('') : '<div class="empty-state"><div><strong>尚無歷史軌跡</strong>至少需要兩個已儲存 track points</div></div>';
+            estimateList.querySelectorAll('[data-preview-group]').forEach(button => button.addEventListener('click', () => focusGroupOnMap(button.dataset.previewGroup)));
+            trackList.querySelectorAll('[data-replay-track]').forEach(button => button.addEventListener('click', () => startTrackReplay(button.dataset.replayTrack)));
+            trackList.querySelectorAll('[data-close-track]').forEach(button => button.addEventListener('click', closeTrackReplay));
+        }
 
         function switchView(viewName) {
             document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${viewName}`));
@@ -885,6 +1014,7 @@
                 if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
             });
             if (viewName === 'events') renderEventsView();
+            if (viewName === 'tracks') renderTracksView();
             if (viewName === 'nodes') renderNodesView();
         }
 
@@ -914,10 +1044,10 @@
                 state.devices.clear(); devicesResult.value.devices.forEach(upsertDevice);
             }
             if (tracksResult.status === 'fulfilled' && Array.isArray(tracksResult.value.tracks)) {
-                state.tracks.clear(); tracksResult.value.tracks.forEach(track => { if (track?.id) state.tracks.set(String(track.id), track); });
+                state.tracks.clear(); tracksResult.value.tracks.forEach(track => { const id = trackId(track); if (id) state.tracks.set(id, track); });
             }
             if (groupsResult.status === 'fulfilled' && Array.isArray(groupsResult.value.event_groups)) {
-                state.groups.clear(); groupsResult.value.event_groups.forEach(group => { if (group?.id) state.groups.set(String(group.id), group); });
+                state.groups.clear(); groupsResult.value.event_groups.forEach(group => { const id = groupId(group); if (id) state.groups.set(id, group); });
             }
             if (healthResult.status === 'fulfilled') state.health = healthResult.value;
             if (runtimeResult.status === 'fulfilled') state.runtime = runtimeResult.value;
@@ -1182,13 +1312,16 @@
             }).join('');
             if (!selected) { grid.innerHTML = '<div class="empty-state"><div><strong>沒有可選節點</strong>等待 node telemetry</div></div>'; return; }
             const status = nodeState(selected); const location = nodeLocation(selected); const mode = normalizedMode(selected);
+            const rawLocation = (() => { const lat = finite(selected.raw_latitude ?? selected.latitude); const lng = finite(selected.raw_longitude ?? selected.longitude); return lat === null || lng === null ? null : {lat,lng}; })();
+            const fixedLocation = (() => { const lat = finite(selected.fixed_latitude); const lng = finite(selected.fixed_longitude); return lat === null || lng === null ? null : {lat,lng}; })();
             const baseReason = commandDisabledReason(selected); const listeningKnown = typeof selected.is_listening === 'boolean';
             const startCommand = selected.is_listening === true ? 'stop_listening' : 'start_listening';
             const startDisabled = baseReason || (!listeningKnown ? '監聽狀態尚未確認' : '');
             const liveAudioEnabled = state.runtime?.live_audio_enabled === true;
             grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">Node List</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} REPORTED</span></div><div class="node-picker">${nodeList}</div></article>
                 <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">Node ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
-                    <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>GPS<strong>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}${finite(selected.gps_accuracy_m) === null ? '' : ` · ±${finite(selected.gps_accuracy_m).toFixed(0)}m`}` : '—'}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div></div>
+                    <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>Effective location <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>Raw GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div><div>Fixed location<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
+                    <section class="control-section"><h3 class="control-heading">Fixed Site Location</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>Manage location</button></div><div class="control-helper">變更需要 staging write token；token 不會保存在瀏覽器儲存空間。</div></section>
                     <section class="control-section"><h3 class="control-heading">Node Control</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>Backend node state</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">Command Status</h3>${commandStatusMarkup(selected)}</section>
@@ -1198,6 +1331,7 @@
             grid.querySelectorAll('[data-select-node]').forEach(button => button.addEventListener('click', () => { state.selectedNodeId = button.dataset.selectNode; renderNodesView(); }));
             grid.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.command)));
             grid.querySelectorAll('[data-command-retry]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.commandRetry)));
+            grid.querySelector('[data-edit-location]')?.addEventListener('click', () => openLocationEditor(selected.device_id));
             grid.querySelector('[data-focus-selected]')?.addEventListener('click', () => { switchView('dashboard'); focusNodeOnMap(selected.device_id); });
         }
 
@@ -1205,6 +1339,112 @@
             state.selectedNodeId = deviceId || 'node_A01';
             switchView('nodes');
             requestAnimationFrame(() => document.querySelector(`[data-select-node="${CSS.escape(state.selectedNodeId)}"]`)?.focus());
+        }
+        function locationEditorDevice() { return state.devices.get(state.locationEditDeviceId) || null; }
+        function setLocationBusy(busy) {
+            state.locationBusy = busy;
+            ['locationLatitude','locationLongitude','locationAccuracy','locationWriteToken','locationUseGps','locationClear','locationSave','locationCancel'].forEach(id => {
+                const element = document.getElementById(id); if (element) element.disabled = busy;
+            });
+        }
+        function openLocationEditor(deviceId) {
+            const device = state.devices.get(deviceId);
+            if (!device) { showToast('節點尚未回報，無法管理固定位置'); return; }
+            const fixedLat = finite(device.fixed_latitude); const fixedLng = finite(device.fixed_longitude);
+            const rawLat = finite(device.raw_latitude ?? device.latitude); const rawLng = finite(device.raw_longitude ?? device.longitude);
+            state.locationEditDeviceId = deviceId;
+            state.locationClearArmed = false;
+            locationModalPreviousFocus = document.activeElement;
+            document.getElementById('locationEditorDescription').textContent = '設定後，fusion 與地圖會優先使用此固定位置。';
+            document.getElementById('locationEditorNode').textContent = `Node ${shortNodeId(deviceId)} · 目前來源：${displayLocationSource(device)}`;
+            document.getElementById('locationLatitude').value = fixedLat ?? rawLat ?? '';
+            document.getElementById('locationLongitude').value = fixedLng ?? rawLng ?? '';
+            document.getElementById('locationAccuracy').value = finite(device.fixed_location_accuracy_m) ?? finite(device.gps_accuracy_m) ?? '';
+            document.getElementById('locationWriteToken').value = '';
+            document.getElementById('locationEditorModal').dataset.locationSource = fixedLat !== null && fixedLng !== null ? (device.fixed_location_source || 'dashboard_v2_4_coordinates') : 'dashboard_v2_4_coordinates';
+            document.getElementById('locationClear').hidden = fixedLat === null || fixedLng === null;
+            document.getElementById('locationClear').textContent = 'Clear fixed';
+            setLocationBusy(false);
+            document.getElementById('locationEditorBackdrop').hidden = false;
+            document.getElementById('locationLatitude').focus();
+        }
+        function closeLocationEditor() {
+            if (state.locationBusy) return;
+            document.getElementById('locationEditorBackdrop').hidden = true;
+            document.getElementById('locationWriteToken').value = '';
+            state.locationEditDeviceId = null;
+            state.locationClearArmed = false;
+            if (locationModalPreviousFocus?.focus && document.contains(locationModalPreviousFocus)) locationModalPreviousFocus.focus();
+            locationModalPreviousFocus = null;
+        }
+        function useCurrentGpsForLocation() {
+            const device = locationEditorDevice();
+            const lat = finite(device?.raw_latitude ?? device?.latitude); const lng = finite(device?.raw_longitude ?? device?.longitude);
+            if (lat === null || lng === null) { showToast('此節點沒有 current GPS telemetry'); return; }
+            document.getElementById('locationLatitude').value = String(lat);
+            document.getElementById('locationLongitude').value = String(lng);
+            const accuracy = finite(device?.gps_accuracy_m); if (accuracy !== null) document.getElementById('locationAccuracy').value = String(accuracy);
+            document.getElementById('locationEditorModal').dataset.locationSource = 'current_gps';
+        }
+        function locationRequestHeaders() {
+            return {'Content-Type':'application/json', 'x-upload-token':document.getElementById('locationWriteToken').value.trim()};
+        }
+        function validateLocationEditor() {
+            const latitude = finite(document.getElementById('locationLatitude').value);
+            const longitude = finite(document.getElementById('locationLongitude').value);
+            const accuracyValue = document.getElementById('locationAccuracy').value.trim();
+            const accuracy = accuracyValue ? finite(accuracyValue) : null;
+            if (latitude === null || latitude < -90 || latitude > 90) throw new Error('Latitude 必須介於 -90 與 90');
+            if (longitude === null || longitude < -180 || longitude > 180) throw new Error('Longitude 必須介於 -180 與 180');
+            if (accuracyValue && (accuracy === null || accuracy < 0)) throw new Error('Accuracy 必須為 0 或正數');
+            if (!document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入 staging write token');
+            return {latitude, longitude, accuracy_m:accuracy, location_source:document.getElementById('locationEditorModal').dataset.locationSource || 'dashboard_v2_4_coordinates'};
+        }
+        async function saveFixedLocation() {
+            const deviceId = state.locationEditDeviceId;
+            if (!deviceId) return;
+            let payload;
+            try { payload = validateLocationEditor(); } catch (error) { showToast(error.message); return; }
+            setLocationBusy(true);
+            try {
+                const response = await fetch(`/device-locations/${encodeURIComponent(deviceId)}`, {method:'PUT', headers:locationRequestHeaders(), body:JSON.stringify(payload)});
+                const body = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+                if (body.device) upsertDevice(body.device);
+                setLocationBusy(false); closeLocationEditor();
+                await refreshSnapshot('location-update');
+                showToast(`Node ${shortNodeId(deviceId)} 固定位置已更新`);
+            } catch (error) {
+                setLocationBusy(false);
+                document.getElementById('locationWriteToken').value = '';
+                showToast(`固定位置更新失敗：${String(error?.message || error)}`);
+            }
+        }
+        async function clearFixedLocation() {
+            const deviceId = state.locationEditDeviceId;
+            if (!deviceId) return;
+            if (!state.locationClearArmed) {
+                state.locationClearArmed = true;
+                document.getElementById('locationEditorDescription').textContent = `再次按下確認清除，Node ${shortNodeId(deviceId)} 將恢復使用 raw GPS。`;
+                document.getElementById('locationClear').textContent = 'Confirm clear fixed';
+                document.getElementById('locationClear').focus();
+                return;
+            }
+            if (!document.getElementById('locationWriteToken').value.trim()) { showToast('請輸入 staging write token'); return; }
+            setLocationBusy(true);
+            try {
+                const response = await fetch(`/device-locations/${encodeURIComponent(deviceId)}`, {method:'DELETE', headers:locationRequestHeaders()});
+                const body = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+                if (body.device) upsertDevice(body.device);
+                setLocationBusy(false); closeLocationEditor();
+                await refreshSnapshot('location-clear');
+                showToast(`Node ${shortNodeId(deviceId)} 固定位置已清除`);
+            } catch (error) {
+                setLocationBusy(false);
+                document.getElementById('locationWriteToken').value = '';
+                showToast(`清除固定位置失敗：${String(error?.message || error)}`);
+            }
         }
         function openCommandConfirm(deviceId, command) {
             const device = state.devices.get(deviceId);
@@ -1370,6 +1610,8 @@
             const detection = latestDetection();
             const detectionLocation = eventLocation(detection);
             if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:classLabel(detection), location:detectionLocation, online:true});
+            const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
+            if (estimate && estimateLocation) points.push({kind:'event', id:groupId(estimate), label:`Estimate ${groupLabel(estimate)}`, location:estimateLocation, online:true});
             if (!points.length) {
                 plot.innerHTML = '<div class="empty-state"><div><strong>尚無位置資料</strong>等待 node 或 event location telemetry</div></div>';
                 footer.innerHTML = '<span>0 個可定位項目</span><span>● Node　● Latest detection</span>';
@@ -1389,6 +1631,60 @@
                 return `<span class="${pointClass}" style="left:${left}%;top:${top}%" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${safe(glyph)}</span><span class="coordinate-point-label" style="left:${left}%;top:${top}%">${safe(point.label)}</span>`;
             }).join('');
             footer.innerHTML = `<span>${points.length} 個可定位項目 · Lat ${minLat.toFixed(5)}–${maxLat.toFixed(5)} · Lng ${minLng.toFixed(5)}–${maxLng.toFixed(5)}</span><span>● Node　● Latest detection</span>`;
+        }
+        function selectedOrLatestGroup() {
+            const selected = state.selectedGroupId ? state.groups.get(state.selectedGroupId) : null;
+            if (selected && groupLocation(selected)) return selected;
+            const now = Date.now();
+            return [...state.groups.values()].filter(group => {
+                const time = groupTime(group); const status = String(group?.status || '').toLowerCase();
+                return groupLocation(group) && time > 0 && now - time >= -5000 && now - time <= 15000 && !['closed','expired'].includes(status);
+            }).sort((a,b) => groupTime(b) - groupTime(a))[0] || null;
+        }
+        function showGroupInfo(group) {
+            const location = groupLocation(group); if (!location || !mapInfoWindow || !map) return;
+            const devices = groupDeviceIds(group); const uncertainty = finite(group.uncertainty_radius_m);
+            mapInfoWindow.setContent(`<div style="color:#0f172a;min-width:210px"><strong>Fused region · ${safe(groupLabel(group))}</strong><br>Status ${safe(group.status || group.region_type || '—')}<br>Nodes ${safe(devices.join(', ') || String(group.node_count || '—'))}<br>Center ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}<br>Uncertainty ${safe(formatMeters(uncertainty))}<br>Updated ${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}</div>`);
+            mapInfoWindow.setPosition(location); mapInfoWindow.open(map);
+        }
+        function focusGroupOnMap(id) {
+            const group = state.groups.get(String(id)); const location = groupLocation(group);
+            if (!group || !location) { showToast('此估算沒有可用座標'); return; }
+            state.selectedGroupId = String(id); renderTracksView(); switchView('dashboard'); renderMap();
+            if (map) { map.panTo(location); map.setZoom(Math.max(map.getZoom() || 12, 16)); showGroupInfo(group); }
+            else { renderCoordinateFallback(); showToast('已在相對座標圖標示此區域估算'); }
+        }
+        function clearTrackReplayObjects() {
+            cancelAnimationFrame(replayAnimationFrame); replayAnimationFrame = null;
+            if (replayMarker) { replayMarker.setMap(null); replayMarker = null; }
+            if (replayLine) { replayLine.setMap(null); replayLine = null; }
+        }
+        function closeTrackReplay() {
+            clearTrackReplayObjects(); state.selectedTrackId = null; renderTracksView(); renderMap();
+        }
+        function fitTrackOnMap(points) {
+            if (!map || !window.google?.maps || !points.length) return;
+            if (points.length === 1) { map.panTo(points[0]); map.setZoom(Math.max(map.getZoom() || 12, 16)); return; }
+            const bounds = new google.maps.LatLngBounds(); points.forEach(point => bounds.extend(point)); map.fitBounds(bounds, 70);
+        }
+        function startTrackReplay(id) {
+            const track = state.tracks.get(String(id)); const points = trackPath(track);
+            if (!track || points.length < 2) { showToast('此軌跡沒有足夠的已儲存 points'); return; }
+            clearTrackReplayObjects(); state.selectedTrackId = String(id); renderTracksView(); switchView('dashboard'); renderMap();
+            if (!map || !window.google?.maps) { renderCoordinateFallback(); showToast('Google Maps 未載入；已保留軌跡選取但無法動畫回放'); return; }
+            fitTrackOnMap(points);
+            replayLine = new google.maps.Polyline({map, path:[points[0]], geodesic:true, strokeColor:'#f59e0b', strokeOpacity:1, strokeWeight:5, clickable:false, zIndex:30});
+            replayMarker = new google.maps.Marker({map, position:points[0], title:'Historical track replay · recorded observation', zIndex:31, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:7}});
+            const durationMs = Math.min(12000, Math.max(3000, (points.length - 1) * 550));
+            const startedAt = performance.now();
+            const frame = now => {
+                const progress = Math.min(1, (now - startedAt) / durationMs);
+                const pointIndex = Math.min(points.length - 1, Math.floor(progress * points.length));
+                const visiblePoints = points.slice(0, pointIndex + 1);
+                replayLine.setPath(visiblePoints); replayMarker.setPosition(points[pointIndex]);
+                if (progress < 1) replayAnimationFrame = requestAnimationFrame(frame); else replayAnimationFrame = null;
+            };
+            replayAnimationFrame = requestAnimationFrame(frame);
         }
         function renderMap() {
             if (!map || !window.google?.maps) {
@@ -1424,12 +1720,29 @@
                 if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
             }
 
+            const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
+            if (estimate && estimateLocation) {
+                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:`Fused region · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:9}, label:{text:'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}};
+                if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestGroup(); if (current) showGroupInfo(current); }); }
+                else estimateMarker.setOptions(estimateOptions);
+                const radius = finite(estimate.uncertainty_radius_m);
+                if (radius !== null && radius > 0) {
+                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : .1, strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : .75, strokeWeight:2};
+                    if (!estimateCircle) estimateCircle = new google.maps.Circle(circleOptions); else estimateCircle.setOptions(circleOptions);
+                } else if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
+            } else {
+                if (estimateMarker) { estimateMarker.setMap(null); estimateMarker = null; }
+                if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
+            }
+
             const activeTracks = new Set();
             state.tracks.forEach((track,id) => {
-                const points = (Array.isArray(track.points) ? track.points : []).slice(-200).map(point => ({lat:finite(point.filtered_lat ?? point.measured_lat), lng:finite(point.filtered_lng ?? point.measured_lng)})).filter(point => point.lat !== null && point.lng !== null);
+                const points = trackPath(track).slice(-200).map(point => ({lat:point.lat, lng:point.lng}));
                 if (points.length < 2) return;
                 activeTracks.add(id);
-                const options = {map, path:points, geodesic:true, strokeColor:'#60a5fa', strokeOpacity:simulationIsVisible() ? .22 : .85, strokeWeight:3, clickable:true};
+                const selected = id === state.selectedTrackId;
+                const operationalTrackOpacity = simulationIsVisible() ? .22 : .85;
+                const options = {map, path:points, geodesic:true, strokeColor:selected ? '#f59e0b' : '#60a5fa', strokeOpacity:selected && !simulationIsVisible() ? 1 : operationalTrackOpacity, strokeWeight:selected ? 5 : 3, clickable:true};
                 let line = trackLines.get(id);
                 if (!line) { line = new google.maps.Polyline(options); trackLines.set(id,line); }
                 else line.setOptions(options);
@@ -1441,6 +1754,7 @@
             const bounds = new google.maps.LatLngBounds(); let count = 0;
             canonicalDevices().forEach(device => { const location = nodeLocation(device); if (location) { bounds.extend(location); count++; } });
             const location = eventLocation(latestDetection()); if (location) { bounds.extend(location); count++; }
+            const estimateLocation = groupLocation(selectedOrLatestGroup()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
             if (count) map.fitBounds(bounds, 70); else showToast('目前沒有可縮放的位置資料');
         }
         function focusNodeOnMap(deviceId) {
@@ -1457,7 +1771,7 @@
         function focusEventOnMap(event) { const location = eventLocation(event); if (map && location) { map.panTo(location); map.setZoom(Math.max(map.getZoom() || 12, 16)); } }
 
         function renderAll() {
-            renderCommandBar(); renderMetrics(); renderLiveDetection(); renderRecentEvents(); renderNodeStatus(); renderNodesView(); renderHealth(); renderMotion(); renderEventsView(); renderMap();
+            renderCommandBar(); renderMetrics(); renderLiveDetection(); renderRecentEvents(); renderNodeStatus(); renderNodesView(); renderHealth(); renderMotion(); renderEventsView(); renderTracksView(); renderMap();
         }
 
         function connectWebSocket() {
@@ -1497,9 +1811,9 @@
             } else if (data.type === 'device_status_deleted') {
                 if (data.device_id) state.devices.delete(data.device_id); renderAll();
             } else if (data.type === 'event_group') {
-                const group = data.group || data; if (group.id) state.groups.set(String(group.id), group); state.lastUpdate = new Date(); renderMap(); renderCommandBar();
+                const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderTracksView(); renderMap(); renderCommandBar();
             } else if (data.type === 'track_update') {
-                const track = data.track || data; if (track.id) state.tracks.set(String(track.id), track); state.lastUpdate = new Date(); renderMotion(); renderMap(); renderCommandBar();
+                const track = data.track || data; const id = trackId(track); if (id) state.tracks.set(id, track); state.lastUpdate = new Date(); renderMotion(); renderTracksView(); renderMap(); renderCommandBar();
             } else if (data.type === 'device_command_created') {
                 const current = commandState(data.device_id);
                 if (current.phase === 'sending' && (!current.command || current.command === data.command)) updateCommandState(data.device_id, {command:data.command || current.command, commandId:Number(data.command_id), delivery:data.delivery || current.delivery, phase:data.status === 'sent' ? 'delivered' : 'pending'});
@@ -1565,6 +1879,21 @@
             const buttons = [...event.currentTarget.querySelectorAll('button:not(:disabled)')];
             if (!buttons.length) return;
             const first = buttons[0]; const last = buttons[buttons.length - 1];
+            if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        });
+        document.getElementById('locationCancel').addEventListener('click', closeLocationEditor);
+        document.getElementById('locationSave').addEventListener('click', saveFixedLocation);
+        document.getElementById('locationClear').addEventListener('click', clearFixedLocation);
+        document.getElementById('locationUseGps').addEventListener('click', useCurrentGpsForLocation);
+        document.getElementById('locationEditorBackdrop').addEventListener('mousedown', event => { if (event.target === event.currentTarget) closeLocationEditor(); });
+        ['locationLatitude','locationLongitude','locationAccuracy'].forEach(id => document.getElementById(id).addEventListener('input', () => { document.getElementById('locationEditorModal').dataset.locationSource = 'dashboard_v2_4_coordinates'; }));
+        document.getElementById('locationEditorModal').addEventListener('keydown', event => {
+            if (event.key === 'Escape') { event.preventDefault(); closeLocationEditor(); return; }
+            if (event.key !== 'Tab') return;
+            const controls = [...event.currentTarget.querySelectorAll('button:not(:disabled):not([hidden]), input:not(:disabled)')];
+            if (!controls.length) return;
+            const first = controls[0]; const last = controls[controls.length - 1];
             if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         });

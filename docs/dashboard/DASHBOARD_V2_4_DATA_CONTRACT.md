@@ -16,11 +16,12 @@ WebSocket fields remain unchanged.
 | Live Detection | `/events`, `event_trigger` | event identity/time/node, `classification`, `dashboard_presentation` | Waiting state or Legacy event fallback |
 | Class Scores | `classification.v1` | five canonical `class_scores` | All canonical rows render; unavailable scores show `-` |
 | Recent Events | `/events`, `event_trigger`, `event_audio_update` | time, node, class, score, duration, audio/location state | Empty state; maximum eight rows on Dashboard |
-| Events browser | `/events` plus incremental event messages | classification, timing, signal, location, upload/audio, raw IDs | Legacy and null-safe detail |
+| Events browser | `/events` plus incremental event messages | classification, timing, signal, location, upload/audio, raw IDs | Legacy and null-safe detail; existing `/events/export.csv` remains available |
 | Map nodes | `/device-status`, node/location WS updates | canonical A01-A04 marker/effective lat/lng, status, listening, GPS accuracy | No marker without coordinates; without a Maps key, real coordinates feed a labelled relative plot |
 | Latest detection marker | `/events`, `event_trigger` | effective/display coordinates | No marker without coordinates |
-| Target estimate | `/event-groups`, `event_group` | existing group center/uncertainty when available | No fabricated point or region |
-| Historical tracks | `/tracks`, `track_update` | existing `points`, measured/filtered coordinates | No line with fewer than two points |
+| Target estimate | `/event-groups`, `event_group` | existing group center/uncertainty when available | Tracks workspace and map preview; no fabricated point or default uncertainty region |
+| Historical tracks | `/tracks`, `track_update` | existing `points`, measured/filtered coordinates | List, selection, and recorded-point replay; no line with fewer than two points, smoothing, or interpolation |
+| Fixed node location | `/device-status`, PUT/DELETE `/device-locations/{device_id}` | effective/raw/fixed coordinates, source, accuracy | Explicit editor; one-request `x-upload-token`; no browser token persistence |
 | Experimental Motion | `/tracks`, `track_update`, `/runtime-status` | Backend `last_speed_mps`, `last_heading_deg`, optional quality/uncertainty, motion flags | `尚未啟用` or `資料不足`; never computes motion in browser |
 | Node Status rail | `/device-status` and existing WS node updates | state, listening, GPS, AI, upload, last seen/event | A01-A04 slots show `未回報` unless the Backend reports them |
 | System Health | `/health`, `/runtime-status`, node state, WS lifecycle | DB initialization error, database type, AI/GPS presence | `No telemetry` instead of fabricated Healthy |
