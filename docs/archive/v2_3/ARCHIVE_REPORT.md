@@ -72,6 +72,38 @@ Previously completed speaker-playback Drone checks establish an end-to-end
 smoke path from the Android client through live detection and recent events.
 They do not establish physical-drone detection range or class accuracy.
 
+### Previously captured node-control acceptance
+
+The following evidence was captured in isolated staging on 2026-09-01 through
+2026-09-02. It is preserved here because the detailed source note remains a
+pre-existing, uncommitted working-tree change and is intentionally not included
+as source code in this archive commit.
+
+- Acceptance backend SHA:
+  `f92b3c224e178e7a919162a9284be0d37c05c9e2`.
+- Android package/version:
+  `com.example.sound_detector_clean.staging`, `1.0.2-staging`
+  (`versionCode=3`).
+- Device: A01; acceptance ended ONLINE, Detection mode, Listening OFF.
+- No fake event, production operation, code/UI change, or redeploy was used.
+
+| Command | ID | POST | Delivery | Pending UI | ACK status / message | Final state |
+| --- | ---: | --- | --- | --- | --- | --- |
+| `start_listening` | 7 | success | WebSocket | observed | `succeeded` / `listening started` | ONLINE, Detection, Listening ON |
+| `stop_listening` | 8 | success | WebSocket | observed | `succeeded` / `detection stopped` | ONLINE, Detection, Listening OFF |
+| `set_collection_mode` | 9 | success | WebSocket | observed | `succeeded` / `collection mode applied` | ONLINE, Collection, Listening OFF |
+| `set_detection_mode` | 10 | success | WebSocket | observed | `succeeded` / `detection mode applied` | ONLINE, Detection, Listening OFF |
+
+The Dashboard reflected terminal ACK and node-state changes without manual
+refresh.
+
+The associated speaker-playback demo used command 11 to start and command 12
+to stop. Event `event_1788312711282_node_A01` reached Live Detection and Recent
+Events as `classification.v1`, model `v1_1_0_flower_drone_audio`, with label
+Drone and confidence 90.76%. All five scores were present: Drone 90.76%,
+Electric_saw 8.99%, Airplane 0.21%, Rainfall 0.03%, and Car 0.01% (rounded).
+No fake event was used. This remains transport/demo evidence only.
+
 ## 5. Runtime snapshot at archive time
 
 The sanitized evidence capture is stored in `runtime_snapshot.json`.
