@@ -570,6 +570,30 @@
         @media(max-width:899px) {
             #view-detections .hero-grid, .simulation-page-grid { grid-template-columns:1fr; }
         }
+
+        .drone-icon { width:26px; height:26px; display:block; flex-shrink:0; }
+        .detection-icon .drone-icon { width:52px; height:52px; }
+        .overview-summary { min-width:0; }
+        .overview-location-card { padding:16px; margin-bottom:16px; }
+        .overview-location-card p { font-size:14px; line-height:1.6; margin:10px 0 14px; }
+        @media(min-width:1100px) and (min-height:640px) {
+            #view-dashboard.active { grid-template-columns:minmax(0,1.4fr) minmax(300px,1fr); grid-template-rows:24px minmax(0,1fr); align-items:start; gap:16px; height:auto; min-height:calc(100dvh - 88px); }
+            #view-dashboard > .page-heading { grid-column:1 / -1; }
+            #overviewMapSlot { grid-column:1; grid-row:2; height:auto; }
+            #overviewMapSlot .map-card { height:auto; }
+            #overviewMapSlot #map { flex:none; height:clamp(350px,calc(100dvh - 255px),700px); min-height:350px; }
+            #overviewMapSlot .map-fallback { height:clamp(350px,calc(100dvh - 255px),700px); min-height:350px; }
+            .overview-summary { grid-column:2; grid-row:2; display:grid; gap:12px; }
+            .overview-summary #monitorStatus { flex-direction:column; align-items:stretch; padding:18px; gap:14px; }
+            .overview-summary .metric-grid { grid-template-columns:1fr; gap:10px; margin:0; }
+            #view-dashboard .overview-summary .metric-card { min-height:72px; padding:12px 16px; }
+            .overview-summary .overview-location-card { margin:0; }
+        }
+        @media(min-width:900px) and (max-width:1099px) {
+            #view-dashboard.active { height:auto; grid-template-rows:auto auto auto; }
+            .overview-summary .metric-grid { margin:12px 0; }
+            #overviewMapSlot #map { min-height:360px; }
+        }
     </style>
 </head>
 <body>
@@ -616,6 +640,7 @@
                     </div>
                 </div>
 
+                <div class="overview-summary">
                 <section id="monitorStatus" class="monitor-status" data-tone="info" aria-live="polite" aria-atomic="true">
                     <div class="monitor-status-copy"><span class="eyebrow">目前狀態</span><h2 id="monitorTitle">正在確認系統狀態</h2><p id="monitorDetail">讀取節點與服務狀態中…</p></div>
                     <button id="monitorAction" class="action-button" type="button">查看系統狀態</button>
@@ -624,6 +649,9 @@
                     <article class="card metric-card"><div class="metric-top"><span>在線節點</span><span class="metric-icon">◉</span></div><div id="nodesOnlineMetric" class="metric-value">—</div><div id="nodesOnlineDetail" class="metric-detail">等待節點資料</div></article>
                     <article class="card metric-card"><div class="metric-top"><span>正在監聽</span><span class="metric-icon">◌</span></div><div id="listeningMetric" class="metric-value">—</div><div class="metric-detail">手機回報的監聽狀態</div></article>
                     <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
+                </div>
+
+                <article class="card overview-location-card"><h2 class="card-title">節點位置設定</h2><p class="muted">選擇節點後，可自訂經緯度，作為地圖與區域估測的固定位置。</p><button class="action-button" data-view-target="nodes" type="button">設定節點位置 →</button></article>
                 </div>
 
                 <div id="overviewMapSlot" class="operational-grid">
@@ -947,7 +975,7 @@
             const result = metrics.prediction;
             const historyOptions = {map, path:animation.mapHistory, geodesic:true, strokeColor:'#f59e0b', strokeOpacity:.95, strokeWeight:4, clickable:false, zIndex:20};
             if (!simulationMapObjects.historyLine) simulationMapObjects.historyLine = new google.maps.Polyline(historyOptions); else simulationMapObjects.historyLine.setOptions(historyOptions);
-            const currentOptions = {map, position:animation.position, title:'SIMULATION current target', zIndex:24, icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW, rotation:result?.display.show_heading ? result.current.heading_deg : 0, fillColor:'#22d3ee', fillOpacity:1, strokeColor:'#d9fbff', strokeWeight:2, scale:7}};
+            const currentOptions = {map, position:animation.position, title:'SIMULATION 無人機 · 模擬目標', zIndex:24, icon:droneMapIcon('#22d3ee', result?.display.show_heading ? result.current.heading_deg : 0)};
             if (!simulationMapObjects.currentMarker) simulationMapObjects.currentMarker = new google.maps.Marker(currentOptions); else simulationMapObjects.currentMarker.setOptions(currentOptions);
             const predictions = result?.display.show_prediction ? result.predictions : [];
             const approach = result?.approach || result?.site_metrics;
@@ -1094,7 +1122,14 @@
         function isTarget(event) { return classificationOf(event)?.is_target === true || event?.dashboard_presentation?.is_target === true; }
         function classLabel(event) { return modelLabel(event) || event?.label || 'Legacy'; }
         function classNameZh(event) { return classNamesZh[modelLabel(event)] || event?.dashboard_presentation?.name_zh || '舊版事件'; }
-        function classIcon(event) { return classIcons[modelLabel(event)] || '•'; }
+        function droneSvg(color = 'currentColor', heading = 0, backdrop = false) {
+            const angle = Number.isFinite(heading) ? heading : 0;
+            return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" aria-hidden="true" class="drone-icon">${backdrop ? '<circle cx="20" cy="20" r="19" fill="#091524" stroke="#ffffff" stroke-width="1.5"/>' : ''}<g transform="rotate(${angle} 20 20)" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15 10 10M25 15 30 10M15 25 10 30M25 25 30 30"/><circle cx="10" cy="10" r="5"/><circle cx="30" cy="10" r="5"/><circle cx="10" cy="30" r="5"/><circle cx="30" cy="30" r="5"/><rect x="15" y="13" width="10" height="14" rx="3"/><path d="m18 18 2-3 2 3"/></g></svg>`;
+        }
+        function droneMapIcon(color, heading = 0) {
+            return {url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(droneSvg(color, heading, true)), scaledSize:new google.maps.Size(40,40), anchor:new google.maps.Point(20,20)};
+        }
+        function classIcon(event) { return String(classLabel(event)).toLowerCase() === 'drone' ? droneSvg() : safe(classIcons[modelLabel(event)] || '•'); }
         function modelScore(event) { return finite(classificationOf(event)?.confidence ?? event?.model_confidence ?? event?.dashboard_presentation?.model_score); }
         function eventLocation(event) {
             const lat = finite(event?.effective_latitude ?? event?.latitude);
@@ -1371,7 +1406,7 @@
             const score = modelScore(event);
             const detectionEyebrow = recent ? '近期收到的偵測' : '最後一次收到的紀錄・非目前偵測';
             body.innerHTML = `<div class="detection-layout">
-                <div class="detection-icon" aria-hidden="true">${safe(classIcon(event))}</div>
+                <div class="detection-icon" aria-hidden="true">${classIcon(event)}</div>
                 <div><div class="eyebrow">${safe(detectionEyebrow)}</div><h2 class="detection-name">${safe(classLabel(event))}</h2><div class="detection-zh">${safe(classNameZh(event))}</div>
                 <div class="confidence-row"><span class="muted">Model score / 模型分數</span><strong class="confidence-value">${formatPercent(score)}</strong></div>
                 <div class="progress" role="progressbar" aria-label="模型分數" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${scoreWidth(score)}"><span style="width:${scoreWidth(score)}%"></span></div>
@@ -1403,9 +1438,9 @@
             const location = eventLocation(event);
             const targetClass = isTarget(event) ? 'target-row' : '';
             if (detailed) {
-                return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${safe(classIcon(event))}</span><span>${safe(classLabel(event))}<br><small class="muted">${safe(classNameZh(event))}</small></span></div></td><td>${formatPercent(modelScore(event))}</td><td>${safe(event.last_upload_status || event.audio_encoding_status || '—')}</td></tr>`;
+                return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${classIcon(event)}</span><span>${safe(classLabel(event))}<br><small class="muted">${safe(classNameZh(event))}</small></span></div></td><td>${formatPercent(modelScore(event))}</td><td>${safe(event.last_upload_status || event.audio_encoding_status || '—')}</td></tr>`;
             }
-            return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${safe(classIcon(event))}</span><span>${safe(classLabel(event))}</span></div></td><td>${formatPercent(modelScore(event))}</td><td>${formatNumber(event.duration_s,1,' s')}</td><td>${safe(audio.text)}</td><td>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : '—'}</td></tr>`;
+            return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${classIcon(event)}</span><span>${safe(classLabel(event))}</span></div></td><td>${formatPercent(modelScore(event))}</td><td>${formatNumber(event.duration_s,1,' s')}</td><td>${safe(audio.text)}</td><td>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : '—'}</td></tr>`;
         }
         function bindEventRows(container) {
             container.querySelectorAll('[data-event-id]').forEach(row => {
@@ -1566,7 +1601,7 @@
             grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">Node List</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} REPORTED</span></div><div class="node-picker">${nodeList}</div></article>
                 <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">Node ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
                     <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>Effective location <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>Raw GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div><div>Fixed location<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
-                    <section class="control-section"><h3 class="control-heading">Fixed Site Location</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>Manage location</button></div><div class="control-helper">變更需要 staging write token；token 不會保存在瀏覽器儲存空間。</div></section>
+                    <section class="control-section"><h3 class="control-heading">自訂節點位置</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>設定節點位置</button></div><div class="control-helper">變更需要 staging write token；token 不會保存在瀏覽器儲存空間。</div></section>
                     <section class="control-section"><h3 class="control-heading">Node Control</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>Backend node state</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">Command Status</h3>${commandStatusMarkup(selected)}</section>
@@ -1891,8 +1926,8 @@
                 const left = 8 + ((point.location.lng - minLng) / lngSpan) * 84;
                 const top = 92 - ((point.location.lat - minLat) / latSpan) * 84;
                 const pointClass = `coordinate-point ${point.kind === 'event' ? 'event' : ''} ${point.online ? '' : 'offline'}`;
-                const glyph = point.kind === 'event' ? '●' : nodeShapeText(point.id);
-                return `<span class="${pointClass}" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${safe(glyph)}</span><span class="coordinate-point-label" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))">${safe(point.label)}</span>`;
+                const glyph = point.kind === 'event' && point.label.toLowerCase() === 'drone' ? droneSvg() : safe(point.kind === 'event' ? '●' : nodeShapeText(point.id));
+                return `<span class="${pointClass}" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${glyph}</span><span class="coordinate-point-label" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))">${safe(point.label)}</span>`;
             }).join('');
             footer.innerHTML = `<span>${points.length} 個可定位項目 · Lat ${minLat.toFixed(5)}–${maxLat.toFixed(5)} · Lng ${minLng.toFixed(5)}–${maxLng.toFixed(5)}</span><span>● Node　● Latest detection</span>`;
         }
@@ -1971,7 +2006,7 @@
 
             const detection = latestDetection(); const location = eventLocation(detection);
             if (location) {
-                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
+                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} 偵測回報位置 - ${formatDateTime(detection.timestamp)}`, icon:String(classLabel(detection)).toLowerCase() === 'drone' ? droneMapIcon('#f59e0b') : {path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
                 if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
                 else detectionMarker.setOptions(options);
                 const radius = finite(detection.uncertainty_radius_m);
