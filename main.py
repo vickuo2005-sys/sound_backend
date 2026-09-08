@@ -8003,6 +8003,19 @@ def verify_dashboard_write_token(upload_token: Optional[str]) -> None:
         )
 
 
+def location_write_token_required() -> bool:
+    # User-approved development policy applies only to this isolated service.
+    if (os.getenv("RENDER_SERVICE_ID") == "srv-da6kdn61egvs7392r92g"
+            and os.getenv("RENDER_SERVICE_NAME") == "sound-backend-staging"):
+        return False
+    return os.getenv("DASHBOARD_WRITE_TOKEN_REQUIRED", "false").lower() in {"1", "true", "yes", "on"}
+
+
+def verify_location_write_token(upload_token: Optional[str]) -> None:
+    if location_write_token_required():
+        verify_dashboard_write_token(upload_token)
+
+
 def is_alert_event_label(label: Optional[str]) -> bool:
     if not label:
         return False
@@ -10530,7 +10543,7 @@ async def put_device_location(
     payload: DeviceFixedLocationUpsert,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
-    verify_dashboard_write_token(upload_token)
+    verify_location_write_token(upload_token)
     try:
         location = upsert_device_fixed_location(device_id, payload)
     except DeviceLocationValidationError as exc:
@@ -10558,7 +10571,7 @@ async def clear_device_location(
     device_id: str,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
-    verify_dashboard_write_token(upload_token)
+    verify_location_write_token(upload_token)
     deleted = delete_device_fixed_location(device_id)
     try:
         groups = recompute_active_regions_for_device(device_id)
@@ -14673,6 +14686,7 @@ def dashboard_v2_4() -> HTMLResponse:
             maps_api_key=os.getenv("GOOGLE_MAPS_API_KEY", ""),
             experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
             simulation_enabled=DASHBOARD_SIMULATION_ENABLED,
+            location_token_required=location_write_token_required(),
         )
     )
 

@@ -23,6 +23,7 @@ def render_dashboard_v2_4(
     maps_api_key: str,
     experimental_motion_enabled: bool,
     simulation_enabled: bool = False,
+    location_token_required: bool = True,
 ) -> str:
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
     maps_script_tag = ""
@@ -103,6 +104,8 @@ def render_dashboard_v2_4(
         )
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace("__LOCATION_TOKEN_REQUIRED__", "true" if location_token_required else "false")
+        .replace("__LOCATION_TOKEN_HIDDEN__", "" if location_token_required else "hidden")
         .replace(
             "__STATUS_SCRIPT__",
             "<script>" + STATUS_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>",

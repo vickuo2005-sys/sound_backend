@@ -780,10 +780,10 @@
                     </div>
                     <div class="location-form-grid">
                         <label>位置誤差（公尺，選填）<input id="locationAccuracy" type="number" min="0" step="0.1" inputmode="decimal"></label>
-                        <label>儲存授權碼<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
+                        <label __LOCATION_TOKEN_HIDDEN__>儲存授權碼<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
                     </div>
                     <button id="locationUseGps" class="action-button" type="button">使用節點目前 GPS</button>
-                    <div class="location-token-note">Token 只用於這一次請求，關閉視窗後立即清除，不寫入 localStorage 或 sessionStorage。</div>
+                    <div class="location-token-note" __LOCATION_TOKEN_HIDDEN__>Token 只用於這一次請求，關閉視窗後立即清除，不寫入 localStorage 或 sessionStorage。</div>
                 </div>
             </div>
             <div class="confirm-modal-actions">
@@ -800,6 +800,7 @@
         'use strict';
         const experimentalMotionEnabled = __EXPERIMENTAL_MOTION_ENABLED__;
         const dashboardSimulationEnabled = __DASHBOARD_SIMULATION_ENABLED__;
+        const locationTokenRequired = __LOCATION_TOKEN_REQUIRED__;
         const mapsConfigured = __MAPS_CONFIGURED__;
         const canonicalClasses = ['Airplane', 'Car', 'Drone', 'Electric_saw', 'Rainfall'];
         const classNamesZh = {Airplane: '航空器聲音', Car: '車輛聲音', Drone: '無人機聲音', Electric_saw: '電鋸聲音', Rainfall: '降雨聲音'};
@@ -1611,7 +1612,7 @@
             grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">Node List</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} REPORTED</span></div><div class="node-picker">${nodeList}</div></article>
                 <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">Node ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
                     <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>Effective location <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>Raw GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div><div>Fixed location<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
-                    <section class="control-section"><h3 class="control-heading">自訂節點位置</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>設定節點位置</button></div><div class="control-helper">變更需要 staging write token；token 不會保存在瀏覽器儲存空間。</div></section>
+                    <section class="control-section"><h3 class="control-heading">自訂節點位置</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>設定節點位置</button></div><div class="control-helper">${locationTokenRequired ? '儲存時請輸入授權碼。' : '點擊地圖選擇位置，確認後即可儲存。'}</div></section>
                     <section class="control-section"><h3 class="control-heading">Node Control</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>Backend node state</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
                     <section class="control-section"><h3 class="control-heading">Command Status</h3>${commandStatusMarkup(selected)}</section>
@@ -1725,7 +1726,7 @@
             locationPickerMap?.panTo({lat,lng});
         }
         function locationRequestHeaders() {
-            return {'Content-Type':'application/json', 'x-upload-token':document.getElementById('locationWriteToken').value.trim()};
+            return locationTokenRequired ? {'Content-Type':'application/json', 'x-upload-token':document.getElementById('locationWriteToken').value.trim()} : {'Content-Type':'application/json'};
         }
         function validateLocationEditor() {
             const latitude = finite(document.getElementById('locationLatitude').value);
@@ -1735,7 +1736,7 @@
             if (latitude === null || latitude < -90 || latitude > 90) throw new Error('Latitude 必須介於 -90 與 90');
             if (longitude === null || longitude < -180 || longitude > 180) throw new Error('Longitude 必須介於 -180 與 180');
             if (accuracyValue && (accuracy === null || accuracy < 0)) throw new Error('Accuracy 必須為 0 或正數');
-            if (!document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入 staging write token');
+            if (locationTokenRequired && !document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入 staging write token');
             return {latitude, longitude, accuracy_m:accuracy, location_source:document.getElementById('locationEditorModal').dataset.locationSource || 'manual_map'};
         }
         async function saveFixedLocation() {
@@ -1768,7 +1769,7 @@
                 document.getElementById('locationClear').focus();
                 return;
             }
-            if (!document.getElementById('locationWriteToken').value.trim()) { showToast('請輸入 staging write token'); return; }
+            if (locationTokenRequired && !document.getElementById('locationWriteToken').value.trim()) { showToast('請輸入 staging write token'); return; }
             setLocationBusy(true);
             try {
                 const response = await fetch(`/device-locations/${encodeURIComponent(deviceId)}`, {method:'DELETE', headers:locationRequestHeaders()});

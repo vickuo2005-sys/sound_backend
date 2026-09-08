@@ -8,6 +8,7 @@ const element = id => {
   return elements.get(id);
 };
 const context = vm.createContext({
+  locationTokenRequired:true,
   document:{getElementById:element},
   state:{locationBusy:false, locationEditDeviceId:'node_A01', locationClearArmed:true},
   syncLocationPickerMarker:()=>{},
@@ -38,3 +39,10 @@ assert.throws(()=>context.validateLocationEditor(), /Latitude/);
 element('locationLatitude').value = '91';
 assert.throws(()=>context.validateLocationEditor(), /Latitude/);
 console.log('Location picker coordinates, request source and busy guard passed');
+
+context.locationTokenRequired = false;
+element('locationLatitude').value = '25';
+element('locationWriteToken').value = '';
+assert.equal(context.validateLocationEditor().latitude,25);
+context.locationTokenRequired = true;
+assert.throws(()=>context.validateLocationEditor(), /token/);
