@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Sound Detection - Operational Dashboard</title>
+    <title>聲音偵測｜監控總覽</title>
     <style>
         :root {
             --bg: #07111f;
@@ -368,6 +368,10 @@
         .simulation-watermark span { color: #b6dce5; font-size: 9px; font-weight: 900; letter-spacing: .13em; }
         .simulation-panel { padding: 12px 14px 14px; border-top: 1px solid #225a6c; background: #091d2a; }
         .simulation-panel[hidden] { display: none; }
+        .simulation-quick-exit { position:fixed; right:20px; bottom:20px; z-index:160; min-height:44px; padding:10px 18px; border:2px solid var(--primary); background:#103344; color:var(--text-primary); box-shadow:0 4px 18px #0008; }
+        body.simulation-active .map-card { overflow:visible; }
+        body.simulation-active #simulationPanel { flex-shrink:0; }
+        body.simulation-active .simulation-watermark { position:static; width:auto; margin:0; border-radius:0; padding:8px 16px; }
         .simulation-banner, .simulation-controls, .simulation-timeline { display: flex; align-items: center; gap: 10px; }
         .simulation-banner { justify-content: space-between; }
         .simulation-banner strong, .simulation-banner span { display: block; }
@@ -467,6 +471,105 @@
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
         }
+
+        /* Overview first; diagnostics remain available in the system view. */
+        .workspace { grid-template-columns: 168px minmax(0, 1fr); }
+        .main { width:100%; max-width:1500px; margin:0 auto; padding:24px 28px; }
+        .metric-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+        .hero-grid, .operational-grid { grid-template-columns:minmax(0,1fr); }
+        .monitor-status { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:20px 24px; margin-bottom:18px; border:1px solid var(--border); border-left:4px solid var(--info); border-radius:12px; background:var(--surface-1); }
+        .monitor-status[data-tone="warn"] { border-left-color:var(--warning); }
+        .monitor-status[data-tone="error"] { border-left-color:var(--danger); }
+        .monitor-status[data-tone="ok"] { border-left-color:var(--success); }
+        .monitor-status h2 { font-size:24px; margin:5px 0; }
+        .monitor-status p { color:var(--text-secondary); margin:0; font-size:15px; }
+        .monitor-status button { flex-shrink:0; }
+        .card { box-shadow:none; }
+        .card-title { letter-spacing:0; font-size:16px; text-transform:none; }
+        .metric-top,.metric-detail,.command-chip,.brand-subtitle,.badge { font-size:13px; }
+        .metric-detail { white-space:normal; }
+        .eyebrow,.nav-label { font-size:12px; }
+        details > summary { padding:14px 16px; color:var(--text-secondary); font-size:14px; cursor:pointer; }
+        details > summary:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+        details[open] > summary { border-bottom:1px solid var(--border); color:var(--text-primary); }
+        .scores-disclosure .score-list { max-width:760px; }
+        .system-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+        .detection-layout { min-height:130px; }
+        .detection-meta .mono { display:none; }
+        .clock { display:none; }
+        @media(max-width:1100px) { .workspace { grid-template-columns:144px minmax(0,1fr); } .main { padding:20px; } }
+        @media(max-width:760px) {
+            .topbar { position:relative; flex-wrap:wrap; padding:12px 16px; gap:10px; }
+            .command-status { justify-content:flex-start; gap:6px; }
+            .workspace { display:block; }
+            .sidebar { position:static; height:auto; padding:8px; border-right:0; border-bottom:1px solid var(--border); }
+            .sidebar .nav-label,.sidebar-note { display:none; }
+            .nav-list { display:flex; overflow-x:auto; margin:0; gap:4px; }
+            .nav-button { width:auto; white-space:nowrap; min-height:44px; flex-shrink:0; }
+            .main { padding:16px; }
+            .monitor-status { align-items:flex-start; flex-direction:column; gap:14px; padding:18px; }
+            .monitor-status h2 { font-size:22px; }
+            .system-grid { grid-template-columns:1fr; }
+            .metric-grid { gap:8px; }
+            .metric-card { padding:12px 10px; }
+            .metric-value { font-size:22px; }
+            .metric-icon { display:none; }
+        }
+        @media(max-width:480px) {
+            .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .metric-grid > :last-child { grid-column:1 / -1; }
+        }
+        /* The map owns the overview; detail work has its own page. */
+        #view-detections .hero-grid { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+        #view-detections .recent-events-card { margin-top:16px; }
+        #view-detections .detection-meta .mono { display:inline; overflow-wrap:anywhere; }
+        #view-detections .table-wrap { overflow:auto; }
+        .simulation-page-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(320px,1fr); gap:16px; align-items:start; }
+        #simulationMapSlot, #simulationAnalysisSlot { min-width:0; }
+        #simulationMapSlot .map-card { display:block; overflow:visible; }
+        #simulationMapSlot #map { height:420px; min-height:320px; }
+        #simulationMapSlot .map-fallback { min-height:340px; }
+        #simulationMapSlot .coordinate-shell { min-height:220px; }
+        #simulationMapSlot .coordinate-plot { min-height:180px; }
+        #simulationMapSlot .simulation-panel { overflow:visible; }
+        #motionHome { margin-top:16px; }
+        @media(min-width:900px) and (min-height:640px) {
+            .main { max-width:none; padding:12px 16px; }
+            .workspace { grid-template-columns:160px minmax(0,1fr); }
+            .nav-button { gap:6px; padding:8px; white-space:nowrap; }
+            #view-dashboard.active { display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:24px auto 66px minmax(220px,1fr); gap:10px; height:calc(100dvh - 88px); }
+            #view-dashboard > .page-heading { margin:0; }
+            #dashboardTitle { font-size:20px; line-height:24px; }
+            #view-dashboard > .page-heading .page-description { display:none; }
+            #monitorStatus { margin:0; padding:10px 14px; gap:16px; }
+            #monitorStatus .eyebrow { display:none; }
+            #monitorStatus h2 { font-size:19px; margin:0 0 2px; }
+            #monitorStatus p { font-size:14px; }
+            #view-dashboard > .metric-grid { margin:0; gap:10px; }
+            #view-dashboard .metric-card { min-height:0; padding:8px 12px; display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:12px; }
+            #view-dashboard .metric-value { font-size:24px; margin:0; grid-column:2; grid-row:1 / 3; }
+            #view-dashboard .metric-detail { margin:0; font-size:12px; }
+            #view-dashboard .metric-icon { display:none; }
+            #overviewMapSlot { display:block; min-height:0; margin:0; }
+            #overviewMapSlot .map-card { display:flex; flex-direction:column; height:100%; min-height:0; }
+            #overviewMapSlot .card-header { padding:10px 14px; flex-shrink:0; flex-wrap:wrap; }
+            #overviewMapSlot #map { min-height:0; flex:1; }
+            #overviewMapSlot .map-fallback { min-height:0; flex:1; padding:10px 14px; }
+            #overviewMapSlot .coordinate-shell { height:100%; min-height:0; display:flex; flex-direction:column; gap:6px; }
+            #overviewMapSlot .coordinate-heading { flex-shrink:0; }
+            #overviewMapSlot .coordinate-plot { min-height:90px; flex:1; }
+            #overviewMapSlot .coordinate-footer { font-size:12px; padding:0; flex-shrink:0; }
+        }
+        @media(min-width:900px) and (max-width:1099px) {
+            .workspace { grid-template-columns:128px minmax(0,1fr); }
+            .sidebar { padding:12px 8px; }
+            .nav-button { font-size:14px; padding:8px 6px; white-space:nowrap; }
+            .nav-icon { display:none; }
+            .simulation-page-grid { grid-template-columns:1fr; }
+        }
+        @media(max-width:899px) {
+            #view-detections .hero-grid, .simulation-page-grid { grid-template-columns:1fr; }
+        }
     </style>
 </head>
 <body>
@@ -475,7 +578,7 @@
             <div class="brand-mark" aria-hidden="true">SD</div>
             <div>
                 <div class="brand-title">Sound Detection</div>
-                <div class="brand-subtitle">Operational Dashboard</div>
+                <div class="brand-subtitle">聲音偵測監控</div>
             </div>
         </div>
         <div class="command-status" aria-label="連線狀態">
@@ -491,48 +594,42 @@
 
     <div class="workspace">
         <aside class="sidebar" aria-label="主要導覽">
-            <div class="nav-label">Operations</div>
+            <div class="nav-label">工作區</div>
             <nav class="nav-list">
-                <button class="nav-button active" data-view-target="dashboard" aria-current="page"><span class="nav-icon">⌂</span>Dashboard</button>
-                <button class="nav-button" data-view-target="events"><span class="nav-icon">≡</span>Events</button>
-                <button class="nav-button" data-view-target="tracks"><span class="nav-icon">⌁</span>Tracks</button>
-                <button class="nav-button" data-view-target="nodes"><span class="nav-icon">◉</span>Nodes</button>
+                <button class="nav-button active" data-view-target="dashboard" aria-current="page"><span class="nav-icon">⌂</span>監控總覽</button>
+                <button class="nav-button" data-view-target="detections"><span class="nav-icon">◷</span>偵測摘要</button>
+                <button class="nav-button" data-view-target="events"><span class="nav-icon">≡</span>事件查詢</button>
+                <button class="nav-button" data-view-target="tracks"><span class="nav-icon">⌁</span>位置與軌跡</button>
+                <button class="nav-button" data-view-target="nodes"><span class="nav-icon">◉</span>節點管理</button>
+                <button class="nav-button" data-view-target="system"><span class="nav-icon">◇</span>系統狀態</button>
+                __SIMULATION_NAV__
             </nav>
-            <div class="sidebar-note">Verified classification<br>Experimental motion<br>Simulation-only ETA<br>No operational ETA</div>
+            <div class="sidebar-note">測試環境<br>軌跡與抵達時間仍待實地驗證</div>
         </aside>
 
         <main class="main">
             <section id="view-dashboard" class="view active" aria-labelledby="dashboardTitle">
                 <div class="page-heading">
                     <div>
-                        <h1 id="dashboardTitle" class="page-title">Operational Intelligence</h1>
-                        <p class="page-description">多節點聲學偵測即時態勢與系統狀態</p>
+                        <h1 id="dashboardTitle" class="page-title">監控總覽</h1>
+                        <p class="page-description">先確認監聽狀態，再查看偵測與位置</p>
                     </div>
                 </div>
 
+                <section id="monitorStatus" class="monitor-status" data-tone="info" aria-live="polite" aria-atomic="true">
+                    <div class="monitor-status-copy"><span class="eyebrow">目前狀態</span><h2 id="monitorTitle">正在確認系統狀態</h2><p id="monitorDetail">讀取節點與服務狀態中…</p></div>
+                    <button id="monitorAction" class="action-button" type="button">查看系統狀態</button>
+                </section>
                 <div class="metric-grid" aria-label="操作狀態摘要">
-                    <article class="card metric-card"><div class="metric-top"><span>NODES ONLINE</span><span class="metric-icon">◉</span></div><div id="nodesOnlineMetric" class="metric-value">—</div><div id="nodesOnlineDetail" class="metric-detail">等待 node telemetry</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>LISTENING NODES</span><span class="metric-icon">◌</span></div><div id="listeningMetric" class="metric-value">—</div><div class="metric-detail">Backend reported state</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>AI STATUS</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">No telemetry</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>BACKEND</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>QUEUE</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">Node-reported：無數量 telemetry</div></article>
+                    <article class="card metric-card"><div class="metric-top"><span>在線節點</span><span class="metric-icon">◉</span></div><div id="nodesOnlineMetric" class="metric-value">—</div><div id="nodesOnlineDetail" class="metric-detail">等待節點資料</div></article>
+                    <article class="card metric-card"><div class="metric-top"><span>正在監聽</span><span class="metric-icon">◌</span></div><div id="listeningMetric" class="metric-value">—</div><div class="metric-detail">手機回報的監聽狀態</div></article>
+                    <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
                 </div>
 
-                <div class="hero-grid">
-                    <article class="card live-card" aria-live="polite">
-                        <div class="card-header"><h2 class="card-title">Live Detection</h2><span id="liveBadge" class="badge legacy">WAITING</span></div>
-                        <div id="liveDetectionBody" class="card-body"><div class="empty-state"><div><strong>等待偵測</strong>目前無有效目標事件</div></div></div>
-                    </article>
-                    <article class="card">
-                        <div class="card-header"><h2 class="card-title">Class Scores</h2><span class="muted" style="font-size:11px">模型分數</span></div>
-                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 classification.v1 後顯示五類分數</div></div></div></div>
-                    </article>
-                </div>
-
-                <div class="operational-grid">
+                <div id="overviewMapSlot" class="operational-grid">
                     <article class="card map-card">
                         <div class="card-header">
-                            <div><h2 class="card-title">Map &amp; Tracks</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> Node</span><span><b class="legend-symbol event">●</b> Detection</span><span><b class="legend-symbol event">◎</b> Fused estimate</span><span><b class="legend-symbol track">━</b> Historical track</span>__SIMULATION_MAP_LEGEND__</div></div>
+                            <div><h2 class="card-title">節點與偵測位置</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> 節點</span><span><b class="legend-symbol event">●</b> 偵測紀錄</span><span><b class="legend-symbol event">◎</b> 區域估測</span><span><b class="legend-symbol track">━</b> 歷史軌跡</span>__SIMULATION_MAP_LEGEND__</div><div class="muted" style="font-size:13px">包含歷史位置；標記不代表目標目前仍在原處。</div></div>
                             <div class="map-tools">__SIMULATION_CONTROLS__<button id="fitMapButton" class="ghost-button" aria-label="縮放以顯示所有節點與事件">Fit map</button></div>
                         </div>
                         <div id="map" role="application" aria-label="Google Maps 節點與事件地圖"></div>
@@ -548,20 +645,34 @@
                         </div>
                         __SIMULATION_PANEL__
                     </article>
-                    <article id="motionCard" class="card motion-card">
-                        <div class="card-header"><h2 id="motionCardTitle" class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span id="motionCardBadge" class="badge experimental">EXPERIMENTAL</span></div>
-                        <div id="motionBody" class="card-body"></div>
-                    </article>
                 </div>
 
-                <article class="card">
-                    <div class="card-header"><h2 class="card-title">Recent Events</h2><button class="ghost-button" data-view-target="events">View all</button></div>
-                    <div class="table-wrap"><table><thead><tr><th>Time</th><th>Node</th><th>Class</th><th>Model score</th><th>Duration</th><th>Audio</th><th>Location</th></tr></thead><tbody id="recentEventsBody"><tr><td colspan="7" class="table-empty">載入中…</td></tr></tbody></table></div>
-                </article>
             </section>
 
+            <section id="view-detections" class="view" aria-labelledby="detectionsTitle">
+                <div class="page-heading"><div><h1 id="detectionsTitle" class="page-title">偵測摘要</h1><p class="page-description">最新紀錄、完整模型分數與最近事件</p></div><button class="ghost-button" data-view-target="events">查詢全部事件 →</button></div>
+                <div class="hero-grid">
+                    <article class="card live-card" aria-live="polite">
+                        <div class="card-header"><h2 class="card-title">最新偵測紀錄</h2><span id="liveBadge" class="badge legacy">WAITING</span></div>
+                        <div id="liveDetectionBody" class="card-body"><div class="empty-state"><div><strong>等待偵測</strong>尚未收到偵測紀錄；請先確認上方監聽狀態</div></div></div>
+                    </article>
+                    <details class="card scores-disclosure" open>
+                        <summary>查看五類模型分數</summary>
+                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 classification.v1 後顯示五類分數</div></div></div></div>
+                    </details>
+                </div>
+
+                <article class="card recent-events-card">
+                    <div class="card-header"><h2 class="card-title">最近事件</h2><button class="ghost-button" data-view-target="events">查看全部</button></div>
+                    <div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>模型分數</th><th>持續時間</th><th>音訊</th><th>位置</th></tr></thead><tbody id="recentEventsBody"><tr><td colspan="7" class="table-empty">載入中…</td></tr></tbody></table></div>
+                </article>
+            </section>
+            <section id="view-simulation" class="view" aria-labelledby="simulationTitle">
+                <div class="page-heading"><div><h1 id="simulationTitle" class="page-title">模擬工作區</h1><p class="page-description">模擬資料・未經實地驗證</p></div></div>
+                <div class="simulation-page-grid"><div id="simulationMapSlot"></div><div id="simulationAnalysisSlot"></div></div>
+            </section>
             <section id="view-events" class="view" aria-labelledby="eventsTitle">
-                <div class="page-heading"><div><h1 id="eventsTitle" class="page-title">Events</h1><p class="page-description">即時與歷史事件瀏覽；legacy payload 安全降級</p></div><a class="ghost-button" href="/events/export.csv" download>Export CSV</a></div>
+                <div class="page-heading"><div><h1 id="eventsTitle" class="page-title">事件紀錄</h1><p class="page-description">依時間、分類與節點查詢偵測紀錄</p></div><a class="ghost-button" href="/events/export.csv" download>匯出 CSV</a></div>
                 <div class="filter-bar" aria-label="事件篩選">
                     <button class="filter-button active" data-target-filter="all">全部</button>
                     <button class="filter-button" data-target-filter="target">目標</button>
@@ -571,30 +682,36 @@
                     <select id="timeFilter" class="select-control" aria-label="時間範圍"><option value="all">所有時間</option><option value="1">最近 1 小時</option><option value="24">最近 24 小時</option><option value="168">最近 7 天</option></select>
                 </div>
                 <div class="event-browser">
-                    <article class="card"><div class="table-wrap"><table><thead><tr><th>Time</th><th>Node</th><th>Class</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
-                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">Event Detail</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div></article>
+                    <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
+                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div></article>
                 </div>
             </section>
 
             <section id="view-tracks" class="view" aria-labelledby="tracksTitle">
-                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">Tracks &amp; Estimates</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
+                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
                 <div class="intelligence-grid">
                     <article class="card"><div class="card-header"><h2 class="card-title">Fused Region Estimates</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
                     <article class="card"><div class="card-header"><h2 class="card-title">Historical Tracks</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">回放只重現已儲存 measurement path，不做平滑、補點或 future-path prediction。</div></div></article>
                 </div>
+                <div id="motionHome">                    <details id="motionDetails" class="card motion-disclosure"><summary>移動分析與模擬（實驗功能）</summary><article id="motionCard" class="motion-card">
+                        <div class="card-header"><h2 id="motionCardTitle" class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span id="motionCardBadge" class="badge experimental">EXPERIMENTAL</span></div>
+                        <div id="motionBody" class="card-body"></div>
+                    </article></details>
+</div>
             </section>
 
             <section id="view-nodes" class="view" aria-labelledby="nodesTitle">
-                <div class="page-heading"><div><h1 id="nodesTitle" class="page-title">Nodes</h1><p class="page-description">節點連線、監聽、GPS、AI 與上傳狀態</p></div></div>
+                <div class="page-heading"><div><h1 id="nodesTitle" class="page-title">節點管理</h1><p class="page-description">節點連線、監聽、GPS、AI 與上傳狀態</p></div></div>
                 <div id="nodeGrid" class="node-grid"></div>
             </section>
+        <section id="view-system" class="view" aria-labelledby="systemTitle"><div class="page-heading"><div><h1 id="systemTitle" class="page-title">系統狀態</h1><p class="page-description">連線、裝置與進階診斷</p></div></div><div class="system-grid"><article class="card metric-card"><div class="metric-top"><span>AI STATUS</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">No telemetry</div></article><article class="card metric-card"><div class="metric-top"><span>QUEUE</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">Node-reported：無數量 telemetry</div></article>
+            <article class="card rail-card"><div class="card-header"><h2 class="card-title">節點摘要</h2><span id="nodeCountBadge" class="badge legacy">0 REPORTED</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
+            <article class="card rail-card"><div class="card-header"><h2 class="card-title">服務與資料來源</h2></div><div class="card-body"><div id="healthList" class="health-list"></div></div></article>
+            <article class="card rail-card"><div class="card-header"><h2 class="card-title">功能驗證範圍</h2></div><div class="card-body muted" style="font-size:11px">Classification：真機 transport 已驗證<br>Queue：僅顯示 node-reported 狀態<br>Motion：未完成多節點實地驗證<br>Prediction / ETA：僅模擬，未完成實地驗證</div></article>
+        </div></section>
         </main>
 
-        <aside class="rail" aria-label="即時情報側欄">
-            <article class="card rail-card"><div class="card-header"><h2 class="card-title">Node Status</h2><span id="nodeCountBadge" class="badge legacy">0 REPORTED</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
-            <article class="card rail-card"><div class="card-header"><h2 class="card-title">System Health</h2></div><div class="card-body"><div id="healthList" class="health-list"></div></div></article>
-            <article class="card rail-card"><div class="card-header"><h2 class="card-title">Data Semantics</h2></div><div class="card-body muted" style="font-size:11px">Classification：真機 transport 已驗證<br>Queue：僅顯示 node-reported 狀態<br>Motion：未完成多節點實地驗證<br>Prediction / ETA：僅模擬，未完成實地驗證</div></article>
-        </aside>
+
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -640,6 +757,7 @@
         </section>
     </div>
 
+    __STATUS_SCRIPT__
     __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
@@ -653,12 +771,14 @@
         const state = {
             events: [], devices: new Map(), tracks: new Map(), groups: new Map(),
             health: null, runtime: null, backendConnected: false, wsConnected: false,
+            loaded: false, devicesAt: null, devicesFailed: false, snapshotInFlight: false,
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
             selectedEventId: null, selectedNodeId: 'node_A01', selectedGroupId: null, selectedTrackId: null,
             commands: new Map(), confirmAction: null, locationEditDeviceId: null, locationBusy: false, locationClearArmed: false,
             targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all'
         };
         let map = null;
+        let mapsLoadFailed = false;
         let mapInfoWindow = null;
         let mapStarted = false;
         let bootstrapStarted = false;
@@ -757,6 +877,7 @@
             document.getElementById('simulationScenarioName').textContent = `${simulationPlayback.scenario.id} · NOT FIELD VALIDATED`;
         }
         function renderSimulationMotion() {
+            document.getElementById('motionDetails').open = true;
             const result = simulationPlayback.prediction;
             if (!result) return;
             const card = document.getElementById('motionCard');
@@ -917,6 +1038,9 @@
             clearTrackReplayObjects(); state.selectedTrackId = null;
             cancelAnimationFrame(simulationPlayback.animationFrame);
             Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
+            document.getElementById('simulationMapSlot').append(document.querySelector('.map-card'));
+            document.getElementById('simulationAnalysisSlot').append(document.getElementById('motionDetails'));
+            switchView('simulation');
             renderMap(); updateSimulationFrame(); fitSimulationMap();
         }
         function playPauseSimulation() {
@@ -940,6 +1064,12 @@
             cancelAnimationFrame(simulationPlayback.animationFrame); clearSimulationMap();
             Object.assign(simulationPlayback, {phase:'inactive', scenario:null, elapsed:0, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
             renderSimulationControls(); renderMotion(); renderMap();
+            document.getElementById('overviewMapSlot').append(document.querySelector('.map-card'));
+            document.getElementById('motionHome').append(document.getElementById('motionDetails'));
+            document.getElementById('motionDetails').open = false;
+            switchView('dashboard');
+            if (map) google.maps.event.trigger(map, 'resize');
+            document.getElementById('simulationOpenButton')?.focus({preventScroll:true});
         }
 
         function safe(value) {
@@ -1087,6 +1217,8 @@
         }
 
         function switchView(viewName) {
+            if (viewName === 'simulation' && !simulationIsVisible()) { enterSimulationMode(); return; }
+            if (viewName === 'dashboard' && simulationIsVisible()) { exitSimulationMode(); return; }
             document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${viewName}`));
             document.querySelectorAll('.nav-button').forEach(button => {
                 const active = button.dataset.viewTarget === viewName;
@@ -1096,6 +1228,7 @@
             if (viewName === 'events') renderEventsView();
             if (viewName === 'tracks') renderTracksView();
             if (viewName === 'nodes') renderNodesView();
+            if (['dashboard','simulation'].includes(viewName) && map) { google.maps.event.trigger(map, 'resize'); }
         }
 
         async function fetchJson(url, timeoutMs = 9000) {
@@ -1109,19 +1242,24 @@
         }
 
         async function refreshSnapshot(reason = 'initial') {
+            if (state.snapshotInFlight || deviceSnapshotPollInFlight) return;
+            state.snapshotInFlight = true;
             const requests = [
                 fetchJson('/events?limit=100'), fetchJson('/device-status'),
                 fetchJson('/tracks?limit=20&points_limit=100', 15000), fetchJson('/event-groups?limit=20'),
                 fetchJson('/health'), fetchJson('/runtime-status')
             ];
             const [eventsResult, devicesResult, tracksResult, groupsResult, healthResult, runtimeResult] = await Promise.allSettled(requests);
+            state.loaded = true;
+            state.snapshotInFlight = false;
+            state.devicesFailed = devicesResult.status !== 'fulfilled' || !Array.isArray(devicesResult.value?.devices);
             state.backendConnected = healthResult.status === 'fulfilled' || eventsResult.status === 'fulfilled';
             if (eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value.events)) {
                 state.events = eventsResult.value.events.map(normalizeEvent).sort((a,b) => eventTime(b)-eventTime(a)).slice(0,200);
                 state.latestDetectionOrder = state.events.length ? eventTime(state.events[0]) : -Infinity;
             }
             if (devicesResult.status === 'fulfilled' && Array.isArray(devicesResult.value.devices)) {
-                state.devices.clear(); devicesResult.value.devices.forEach(upsertDevice);
+                state.devices.clear(); devicesResult.value.devices.forEach(upsertDevice); state.devicesAt = Date.now();
             }
             if (tracksResult.status === 'fulfilled' && Array.isArray(tracksResult.value.tracks)) {
                 state.tracks.clear(); tracksResult.value.tracks.forEach(track => { const id = trackId(track); if (id) state.tracks.set(id, track); });
@@ -1129,20 +1267,21 @@
             if (groupsResult.status === 'fulfilled' && Array.isArray(groupsResult.value.event_groups)) {
                 state.groups.clear(); groupsResult.value.event_groups.forEach(group => { const id = groupId(group); if (id) state.groups.set(id, group); });
             }
-            if (healthResult.status === 'fulfilled') state.health = healthResult.value;
-            if (runtimeResult.status === 'fulfilled') state.runtime = runtimeResult.value;
-            state.lastUpdate = new Date();
+            state.health = healthResult.status === 'fulfilled' ? healthResult.value : null;
+            state.runtime = runtimeResult.status === 'fulfilled' ? runtimeResult.value : null;
+            if ([eventsResult, devicesResult, tracksResult, groupsResult].some(result => result.status === 'fulfilled')) state.lastUpdate = new Date();
             renderAll();
             if (!state.backendConnected) showToast('Backend snapshot 讀取失敗，將於 WebSocket 重連後再試');
             if (reason === 'reconnect') showToast('即時連線已恢復，snapshot 已同步');
         }
 
         async function refreshDeviceSnapshot() {
-            if (deviceSnapshotPollInFlight) return;
+            if (deviceSnapshotPollInFlight || state.snapshotInFlight) return;
             deviceSnapshotPollInFlight = true;
             try {
                 const result = await fetchJson('/device-status', 5000);
-                if (!Array.isArray(result.devices)) return;
+                if (!Array.isArray(result.devices)) throw new Error('Invalid device snapshot');
+                state.devicesAt = Date.now(); state.devicesFailed = false;
                 state.devices.clear();
                 result.devices.forEach(upsertDevice);
                 state.lastUpdate = new Date();
@@ -1153,6 +1292,7 @@
                 renderMap();
                 renderCommandBar();
             } catch (_) {
+                state.devicesFailed = true; renderOverview();
                 // WebSocket remains primary. The next bounded poll or reconnect
                 // snapshot retries without leaving a permanent loading state.
             } finally {
@@ -1160,16 +1300,34 @@
             }
         }
 
+        function renderOverview() {
+            const devices = canonicalDevices();
+            const summary = DashboardStatus.summarize({
+                loaded:state.loaded, backendConnected:state.backendConnected,
+                devicesAt:state.devicesAt, devicesFailed:state.devicesFailed, now:Date.now(),
+                online:devices.filter(deviceOnline).length,
+                listening:devices.filter(d => deviceOnline(d) && d.is_listening === true).length,
+                wsConnected:state.wsConnected
+            });
+            document.getElementById('monitorStatus').dataset.tone = summary.tone;
+            document.getElementById('monitorTitle').textContent = summary.title;
+            document.getElementById('monitorDetail').textContent = summary.detail;
+            const action = document.getElementById('monitorAction');
+            action.textContent = summary.action === 'nodes' ? '前往節點管理 →' : '查看系統狀態 →';
+            action.onclick = () => switchView(summary.action);
+        }
+
         function renderCommandBar() {
+            renderOverview();
             const backendSymbol = document.getElementById('backendSymbol');
             backendSymbol.textContent = state.backendConnected ? '●' : '!';
             backendSymbol.className = `status-symbol ${state.backendConnected ? 'ok' : 'error'}`;
-            document.getElementById('backendStatus').textContent = state.backendConnected ? 'Backend 已連線' : 'Backend 未連線';
+            document.getElementById('backendStatus').textContent = state.backendConnected ? '服務已連線' : '服務未連線';
             const wsSymbol = document.getElementById('wsSymbol');
             wsSymbol.textContent = state.wsConnected ? '●' : (wsRetryAttempt ? '!' : '○');
             wsSymbol.className = `status-symbol ${state.wsConnected ? 'ok' : (wsRetryAttempt ? 'error' : 'info')}`;
-            document.getElementById('wsStatus').textContent = state.wsConnected ? 'WebSocket 即時連線' : (wsRetryAttempt ? 'WebSocket 已中斷，重連中' : 'WebSocket 連線中');
-            document.getElementById('lastUpdate').textContent = state.lastUpdate ? `Last update ${formatTime(state.lastUpdate.toISOString())}` : '尚未更新';
+            document.getElementById('wsStatus').textContent = state.wsConnected ? '即時更新已連線' : (wsRetryAttempt ? '即時更新重連中' : '即時更新連線中');
+            document.getElementById('lastUpdate').textContent = state.lastUpdate ? `資料更新 ${formatTime(state.lastUpdate.toISOString())}` : '尚未更新';
         }
 
         function renderMetrics() {
@@ -1178,13 +1336,18 @@
             const reported = devices.filter(device => state.devices.has(device.device_id)).length;
             const listening = devices.filter(device => deviceOnline(device) && device.is_listening === true).length;
             document.getElementById('nodesOnlineMetric').textContent = `${online} / ${canonicalNodeSlots.length}`;
-            document.getElementById('nodesOnlineDetail').textContent = `${reported} / ${canonicalNodeSlots.length} nodes reported`;
+            document.getElementById('nodesOnlineDetail').textContent = `${reported} 台曾回報；包含離線節點`;
             document.getElementById('listeningMetric').textContent = String(listening);
             const aiStates = devices.filter(deviceOnline).map(device => String(device.ai_status || '').trim()).filter(Boolean);
             document.getElementById('aiMetric').textContent = aiStates.length ? aiStates[0].toUpperCase() : '—';
             document.getElementById('aiDetail').textContent = aiStates.length ? 'Node-reported AI state' : 'No telemetry';
-            document.getElementById('backendMetric').textContent = state.backendConnected ? 'CONNECTED' : 'OFFLINE';
-            document.getElementById('backendDetail').textContent = state.runtime?.build?.render_git_commit ? `Build ${String(state.runtime.build.render_git_commit).slice(0,7)}` : 'Build telemetry unavailable';
+            document.getElementById('backendMetric').textContent = state.backendConnected ? '已連線' : '未連線';
+            document.getElementById('backendDetail').textContent = state.backendConnected ? '可讀取服務資料' : '請檢查網路與服務狀態';
+            if (!state.devicesAt || state.devicesFailed || Date.now() - state.devicesAt > DashboardStatus.FRESH_MS) {
+                document.getElementById('nodesOnlineMetric').textContent = '—';
+                document.getElementById('listeningMetric').textContent = '—';
+                document.getElementById('nodesOnlineDetail').textContent = '等待最新節點狀態';
+            }
             const uploadStates = devices.filter(deviceOnline).map(device => device.last_upload_status || device.metadata_upload_status).filter(Boolean);
             document.getElementById('queueMetric').textContent = '—';
             document.getElementById('queueDetail').textContent = uploadStates.length ? `Node-reported：${uploadStates[0]}` : 'Node-reported：無數量 telemetry';
@@ -1195,16 +1358,18 @@
             const badge = document.getElementById('liveBadge');
             const body = document.getElementById('liveDetectionBody');
             if (!event) {
-                badge.className = 'badge legacy'; badge.textContent = 'WAITING';
-                body.innerHTML = '<div class="empty-state"><div><strong>等待偵測</strong>目前無有效目標事件</div></div>';
+                badge.className = 'badge legacy'; badge.textContent = '尚無紀錄';
+                body.innerHTML = '<div class="empty-state"><div><strong>等待偵測</strong>尚未收到偵測紀錄；請先確認上方監聽狀態</div></div>';
                 renderScores(null); return;
             }
             const classification = classificationOf(event);
             const target = isTarget(event);
             badge.className = `badge ${target ? 'target' : (classification ? 'live' : 'legacy')}`;
-            badge.textContent = target ? 'TARGET / 目標' : (classification ? 'LIVE' : 'LEGACY');
+            const recent = DashboardStatus.eventRecency(eventTime(event), Date.now());
+            badge.className = `badge ${recent ? (target ? 'target' : 'live') : 'legacy'}`;
+            badge.textContent = recent ? '最近 1 分鐘' : '歷史紀錄';
             const score = modelScore(event);
-            const detectionEyebrow = classification ? 'Latest classified event' : 'Latest recorded legacy event';
+            const detectionEyebrow = recent ? '近期收到的偵測' : '最後一次收到的紀錄・非目前偵測';
             body.innerHTML = `<div class="detection-layout">
                 <div class="detection-icon" aria-hidden="true">${safe(classIcon(event))}</div>
                 <div><div class="eyebrow">${safe(detectionEyebrow)}</div><h2 class="detection-name">${safe(classLabel(event))}</h2><div class="detection-zh">${safe(classNameZh(event))}</div>
@@ -1219,7 +1384,7 @@
             const container = document.getElementById('scoreList');
             const classification = classificationOf(event);
             if (!classification) {
-                container.innerHTML = '<div class="empty-state"><div><strong>無 classification.v1</strong>Legacy event 僅顯示原始 label</div></div>'; return;
+                container.innerHTML = '<div class="empty-state"><div><strong>尚無五類分數</strong>收到包含模型分數的事件後顯示</div></div>'; return;
             }
             const scores = classification.class_scores || event.dashboard_presentation?.class_scores || {};
             const rows = canonicalClasses.map((label, canonicalIndex) => ({label, score:finite(scores[label]), canonicalIndex}))
@@ -1240,7 +1405,7 @@
             if (detailed) {
                 return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${safe(classIcon(event))}</span><span>${safe(classLabel(event))}<br><small class="muted">${safe(classNameZh(event))}</small></span></div></td><td>${formatPercent(modelScore(event))}</td><td>${safe(event.last_upload_status || event.audio_encoding_status || '—')}</td></tr>`;
             }
-            return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${safe(classIcon(event))}</span><span>${safe(classLabel(event))}</span></div></td><td>${formatPercent(modelScore(event))}</td><td>${formatNumber(event.duration_s,1,' s')}</td><td>${safe(audio.text)}</td><td>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : '—'}</td></tr>`;
+            return `<tr class="${targetClass}" data-event-id="${safe(event.event_id)}" tabindex="0"><td>${safe(formatDateTime(event.timestamp || event.created_at))}</td><td>${safe(shortNodeId(event.device_id))}</td><td><div class="class-cell"><span class="class-glyph">${safe(classIcon(event))}</span><span>${safe(classLabel(event))}</span></div></td><td>${formatPercent(modelScore(event))}</td><td>${formatNumber(event.duration_s,1,' s')}</td><td>${safe(audio.text)}</td><td>${location ? `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}` : '—'}</td></tr>`;
         }
         function bindEventRows(container) {
             container.querySelectorAll('[data-event-id]').forEach(row => {
@@ -1390,7 +1555,7 @@
                 const activity = device.is_listening === true ? '監聽中' : (device.is_listening === false ? '已停止' : '監聽狀態未知');
                 return `<button class="node-select-row ${device.device_id === state.selectedNodeId ? 'selected' : ''}" type="button" data-select-node="${safe(device.device_id)}" aria-pressed="${device.device_id === state.selectedNodeId}"><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><span class="node-select-copy"><strong>${safe(shortNodeId(device.device_id))}</strong><span>${safe(activity)} · ${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '模式未知')} · ${safe(formatTime(device.last_seen))}</span></span><span class="state-text ${status.css}">${status.text}</span></button>`;
             }).join('');
-            if (!selected) { grid.innerHTML = '<div class="empty-state"><div><strong>沒有可選節點</strong>等待 node telemetry</div></div>'; return; }
+            if (!selected) { grid.innerHTML = '<div class="empty-state"><div><strong>沒有可選節點</strong>等待節點資料</div></div>'; return; }
             const status = nodeState(selected); const location = nodeLocation(selected); const mode = normalizedMode(selected);
             const rawLocation = (() => { const lat = finite(selected.raw_latitude ?? selected.latitude); const lng = finite(selected.raw_longitude ?? selected.longitude); return lat === null || lng === null ? null : {lat,lng}; })();
             const fixedLocation = (() => { const lat = finite(selected.fixed_latitude); const lng = finite(selected.fixed_longitude); return lat === null || lng === null ? null : {lat,lng}; })();
@@ -1624,7 +1789,8 @@
                 healthRow('Database', databaseError ? 'Error' : (databaseKnown ? 'Healthy' : 'No telemetry'), databaseError ? 'error' : (databaseKnown ? 'ok' : 'info')),
                 healthRow('WebSocket', state.wsConnected ? 'Connected' : 'Reconnecting', state.wsConnected ? 'ok' : 'warn'),
                 healthRow('AI Inference', aiAvailable ? 'Node reported' : 'No telemetry', aiAvailable ? 'ok' : 'info'),
-                healthRow('Queue Processor', 'No telemetry', 'info'),
+                healthRow('音訊儲存', state.runtime?.gcs_configured === true ? '已設定' : (state.runtime?.gcs_configured === false ? '未設定；無法上傳音訊' : '尚未確認'), state.runtime?.gcs_configured === true ? 'ok' : 'warn'),
+                healthRow('服務版本', state.runtime?.build?.render_git_commit ? String(state.runtime.build.render_git_commit).slice(0,7) : '尚未確認', 'info'),
                 healthRow('GPS', gpsAvailable ? 'Available' : 'Unavailable', gpsAvailable ? 'ok' : 'warn')
             ].join('');
         }
@@ -1667,7 +1833,7 @@
             return {...common, path:'M 0 -1.2 L 1.05 -.6 L 1.05 .6 L 0 1.2 L -1.05 .6 L -1.05 -.6 Z'};
         }
         window.initOperationalMap = function initOperationalMap() {
-            if (!window.google?.maps || mapStarted) return;
+            if (!window.google?.maps || mapStarted || mapsLoadFailed) return;
             mapStarted = true;
             document.getElementById('map').style.display = 'block';
             map = new google.maps.Map(document.getElementById('map'), {center:{lat:25.033,lng:121.565}, zoom:12, mapTypeControl:false, streetViewControl:false, fullscreenControl:true, keyboardShortcuts:true});
@@ -1677,15 +1843,30 @@
             if (simulationIsVisible()) { updateSimulationFrame(); fitSimulationMap(); }
             bootstrap();
         };
+        window.gm_authFailure = function () {
+            mapsLoadFailed = true;
+            clearSimulationMap();
+            map = null;
+            showMapFallback();
+        };
         function showMapFallback() {
             document.getElementById('map').style.display = 'none';
             document.getElementById('mapFallback').style.display = 'block';
+            const message = document.querySelector('.coordinate-heading > div > span');
+            if (message) message.textContent = mapsLoadFailed
+                ? 'Google 地圖授權失敗，請檢查金鑰的允許網站設定。目前顯示座標示意。'
+                : (mapsConfigured ? 'Google 地圖尚未載入，目前顯示座標示意。' : 'Google Maps 未配置；以下為座標示意，並非地理底圖。');
             renderCoordinateFallback();
         }
         function renderCoordinateFallback() {
             const plot = document.getElementById('coordinatePlot');
             const footer = document.getElementById('coordinateFooter');
             if (!plot || !footer) return;
+            if (simulationIsVisible()) {
+                plot.innerHTML = '<div class="empty-state"><div><strong>模擬地圖尚未可用</strong>Google 地圖載入後可顯示模擬路徑；播放控制與預測數值仍可操作。</div></div>';
+                footer.textContent = 'SIMULATION · 未經實地驗證';
+                return;
+            }
             const points = canonicalDevices().map(device => {
                 const location = nodeLocation(device);
                 return location ? {kind:'node', id:device.device_id, label:shortNodeId(device.device_id), location, online:deviceOnline(device)} : null;
@@ -1711,7 +1892,7 @@
                 const top = 92 - ((point.location.lat - minLat) / latSpan) * 84;
                 const pointClass = `coordinate-point ${point.kind === 'event' ? 'event' : ''} ${point.online ? '' : 'offline'}`;
                 const glyph = point.kind === 'event' ? '●' : nodeShapeText(point.id);
-                return `<span class="${pointClass}" style="left:${left}%;top:${top}%" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${safe(glyph)}</span><span class="coordinate-point-label" style="left:${left}%;top:${top}%">${safe(point.label)}</span>`;
+                return `<span class="${pointClass}" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${safe(glyph)}</span><span class="coordinate-point-label" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))">${safe(point.label)}</span>`;
             }).join('');
             footer.innerHTML = `<span>${points.length} 個可定位項目 · Lat ${minLat.toFixed(5)}–${maxLat.toFixed(5)} · Lng ${minLng.toFixed(5)}–${maxLng.toFixed(5)}</span><span>● Node　● Latest detection</span>`;
         }
@@ -1927,6 +2108,7 @@
         if (dashboardSimulationEnabled) {
             document.getElementById('simulationOpenButton')?.addEventListener('click', enterSimulationMode);
             document.getElementById('simulationExitButton')?.addEventListener('click', exitSimulationMode);
+            document.getElementById('simulationQuickExitButton')?.addEventListener('click', exitSimulationMode);
             document.getElementById('simulationPlayButton')?.addEventListener('click', playPauseSimulation);
             document.getElementById('simulationRestartButton')?.addEventListener('click', restartSimulation);
             document.getElementById('simulationScenario')?.addEventListener('change', () => {
@@ -1985,6 +2167,8 @@
             document.getElementById('currentTime').textContent = new Intl.DateTimeFormat('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
             bootstrap();
             setInterval(() => { refreshDeviceSnapshot().catch(() => {}); }, 5000);
+            setInterval(() => { renderOverview(); renderLiveDetection(); renderMetrics(); }, 5000);
+            setInterval(() => { refreshSnapshot('periodic').catch(() => { state.snapshotInFlight = false; }); }, 30000);
             setTimeout(() => { if (!mapStarted) showMapFallback(); }, 5000);
             if (dashboardSimulationEnabled && new URLSearchParams(location.search).get('simulation') === '1') enterSimulationMode();
         });

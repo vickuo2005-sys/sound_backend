@@ -50,7 +50,7 @@ def test_historical_replay_reveals_recorded_points_without_interpolation() -> No
 def test_events_page_restores_csv_export() -> None:
     html = dashboard_html()
     assert 'href="/events/export.csv"' in html
-    assert "download>Export CSV" in html
+    assert "download>匯出 CSV" in html
 
 
 def test_csv_export_works_on_sqlite_fallback(tmp_path, monkeypatch) -> None:

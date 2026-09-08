@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "dashboard_v2_4.html"
+STATUS_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_status.js"
 SIMULATION_PREDICTION_PATH = (
     Path(__file__).resolve().parents[1]
     / "static"
@@ -46,6 +47,7 @@ def render_dashboard_v2_4(
         simulation_topbar_badge = """
         <span id="simulationTopbarBadge" class="simulation-topbar-badge" hidden>
             <strong>SIMULATION / 模擬展示</strong><span>NOT FIELD VALIDATED</span>
+            <button id="simulationQuickExitButton" class="action-button simulation-quick-exit" type="button">✕ 結束模擬</button>
         </span>
         """
         simulation_watermark = """
@@ -101,7 +103,15 @@ def render_dashboard_v2_4(
         )
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace(
+            "__STATUS_SCRIPT__",
+            "<script>" + STATUS_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>",
+        )
         .replace("__SIMULATION_CONTROLS__", simulation_controls)
+        .replace(
+            "__SIMULATION_NAV__",
+            '<button class="nav-button" data-view-target="simulation"><span class="nav-icon">▷</span>模擬工作區</button>' if simulation_enabled else '',
+        )
         .replace("__SIMULATION_TOPBAR_BADGE__", simulation_topbar_badge)
         .replace("__SIMULATION_WATERMARK__", simulation_watermark)
         .replace("__SIMULATION_MAP_LEGEND__", simulation_map_legend)

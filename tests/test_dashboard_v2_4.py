@@ -37,7 +37,7 @@ def test_dashboard_flag_off_returns_legacy(monkeypatch) -> None:
     html = main.dashboard().body.decode("utf-8")
 
     assert "聲音偵測戰情室 V4.0" in html
-    assert "Operational Intelligence" not in html
+    assert 'id="monitorStatus"' not in html
 
 
 def test_dashboard_flag_on_returns_v2_4(monkeypatch) -> None:
@@ -45,7 +45,8 @@ def test_dashboard_flag_on_returns_v2_4(monkeypatch) -> None:
 
     html = main.dashboard().body.decode("utf-8")
 
-    assert "Operational Intelligence" in html
+    assert 'id="monitorStatus"' in html
+    assert 'id="view-system"' in html
     assert "STAGING" in html
     assert "DASHBOARD V2.4" not in html  # Product UI, not an internal version banner.
     assert "Prediction / ETA：僅模擬，未完成實地驗證" in html
