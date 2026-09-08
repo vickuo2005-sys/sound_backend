@@ -594,6 +594,14 @@
             .overview-summary .metric-grid { margin:12px 0; }
             #overviewMapSlot #map { min-height:360px; }
         }
+        #locationEditorModal { width:min(920px,100%); max-height:calc(100dvh - 32px); overflow:auto; }
+        #locationEditorModal .confirm-modal-body { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(240px,1fr); gap:14px; }
+        #locationEditorDescription, #locationEditorNode { grid-column:1 / -1; }
+        #locationPickerMap { height:340px; border-radius:10px; border:1px solid var(--border); background:#102234; }
+        #locationPickerHint { margin:8px 0 0; color:var(--text-secondary); font-size:13px; }
+        #locationEditorModal .location-form { margin:0; align-content:start; }
+        #locationEditorModal .confirm-modal-actions { position:sticky; bottom:0; background:#0f1d2e; padding-top:12px; }
+        @media(max-width:760px) { #locationEditorModal .confirm-modal-body { grid-template-columns:1fr; } #locationPickerMap { height:260px; } }
     </style>
 </head>
 <body>
@@ -764,23 +772,24 @@
             <div class="confirm-modal-body">
                 <div id="locationEditorDescription">設定後，fusion 與地圖會優先使用此固定位置。</div>
                 <div id="locationEditorNode" class="confirm-node"></div>
+                <div><div id="locationPickerMap" role="application" aria-label="點擊地圖設定節點位置"></div><p id="locationPickerHint" role="status">點擊地圖選擇位置，也可以拖曳標記微調。</p></div>
                 <div class="location-form">
                     <div class="location-form-grid">
-                        <label>Latitude<input id="locationLatitude" type="number" min="-90" max="90" step="0.000001" inputmode="decimal"></label>
-                        <label>Longitude<input id="locationLongitude" type="number" min="-180" max="180" step="0.000001" inputmode="decimal"></label>
+                        <label>緯度<input id="locationLatitude" type="number" min="-90" max="90" step="0.000001" inputmode="decimal"></label>
+                        <label>經度<input id="locationLongitude" type="number" min="-180" max="180" step="0.000001" inputmode="decimal"></label>
                     </div>
                     <div class="location-form-grid">
-                        <label>Accuracy (m, optional)<input id="locationAccuracy" type="number" min="0" step="0.1" inputmode="decimal"></label>
-                        <label>Staging write token<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
+                        <label>位置誤差（公尺，選填）<input id="locationAccuracy" type="number" min="0" step="0.1" inputmode="decimal"></label>
+                        <label>儲存授權碼<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
                     </div>
-                    <button id="locationUseGps" class="action-button" type="button">Use current GPS</button>
+                    <button id="locationUseGps" class="action-button" type="button">使用節點目前 GPS</button>
                     <div class="location-token-note">Token 只用於這一次請求，關閉視窗後立即清除，不寫入 localStorage 或 sessionStorage。</div>
                 </div>
             </div>
             <div class="confirm-modal-actions">
-                <button id="locationClear" class="action-button danger" type="button">Clear fixed</button>
+                <button id="locationClear" class="action-button danger" type="button">清除固定位置</button>
                 <button id="locationCancel" class="action-button" type="button">取消</button>
-                <button id="locationSave" class="action-button primary" type="button">Save fixed</button>
+                <button id="locationSave" class="action-button primary" type="button">儲存節點位置</button>
             </div>
         </section>
     </div>
@@ -1621,9 +1630,53 @@
             switchView('nodes');
             requestAnimationFrame(() => document.querySelector(`[data-select-node="${CSS.escape(state.selectedNodeId)}"]`)?.focus());
         }
+        let locationPickerMap = null;
+        let locationPickerMarker = null;
+        let locationPickerListeners = [];
+        function clearLocationPicker() {
+            locationPickerListeners.forEach(listener => listener.remove());
+            locationPickerListeners = [];
+            locationPickerMarker?.setMap(null);
+            locationPickerMarker = null;
+            locationPickerMap = null;
+            document.getElementById('locationPickerMap').replaceChildren();
+        }
+        function syncLocationPickerMarker() {
+            const lat = finite(document.getElementById('locationLatitude').value);
+            const lng = finite(document.getElementById('locationLongitude').value);
+            if (!locationPickerMap) return;
+            if (lat === null || lng === null || Math.abs(lat)>90 || Math.abs(lng)>180) { locationPickerMarker?.setMap(null); return; }
+            const position = {lat,lng};
+            if (!locationPickerMarker) {
+                locationPickerMarker = new google.maps.Marker({map:locationPickerMap,position,draggable:true,title:'節點位置預覽（尚未儲存）',label:shortNodeId(state.locationEditDeviceId)});
+                locationPickerListeners.push(locationPickerMarker.addListener('dragend', event => chooseLocationPoint(event.latLng)));
+            } else { locationPickerMarker.setMap(locationPickerMap); locationPickerMarker.setPosition(position); }
+        }
+        function chooseLocationPoint(latLng) {
+            if (state.locationBusy || !state.locationEditDeviceId || !latLng) return;
+            document.getElementById('locationLatitude').value = latLng.lat().toFixed(6);
+            document.getElementById('locationLongitude').value = latLng.lng().toFixed(6);
+            document.getElementById('locationAccuracy').value = '';
+            document.getElementById('locationEditorModal').dataset.locationSource = 'manual_map';
+            state.locationClearArmed = false;
+            document.getElementById('locationClear').textContent = '清除固定位置';
+            document.getElementById('locationPickerHint').textContent = '已選擇位置，可拖曳微調；按「儲存節點位置」才會套用。';
+            syncLocationPickerMarker();
+        }
+        function openLocationPicker() {
+            clearLocationPicker();
+            const hint = document.getElementById('locationPickerHint');
+            if (!window.google?.maps || mapsLoadFailed) { hint.textContent = 'Google 地圖尚未可用，可先輸入經緯度或使用節點 GPS。'; return; }
+            const position = nodeLocation(locationEditorDevice()) || {lat:25.033,lng:121.5654};
+            locationPickerMap = new google.maps.Map(document.getElementById('locationPickerMap'), {center:position,zoom:17,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,clickableIcons:false,gestureHandling:'cooperative'});
+            locationPickerListeners.push(locationPickerMap.addListener('click', event => chooseLocationPoint(event.latLng)));
+            syncLocationPickerMarker();
+            hint.textContent = '點擊地圖產生座標，或拖曳標記微調；儲存前不會更改節點位置。';
+        }
         function locationEditorDevice() { return state.devices.get(state.locationEditDeviceId) || null; }
         function setLocationBusy(busy) {
             state.locationBusy = busy;
+            locationPickerMarker?.setDraggable(!busy);
             ['locationLatitude','locationLongitude','locationAccuracy','locationWriteToken','locationUseGps','locationClear','locationSave','locationCancel'].forEach(id => {
                 const element = document.getElementById(id); if (element) element.disabled = busy;
             });
@@ -1642,15 +1695,17 @@
             document.getElementById('locationLongitude').value = fixedLng ?? rawLng ?? '';
             document.getElementById('locationAccuracy').value = finite(device.fixed_location_accuracy_m) ?? finite(device.gps_accuracy_m) ?? '';
             document.getElementById('locationWriteToken').value = '';
-            document.getElementById('locationEditorModal').dataset.locationSource = fixedLat !== null && fixedLng !== null ? (device.fixed_location_source || 'dashboard_v2_4_coordinates') : 'dashboard_v2_4_coordinates';
+            document.getElementById('locationEditorModal').dataset.locationSource = fixedLat !== null && fixedLng !== null ? (device.fixed_location_source || 'manual_map') : 'manual_map';
             document.getElementById('locationClear').hidden = fixedLat === null || fixedLng === null;
-            document.getElementById('locationClear').textContent = 'Clear fixed';
+            document.getElementById('locationClear').textContent = '清除固定位置';
             setLocationBusy(false);
             document.getElementById('locationEditorBackdrop').hidden = false;
+            openLocationPicker();
             document.getElementById('locationLatitude').focus();
         }
         function closeLocationEditor() {
             if (state.locationBusy) return;
+            clearLocationPicker();
             document.getElementById('locationEditorBackdrop').hidden = true;
             document.getElementById('locationWriteToken').value = '';
             state.locationEditDeviceId = null;
@@ -1666,6 +1721,8 @@
             document.getElementById('locationLongitude').value = String(lng);
             const accuracy = finite(device?.gps_accuracy_m); if (accuracy !== null) document.getElementById('locationAccuracy').value = String(accuracy);
             document.getElementById('locationEditorModal').dataset.locationSource = 'current_gps';
+            syncLocationPickerMarker();
+            locationPickerMap?.panTo({lat,lng});
         }
         function locationRequestHeaders() {
             return {'Content-Type':'application/json', 'x-upload-token':document.getElementById('locationWriteToken').value.trim()};
@@ -1679,7 +1736,7 @@
             if (longitude === null || longitude < -180 || longitude > 180) throw new Error('Longitude 必須介於 -180 與 180');
             if (accuracyValue && (accuracy === null || accuracy < 0)) throw new Error('Accuracy 必須為 0 或正數');
             if (!document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入 staging write token');
-            return {latitude, longitude, accuracy_m:accuracy, location_source:document.getElementById('locationEditorModal').dataset.locationSource || 'dashboard_v2_4_coordinates'};
+            return {latitude, longitude, accuracy_m:accuracy, location_source:document.getElementById('locationEditorModal').dataset.locationSource || 'manual_map'};
         }
         async function saveFixedLocation() {
             const deviceId = state.locationEditDeviceId;
@@ -1707,7 +1764,7 @@
             if (!state.locationClearArmed) {
                 state.locationClearArmed = true;
                 document.getElementById('locationEditorDescription').textContent = `再次按下確認清除，Node ${shortNodeId(deviceId)} 將恢復使用 raw GPS。`;
-                document.getElementById('locationClear').textContent = 'Confirm clear fixed';
+                document.getElementById('locationClear').textContent = '確認清除固定位置';
                 document.getElementById('locationClear').focus();
                 return;
             }
@@ -1882,6 +1939,8 @@
         window.gm_authFailure = function () {
             mapsLoadFailed = true;
             clearSimulationMap();
+            clearLocationPicker();
+            document.getElementById('locationPickerHint').textContent = 'Google 地圖授權失敗，請先輸入經緯度。';
             map = null;
             showMapFallback();
         };
@@ -2188,7 +2247,7 @@
         document.getElementById('locationClear').addEventListener('click', clearFixedLocation);
         document.getElementById('locationUseGps').addEventListener('click', useCurrentGpsForLocation);
         document.getElementById('locationEditorBackdrop').addEventListener('mousedown', event => { if (event.target === event.currentTarget) closeLocationEditor(); });
-        ['locationLatitude','locationLongitude','locationAccuracy'].forEach(id => document.getElementById(id).addEventListener('input', () => { document.getElementById('locationEditorModal').dataset.locationSource = 'dashboard_v2_4_coordinates'; }));
+        ['locationLatitude','locationLongitude','locationAccuracy'].forEach(id => document.getElementById(id).addEventListener('input', () => { document.getElementById('locationEditorModal').dataset.locationSource = 'manual_map'; syncLocationPickerMarker(); }));
         document.getElementById('locationEditorModal').addEventListener('keydown', event => {
             if (event.key === 'Escape') { event.preventDefault(); closeLocationEditor(); return; }
             if (event.key !== 'Tab') return;
