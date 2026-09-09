@@ -1,4 +1,4 @@
-# V2.5 歸檔驗證
+# V2.4 歸檔驗證
 乾淨 detached worktree d7aa87d：pytest 231 passed；2 個既有 Pydantic deprecation warnings。
 Node：dashboard status、simulation prediction、location picker suites 全通過。
 既有本次 UI 驗證：Google 底圖、1280×720 左右欄、V2.2 圖示、七分頁、模擬退出、位置點選、取消不保存、免授權碼欄位隱藏。

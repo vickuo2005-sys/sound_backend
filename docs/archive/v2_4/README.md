@@ -1,6 +1,6 @@
-# V2.5 目前進度
+# V2.4 目前進度
 後端與 staging 基準：d7aa87de16fcc72c225025a48f8ba0366c4465dc。
-產品版號 V2.5；檔名 dashboard_v2_4 與分支 v2-4 是內部歷史名稱，歸檔不改動功能。
+產品版號 V2.4；檔名 dashboard_v2_4 與分支 v2-4 是內部歷史名稱，歸檔不改動功能。
 
 已完成：總覽左地圖右狀態、七個工作分頁、完整五類分數與歷史標示、V2.2 無人機 SVG、獨立模擬工作區與固定退出、Google Maps、點擊地圖／拖曳設定節點位置、staging 位置操作免授權碼。
 
@@ -11,5 +11,5 @@
 
 採集工具的 write-once 保護與相關測試仍是本機未提交修改，保存在 06_uncommitted_changes。README 與舊 NODE_CONTROL_FLOW 文件修改亦完整保留。不要直接用未提交 overlay 覆盖部署基準。
 
-完整本機交接包：C:/Users/vicku/Documents/Codex/2026-09-07/new-chat/outputs/sound_detector_v2_5_handoff_2026-09-09_01
-私密憑證另存相鄰 sound_detector_v2_5_PRIVATE_2026-09-09_01（不在 Git）。
+完整本機交接包：C:/Users/vicku/Documents/Codex/2026-09-07/new-chat/outputs/sound_detector_v2_4_handoff_2026-09-09_01
+私密憑證另存相鄰 sound_detector_v2_4_PRIVATE_2026-09-09_01（不在 Git）。
