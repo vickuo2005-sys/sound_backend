@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "dashboard_v2_4.html"
 STATUS_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_status.js"
+EVENT_CONTEXT_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_event_context.js"
+AUDIO_EVIDENCE_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_audio_evidence.js"
 SIMULATION_PREDICTION_PATH = (
     Path(__file__).resolve().parents[1]
     / "static"
@@ -104,6 +106,8 @@ def render_dashboard_v2_4(
         )
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace("__AUDIO_EVIDENCE_SCRIPT__", "<script>" + AUDIO_EVIDENCE_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
+        .replace("__EVENT_CONTEXT_SCRIPT__", "<script>" + EVENT_CONTEXT_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__LOCATION_TOKEN_REQUIRED__", "true" if location_token_required else "false")
         .replace("__LOCATION_TOKEN_HIDDEN__", "" if location_token_required else "hidden")
         .replace(

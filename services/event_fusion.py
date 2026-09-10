@@ -376,6 +376,35 @@ def observation_group_for_event(
     return group_payload(cursor, row, is_postgres)
 
 
+def get_event_group_for_event(
+    connection: Any, event_id: str, is_postgres: bool
+) -> Optional[dict]:
+    """Resolve the persisted fusion association, independent of recent-list limits."""
+    with open_cursor(connection) as cursor:
+        group = observation_group_for_event(cursor, event_id, is_postgres)
+        if group is None:
+            return None
+        # One historical observation per node, without applying today's fixed locations.
+        execute(cursor, is_postgres, """
+            SELECT device_id, event_id, event_timestamp, created_at, latitude, longitude,
+                   time_sync_quality, time_sync_offset_ms, time_sync_rtt_ms
+            FROM (
+                SELECT o.*, ROW_NUMBER() OVER (
+                    PARTITION BY device_id ORDER BY event_timestamp ASC, id ASC
+                ) AS node_position
+                FROM event_group_observations o
+                WHERE group_id = %s AND COALESCE(observation_kind, 'target_estimate') = %s
+            ) ranked
+            WHERE node_position = 1
+            ORDER BY event_timestamp ASC, device_id ASC
+            LIMIT 101
+            """, (group["id"], FUSION_KIND))
+        snapshots = fetchall_dict(cursor)
+        group["node_evidence"] = [serialize_row(row) for row in snapshots[:100]]
+        group["node_evidence_truncated"] = len(snapshots) > 100
+        return group
+
+
 def interval_distance_seconds(row: dict, event_time: datetime) -> float:
     first_time = parse_datetime(
         row.get("first_event_time")

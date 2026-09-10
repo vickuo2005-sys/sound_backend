@@ -280,7 +280,8 @@
             min-height: 34px; padding: 6px 28px 6px 10px; color: var(--text-primary);
             border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2);
         }
-        .event-browser { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; }
+        .event-browser { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 14px; align-items: start; }
+        .event-browser table { min-width: 560px; }
         .detail-panel { min-height: 420px; }
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .detail-item { padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: #0b1726; }
@@ -288,6 +289,20 @@
         .detail-item strong { display: block; margin-top: 4px; overflow-wrap: anywhere; }
         .detail-wide { grid-column: 1 / -1; }
         .raw-ids { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+        .event-context { margin-top: 18px; min-width: 0; }
+        .context-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .context-section { margin-top: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 9px; }
+        .context-section summary { cursor: pointer; font-weight: 600; }
+        .context-section dl { margin: 12px 0; }
+        .context-row { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+        .context-row dt, .context-note { color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+        .context-row dd { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+        .context-note { margin: 8px 0 0; overflow-wrap: anywhere; }
+        .context-reasons { padding-left: 20px; font-size: 12px; line-height: 1.7; }
+        .context-reasons li + li { margin-top: 5px; }
+        .audio-evidence canvas { display: block; width: 100%; height: auto; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; }
+        #audioEvidence { border-top: 1px solid var(--border); }
+        .audio-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
         audio { width: 100%; margin-top: 10px; }
 
         .intelligence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -719,7 +734,7 @@
                 </div>
                 <div class="event-browser">
                     <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
-                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div></article>
+                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div><section id="audioEvidence" class="card-body audio-evidence" aria-label="錄音證據檢視" hidden></section></article>
                 </div>
             </section>
 
@@ -740,8 +755,8 @@
                 <div class="page-heading"><div><h1 id="nodesTitle" class="page-title">節點管理</h1><p class="page-description">節點連線、監聽、GPS、AI 與上傳狀態</p></div></div>
                 <div id="nodeGrid" class="node-grid"></div>
             </section>
-        <section id="view-system" class="view" aria-labelledby="systemTitle"><div class="page-heading"><div><h1 id="systemTitle" class="page-title">系統狀態</h1><p class="page-description">連線、裝置與進階診斷</p></div></div><div class="system-grid"><article class="card metric-card"><div class="metric-top"><span>AI STATUS</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">No telemetry</div></article><article class="card metric-card"><div class="metric-top"><span>QUEUE</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">Node-reported：無數量 telemetry</div></article>
-            <article class="card rail-card"><div class="card-header"><h2 class="card-title">節點摘要</h2><span id="nodeCountBadge" class="badge legacy">0 REPORTED</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
+        <section id="view-system" class="view" aria-labelledby="systemTitle"><div class="page-heading"><div><h1 id="systemTitle" class="page-title">系統狀態</h1><p class="page-description">連線、裝置與進階診斷</p></div></div><div class="system-grid"><article class="card metric-card"><div class="metric-top"><span>AI 狀態</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">尚無回報</div></article><article class="card metric-card"><div class="metric-top"><span>上傳佇列</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">節點未回報佇列數量</div></article>
+            <article class="card rail-card"><div class="card-header"><h2 class="card-title">節點摘要</h2><span id="nodeCountBadge" class="badge legacy">0 台已回報</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">服務與資料來源</h2></div><div class="card-body"><div id="healthList" class="health-list"></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">功能驗證範圍</h2></div><div class="card-body muted" style="font-size:11px">Classification：真機 transport 已驗證<br>Queue：僅顯示 node-reported 狀態<br>Motion：未完成多節點實地驗證<br>Prediction / ETA：僅模擬，未完成實地驗證</div></article>
         </div></section>
@@ -770,7 +785,7 @@
         <section id="locationEditorModal" class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="locationEditorTitle" aria-describedby="locationEditorDescription">
             <header><h2 id="locationEditorTitle">固定節點位置</h2></header>
             <div class="confirm-modal-body">
-                <div id="locationEditorDescription">設定後，fusion 與地圖會優先使用此固定位置。</div>
+                <div id="locationEditorDescription">設定後，事件融合與地圖會優先使用此固定位置。</div>
                 <div id="locationEditorNode" class="confirm-node"></div>
                 <div><div id="locationPickerMap" role="application" aria-label="點擊地圖設定節點位置"></div><p id="locationPickerHint" role="status">點擊地圖選擇位置，也可以拖曳標記微調。</p></div>
                 <div class="location-form">
@@ -783,7 +798,7 @@
                         <label __LOCATION_TOKEN_HIDDEN__>儲存授權碼<input id="locationWriteToken" type="password" autocomplete="off" spellcheck="false"></label>
                     </div>
                     <button id="locationUseGps" class="action-button" type="button">使用節點目前 GPS</button>
-                    <div class="location-token-note" __LOCATION_TOKEN_HIDDEN__>Token 只用於這一次請求，關閉視窗後立即清除，不寫入 localStorage 或 sessionStorage。</div>
+                    <div class="location-token-note" __LOCATION_TOKEN_HIDDEN__>授權碼僅用於這一次請求，關閉視窗後立即清除，不儲存在瀏覽器。</div>
                 </div>
             </div>
             <div class="confirm-modal-actions">
@@ -795,6 +810,8 @@
     </div>
 
     __STATUS_SCRIPT__
+    __EVENT_CONTEXT_SCRIPT__
+    __AUDIO_EVIDENCE_SCRIPT__
     __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
@@ -832,6 +849,10 @@
         let wsRetryAttempt = 0;
         let toastTimer = null;
         let deviceSnapshotPollInFlight = false;
+        let eventDetailSignature = null;
+        let audioEvidenceView = null;
+        let audioEvidenceKey = null;
+        let eventContextState = {eventId:null, phase:'idle', payload:null, loadedAt:0};
         let commandPollSerial = 0;
         let modalPreviousFocus = null;
         let locationModalPreviousFocus = null;
@@ -1234,9 +1255,9 @@
         function formatMeters(value) { const number = finite(value); return number === null ? '—' : `±${number.toFixed(0)} m`; }
         function displayLocationSource(device) {
             const source = String(device?.effective_location_source || device?.marker_location_source || 'none').toLowerCase();
-            if (source === 'fixed' || source.includes('fixed')) return 'Fixed';
+            if (source === 'fixed' || source.includes('fixed')) return '固定位置';
             if (source === 'event_gps' || source.includes('gps')) return 'GPS';
-            return 'None';
+            return '未提供';
         }
 
         function renderTracksView() {
@@ -1386,7 +1407,7 @@
             document.getElementById('listeningMetric').textContent = String(listening);
             const aiStates = devices.filter(deviceOnline).map(device => String(device.ai_status || '').trim()).filter(Boolean);
             document.getElementById('aiMetric').textContent = aiStates.length ? aiStates[0].toUpperCase() : '—';
-            document.getElementById('aiDetail').textContent = aiStates.length ? 'Node-reported AI state' : 'No telemetry';
+            document.getElementById('aiDetail').textContent = aiStates.length ? '節點回報的 AI 狀態' : '尚無回報';
             document.getElementById('backendMetric').textContent = state.backendConnected ? '已連線' : '未連線';
             document.getElementById('backendDetail').textContent = state.backendConnected ? '可讀取服務資料' : '請檢查網路與服務狀態';
             if (!state.devicesAt || state.devicesFailed || Date.now() - state.devicesAt > DashboardStatus.FRESH_MS) {
@@ -1396,7 +1417,7 @@
             }
             const uploadStates = devices.filter(deviceOnline).map(device => device.last_upload_status || device.metadata_upload_status).filter(Boolean);
             document.getElementById('queueMetric').textContent = '—';
-            document.getElementById('queueDetail').textContent = uploadStates.length ? `Node-reported：${uploadStates[0]}` : 'Node-reported：無數量 telemetry';
+            document.getElementById('queueDetail').textContent = uploadStates.length ? `Node-reported：${uploadStates[0]}` : '節點未回報佇列數量';
         }
 
         function renderLiveDetection() {
@@ -1421,7 +1442,7 @@
                 <div><div class="eyebrow">${safe(detectionEyebrow)}</div><h2 class="detection-name">${safe(classLabel(event))}</h2><div class="detection-zh">${safe(classNameZh(event))}</div>
                 <div class="confidence-row"><span class="muted">Model score / 模型分數</span><strong class="confidence-value">${formatPercent(score)}</strong></div>
                 <div class="progress" role="progressbar" aria-label="模型分數" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${scoreWidth(score)}"><span style="width:${scoreWidth(score)}%"></span></div>
-                <div class="detection-meta"><span>Node ${safe(shortNodeId(event.device_id))}</span><span>${safe(formatDateTime(event.timestamp || event.created_at))}</span><span class="mono">${safe(event.event_id || '—')}</span></div></div>
+                <div class="detection-meta"><span>節點 ${safe(shortNodeId(event.device_id))}</span><span>${safe(formatDateTime(event.timestamp || event.created_at))}</span><span class="mono">${safe(event.event_id || '—')}</span></div></div>
             </div>`;
             renderScores(event);
         }
@@ -1440,9 +1461,7 @@
         }
 
         function audioState(event) {
-            if (!event?.audio_path) return {available:false, text:'音訊不可用'};
-            if (state.runtime?.gcs_configured !== true) return {available:false, text:'Staging 未配置音訊儲存'};
-            return {available:true, text:'播放'};
+            return window.DashboardAudioEvidence.availability(event, state.runtime || {});
         }
         function eventRow(event, detailed = false) {
             const audio = audioState(event);
@@ -1502,48 +1521,84 @@
         function renderEventDetail() {
             const event = state.events.find(item => item.event_id === state.selectedEventId);
             const detail = document.getElementById('eventDetail');
-            if (!event) { detail.innerHTML = '<div class="empty-state"><div><strong>事件不存在</strong>資料可能已更新</div></div>'; return; }
+            if (!event) { audioEvidenceView?.dispose(); audioEvidenceView=null; audioEvidenceKey=null; document.getElementById('audioEvidence').hidden=true; eventDetailSignature = null; detail.innerHTML = '<div class="empty-state"><div><strong>事件不存在</strong>資料可能已更新</div></div>'; return; }
             const classification = classificationOf(event);
-            const location = eventLocation(event);
             const audio = audioState(event);
+            const signature = JSON.stringify([event, audio]);
+            if (signature === eventDetailSignature) { renderEventContext(); ensureEventContext(event.event_id); return; }
+            eventDetailSignature = signature;
             detail.innerHTML = `<div class="detail-grid">
-                <div class="detail-item"><span>Classification</span><strong>${safe(classLabel(event))}</strong></div>
-                <div class="detail-item"><span>Model score</span><strong>${formatPercent(modelScore(event))}</strong></div>
-                <div class="detail-item"><span>Operational class</span><strong>${safe(classification?.operational_class || '—')}</strong></div>
-                <div class="detail-item"><span>Target policy</span><strong>${classification ? (classification.is_target === true ? '目標' : '非目標') : 'Legacy / —'}</strong></div>
-                <div class="detail-item"><span>Event time</span><strong>${safe(formatDateTime(event.timestamp || event.created_at))}</strong></div>
-                <div class="detail-item"><span>Node</span><strong>${safe(event.device_id || '—')}</strong></div>
-                <div class="detail-item"><span>Signal</span><strong>RMS ${formatNumber(event.rms_peak,3)} / Peak ${formatNumber(event.peak_db,1,' dB')}</strong></div>
-                <div class="detail-item"><span>Location</span><strong>${location ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}` : '—'}</strong></div>
-                <div class="detail-item detail-wide"><span>Audio</span><strong>${safe(audio.text)}</strong><button id="audioButton" class="action-button" ${audio.available ? '' : 'disabled'}>播放音訊</button><div id="audioPlayer"></div></div>
-                <div class="detail-item detail-wide raw-ids"><span>Raw IDs</span><strong>event_id: ${safe(event.event_id || '—')}<br>db_id: ${safe(event.id || '—')}<br>schema: ${safe(classification?.schema_version || 'legacy')}</strong></div>
+                <div class="detail-item"><span>聲音分類</span><strong>${safe(classLabel(event))}</strong></div>
+                <div class="detail-item"><span>模型分數</span><strong>${formatPercent(modelScore(event))}</strong></div>
+                <div class="detail-item"><span>作業分類</span><strong>${safe(classification?.operational_class || '—')}</strong></div>
+                <div class="detail-item"><span>目標政策</span><strong>${classification ? (classification.is_target === true ? '目標' : '非目標') : '舊版事件／未提供'}</strong></div>
+                <div class="detail-item"><span>事件時間</span><strong>${safe(formatDateTime(event.timestamp))}</strong></div>
+                <div class="detail-item"><span>回報節點</span><strong>${safe(event.device_id || '—')}</strong></div>
+                <div class="detail-item detail-wide"><span>訊號</span><strong>RMS ${formatNumber(event.rms_peak,3)} / Peak ${formatNumber(event.peak_db,1,' dB')}</strong></div>
+            </div><section id="eventContext" class="event-context" aria-label="事件背景與資料品質"></section><div class="detail-grid event-context">
+                <div class="detail-item detail-wide raw-ids"><span>事件識別資料</span><strong>event_id: ${safe(event.event_id || '—')}<br>db_id: ${safe(event.id || '—')}<br>schema: ${safe(classification?.schema_version || 'legacy')}</strong></div>
             </div>`;
-            const button = document.getElementById('audioButton');
-            if (button && audio.available) button.addEventListener('click', () => playAudio(event));
+            const evidenceKey=JSON.stringify([event.event_id,event.audio_path,event.audio_format,audio]);
+            if (audioEvidenceKey !== evidenceKey) {
+                audioEvidenceView?.dispose(); audioEvidenceKey=evidenceKey;
+                const evidence=document.getElementById('audioEvidence'); evidence.hidden=false;
+                audioEvidenceView=window.DashboardAudioEvidence.createViewer(evidence,event,state.runtime || {});
+            }
+            renderEventContext();
+            ensureEventContext(event.event_id);
         }
-        async function playAudio(event) {
-            const audio = audioState(event);
-            if (!audio.available) { showToast(audio.text); return; }
+        function renderEventContext() {
+            const container = document.getElementById('eventContext');
+            if (!container) return;
+            const current = eventContextState.eventId === state.selectedEventId ? eventContextState : {phase:'loading'};
+            let content;
+            if (current.phase === 'error') content = '<p class="context-note" role="status">無法讀取事件背景，請重試。這不代表事件沒有群組。</p>';
+            else if (!current.payload) content = '<p class="context-note" role="status">正在讀取事件背景…</p>';
+            else {
+                const summary = window.DashboardEventContext.summarize(current.payload, state.runtime || {});
+                content = `<p class="context-note">群組：${safe(summary.groupId)}</p>` + summary.sections.map(section =>
+                    `<details class="context-section" ${section.title === '事件時鐘診斷' ? '' : 'open'}><summary>${safe(section.title)}</summary><dl>${section.rows.map(([label,value]) =>
+                        `<div class="context-row"><dt>${safe(label)}</dt><dd>${safe(value)}</dd></div>`).join('')}</dl><p class="context-note">${safe(section.note)}</p></details>`
+                ).join('') + `<details class="context-section" open><summary>資料品質與限制</summary><p class="context-note">${safe(summary.qualityNote)}</p><ul class="context-reasons">${summary.reasons.map(reason => `<li>${safe(reason)}</li>`).join('')}</ul></details>`;
+            }
+            const markup = `<div class="context-toolbar"><strong>事件背景與資料品質</strong><button id="refreshEventContext" class="action-button" ${current.phase === 'loading' ? 'disabled' : ''}>重新讀取</button></div>${content}`;
+            if (container.dataset.signature === markup) return;
+            // Preserve the user's collapsed sections during background refreshes.
+            const expanded = new Map([...container.querySelectorAll('details')].map(item => [item.querySelector('summary').textContent, item.open]));
+            container.innerHTML = markup; container.dataset.signature = markup;
+            container.querySelectorAll('details').forEach(item => { const title = item.querySelector('summary').textContent; if (expanded.has(title)) item.open = expanded.get(title); });
+            document.getElementById('refreshEventContext').addEventListener('click', () => ensureEventContext(state.selectedEventId, true));
+        }
+        async function ensureEventContext(eventId, force = false) {
+            if (!eventId) return;
+            if (eventContextState.eventId === eventId && (eventContextState.phase === 'loading' || (!force && Date.now() - eventContextState.loadedAt < 15000))) return;
+            const request = {eventId, phase:'loading', payload:eventContextState.eventId === eventId ? eventContextState.payload : null, loadedAt:0};
+            eventContextState = request; renderEventContext();
             try {
-                const payload = await fetchJson(`/events/${encodeURIComponent(event.event_id)}/audio-url`);
-                document.getElementById('audioPlayer').innerHTML = `<audio controls autoplay src="${safe(payload.url)}"></audio>`;
-            } catch (_) { showToast('無法取得音訊播放 URL'); }
+                const payload = await fetchJson(`/events/${encodeURIComponent(eventId)}/context`);
+                if (payload.status !== 'success' || payload.event?.event_id !== eventId) throw new Error('Invalid event context');
+                if (eventContextState !== request || state.selectedEventId !== eventId) return;
+                request.payload = payload; request.phase = 'ready';
+            } catch (_) {
+                if (eventContextState !== request || state.selectedEventId !== eventId) return;
+                request.phase = 'error'; request.payload = null;
+            }
+            request.loadedAt = Date.now(); renderEventContext();
         }
-
         function nodeShapeText(deviceId) {
             const id = shortNodeId(deviceId).toUpperCase();
             if (id === 'A01') return '●'; if (id === 'A02') return '◆'; if (id === 'A03') return '▲'; if (id === 'A04') return '■'; return '⬡';
         }
         function nodeState(device) {
             if (!device.reported && !state.devices.has(device.device_id)) return {text:'未回報', css:'off'};
-            if (deviceOnline(device)) return {text:device.is_listening === true ? 'LISTENING' : 'ONLINE', css:'ok'};
-            return {text:'OFFLINE', css:'off'};
+            if (deviceOnline(device)) return {text:device.is_listening === true ? '監聽中' : '在線', css:'ok'};
+            return {text:'離線', css:'off'};
         }
         const commandCopy = {
-            start_listening: {label:'開始監聽', title:'開始監聽？', description:id=>`即將向 Node ${id} 發送開始監聽命令。`, confirm:'確認開始'},
-            stop_listening: {label:'停止監聽', title:'停止監聽？', description:id=>`即將停止 Node ${id} 的聲音監聽。`, confirm:'確認停止'},
-            set_detection_mode: {label:'切換至偵測模式', title:'切換至偵測模式？', description:id=>`Node ${id} 將切換至偵測模式。`, confirm:'確認切換'},
-            set_collection_mode: {label:'切換至蒐集模式', title:'切換至蒐集模式？', description:id=>`Node ${id} 將由偵測模式切換至蒐集模式。`, confirm:'確認切換'}
+            start_listening: {label:'開始監聽', title:'開始監聽？', description:id=>`即將向 節點 ${id} 發送開始監聽命令。`, confirm:'確認開始'},
+            stop_listening: {label:'停止監聽', title:'停止監聽？', description:id=>`即將停止 節點 ${id} 的聲音監聽。`, confirm:'確認停止'},
+            set_detection_mode: {label:'切換至偵測模式', title:'切換至偵測模式？', description:id=>`節點 ${id} 將切換至偵測模式。`, confirm:'確認切換'},
+            set_collection_mode: {label:'切換至蒐集模式', title:'切換至蒐集模式？', description:id=>`節點 ${id} 將由偵測模式切換至蒐集模式。`, confirm:'確認切換'}
         };
         function commandState(deviceId) { return state.commands.get(deviceId) || {phase:'idle'}; }
         function commandInProgress(command) { return ['sending','pending','delivered'].includes(command?.phase); }
@@ -1564,7 +1619,7 @@
             const copy = commandCopy[current.command] || {label:current.command || '節點命令'};
             const delivery = current.delivery === 'websocket' ? 'WebSocket' : (current.delivery === 'polling' ? 'Polling' : null);
             const meta = [current.commandId ? `Command #${current.commandId}` : null, delivery ? `送達方式：${delivery}` : null, current.finishedAt ? formatTime(current.finishedAt) : null].filter(Boolean);
-            if (current.phase === 'idle') return `<div class="command-panel"><div class="command-status-line"><span class="status-symbol info">○</span><div><strong>尚無進行中的命令</strong><span>選擇控制操作後會顯示完整 lifecycle。</span></div></div></div>`;
+            if (current.phase === 'idle') return `<div class="command-panel"><div class="command-status-line"><span class="status-symbol info">○</span><div><strong>尚無進行中的命令</strong><span>選擇控制操作後會顯示完整處理進度。</span></div></div></div>`;
             const states = {
                 sending:{kind:'pending', symbol:'○', title:'正在發送命令…', detail:'正在建立 Backend command。'},
                 pending:{kind:'pending', symbol:'○', title:'命令已建立', detail:'等待節點接收…'},
@@ -1581,11 +1636,11 @@
         function renderNodeStatus() {
             const devices = deviceSlots();
             const reported = devices.filter(device => state.devices.has(device.device_id)).length;
-            document.getElementById('nodeCountBadge').textContent = `${reported} / ${canonicalNodeSlots.length} REPORTED`;
+            document.getElementById('nodeCountBadge').textContent = `${reported} / ${canonicalNodeSlots.length} 台已回報`;
             const list = document.getElementById('nodeStatusList');
             list.innerHTML = devices.map(device => {
                 const status = nodeState(device); const gps = finite(device.gps_accuracy_m);
-                const activity = state.devices.has(device.device_id) ? (device.is_listening === true ? 'Listening' : (device.is_listening === false ? 'Not listening' : 'No listening telemetry')) : 'No telemetry';
+                const activity = state.devices.has(device.device_id) ? (device.is_listening === true ? '監聽中' : (device.is_listening === false ? '已停止監聽' : '尚無監聽狀態')) : '尚無回報';
                 return `<div class="node-row"><button class="node-focus-entry" type="button" data-node-focus="${safe(device.device_id)}" aria-label="在地圖查看 ${safe(shortNodeId(device.device_id))}"><span class="node-shape" aria-hidden="true">${nodeShapeText(device.device_id)}</span><span><span class="node-name">${safe(shortNodeId(device.device_id))}</span><span class="node-meta">${safe(activity)} · GPS ${gps === null ? '—' : `±${gps.toFixed(0)}m`}</span></span></button><span class="state-text ${status.css}">${status.text}</span><button class="node-control-entry" type="button" data-node-control="${safe(device.device_id)}" aria-label="控制 ${safe(shortNodeId(device.device_id))}">控制</button></div>`;
             }).join('');
             list.querySelectorAll('[data-node-focus]').forEach(button => button.addEventListener('click', () => focusNodeOnMap(button.dataset.nodeFocus)));
@@ -1609,15 +1664,15 @@
             const startCommand = selected.is_listening === true ? 'stop_listening' : 'start_listening';
             const startDisabled = baseReason || (!listeningKnown ? '監聽狀態尚未確認' : '');
             const liveAudioEnabled = state.runtime?.live_audio_enabled === true;
-            grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">Node List</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} REPORTED</span></div><div class="node-picker">${nodeList}</div></article>
-                <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">Node ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
-                    <div class="node-detail-list"><div>Listening<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>Mode<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>Effective location <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>Raw GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI Status<strong>${safe(selected.ai_status || 'No telemetry')}</strong></div><div>Backend<strong>${safe(selected.backend_status || 'No telemetry')}</strong></div><div>Last Seen<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>Last Event<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>Device ID<strong>${safe(selected.device_id)}</strong></div><div>Fixed location<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
-                    <section class="control-section"><h3 class="control-heading">自訂節點位置</h3><div class="control-row"><div class="control-copy"><span>Fusion 與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用 raw GPS'}</strong></div><button class="action-button" type="button" data-edit-location>設定節點位置</button></div><div class="control-helper">${locationTokenRequired ? '儲存時請輸入授權碼。' : '點擊地圖選擇位置，確認後即可儲存。'}</div></section>
-                    <section class="control-section"><h3 class="control-heading">Node Control</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
-                    <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>Backend node state</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
-                    <section class="control-section"><h3 class="control-heading">Command Status</h3>${commandStatusMarkup(selected)}</section>
+            grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">節點清單</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} 台已回報</span></div><div class="node-picker">${nodeList}</div></article>
+                <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">節點 ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
+                    <div class="node-detail-list"><div>監聽狀態<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>運作模式<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>目前採用位置 <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>節點回報 GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI 狀態<strong>${safe(selected.ai_status || '尚無回報')}</strong></div><div>後端連線<strong>${safe(selected.backend_status || '尚無回報')}</strong></div><div>最近回報<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>最近事件<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>裝置識別碼<strong>${safe(selected.device_id)}</strong></div><div>目前固定位置<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
+                    <section class="control-section"><h3 class="control-heading">自訂節點位置</h3><div class="control-row"><div class="control-copy"><span>事件融合與地圖的節點基準位置</span><strong>${fixedLocation ? `固定於 ${safe(formatCoordinate(fixedLocation))}` : '未設定；使用節點回報 GPS'}</strong></div><button class="action-button" type="button" data-edit-location>設定節點位置</button></div><div class="control-helper">${locationTokenRequired ? '儲存時請輸入授權碼。' : '點擊地圖選擇位置，確認後即可儲存。'}</div></section>
+                    <section class="control-section"><h3 class="control-heading">節點控制</h3><div class="control-row"><div class="control-copy"><span>監聽</span><strong>目前狀態：${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '未知')}</strong></div><button class="action-button ${startCommand === 'stop_listening' ? 'danger' : 'primary'} primary-control" type="button" data-command="${startCommand}" ${startDisabled ? 'disabled aria-disabled="true"' : ''} aria-label="向 ${safe(shortNodeId(selected.device_id))} 發送${safe(commandCopy[startCommand].label)}">${startCommand === 'stop_listening' ? '■' : '▶'} ${safe(commandCopy[startCommand].label)}</button></div>${startDisabled ? `<div class="control-helper">${safe(startDisabled)}</div>` : ''}</section>
+                    <section class="control-section"><h3 class="control-heading">運作模式</h3><div class="control-row"><div class="control-copy"><span>後端記錄的節點狀態</span><strong>目前：${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '未知')}</strong></div><div class="mode-segment" role="group" aria-label="切換節點運作模式"><button class="mode-button ${mode === 'detection' ? 'active' : ''}" type="button" data-command="set_detection_mode" ${(baseReason || mode === 'detection') ? 'disabled aria-disabled="true"' : ''}>偵測模式</button><button class="mode-button ${mode === 'collection' ? 'active' : ''}" type="button" data-command="set_collection_mode" ${(baseReason || mode === 'collection') ? 'disabled aria-disabled="true"' : ''}>蒐集模式</button></div></div>${baseReason ? `<div class="control-helper">${safe(baseReason)}</div>` : ''}</section>
+                    <section class="control-section"><h3 class="control-heading">指令狀態</h3>${commandStatusMarkup(selected)}</section>
                     <details class="advanced-control"><summary>進階控制</summary><div class="advanced-body"><strong>即時監聽</strong><p class="control-helper">${liveAudioEnabled ? '既有 live audio pipeline 已配置，但本頁尚未完成安全訂閱驗證；請暫用 Legacy Dashboard。' : '目前 staging 不可用。GCS 上傳狀態與 live monitoring 無關。'}</p><button class="action-button" type="button" disabled aria-disabled="true">開始即時監聽</button></div></details>
-                    <button class="ghost-button" type="button" data-focus-selected style="margin-top:14px">Focus map</button>
+                    <button class="ghost-button" type="button" data-focus-selected style="margin-top:14px">在地圖查看</button>
                 </div></article></div>`;
             grid.querySelectorAll('[data-select-node]').forEach(button => button.addEventListener('click', () => { state.selectedNodeId = button.dataset.selectNode; renderNodesView(); }));
             grid.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.command)));
@@ -1664,6 +1719,14 @@
             document.getElementById('locationPickerHint').textContent = '已選擇位置，可拖曳微調；按「儲存節點位置」才會套用。';
             syncLocationPickerMarker();
         }
+        function manualLocationInput(id) {
+            if (state.locationBusy) return;
+            if (id !== 'locationAccuracy') document.getElementById('locationAccuracy').value = '';
+            document.getElementById('locationEditorModal').dataset.locationSource = 'manual_map';
+            state.locationClearArmed = false;
+            document.getElementById('locationClear').textContent = '清除固定位置';
+            syncLocationPickerMarker();
+        }
         function openLocationPicker() {
             clearLocationPicker();
             const hint = document.getElementById('locationPickerHint');
@@ -1690,13 +1753,13 @@
             state.locationEditDeviceId = deviceId;
             state.locationClearArmed = false;
             locationModalPreviousFocus = document.activeElement;
-            document.getElementById('locationEditorDescription').textContent = '設定後，fusion 與地圖會優先使用此固定位置。';
-            document.getElementById('locationEditorNode').textContent = `Node ${shortNodeId(deviceId)} · 目前來源：${displayLocationSource(device)}`;
+            document.getElementById('locationEditorDescription').textContent = '設定後，事件融合與地圖會優先使用此固定位置。';
+            document.getElementById('locationEditorNode').textContent = `節點 ${shortNodeId(deviceId)} · 目前來源：${displayLocationSource(device)}`;
             document.getElementById('locationLatitude').value = fixedLat ?? rawLat ?? '';
             document.getElementById('locationLongitude').value = fixedLng ?? rawLng ?? '';
-            document.getElementById('locationAccuracy').value = finite(device.fixed_location_accuracy_m) ?? finite(device.gps_accuracy_m) ?? '';
+            document.getElementById('locationAccuracy').value = fixedLat !== null && fixedLng !== null ? (finite(device.fixed_location_accuracy_m) ?? '') : (finite(device.gps_accuracy_m) ?? '');
             document.getElementById('locationWriteToken').value = '';
-            document.getElementById('locationEditorModal').dataset.locationSource = fixedLat !== null && fixedLng !== null ? (device.fixed_location_source || 'manual_map') : 'manual_map';
+            document.getElementById('locationEditorModal').dataset.locationSource = fixedLat !== null && fixedLng !== null ? (device.fixed_location_source || 'manual_map') : (rawLat !== null && rawLng !== null ? 'current_gps' : 'manual_map');
             document.getElementById('locationClear').hidden = fixedLat === null || fixedLng === null;
             document.getElementById('locationClear').textContent = '清除固定位置';
             setLocationBusy(false);
@@ -1717,10 +1780,10 @@
         function useCurrentGpsForLocation() {
             const device = locationEditorDevice();
             const lat = finite(device?.raw_latitude ?? device?.latitude); const lng = finite(device?.raw_longitude ?? device?.longitude);
-            if (lat === null || lng === null) { showToast('此節點沒有 current GPS telemetry'); return; }
+            if (lat === null || lng === null) { showToast('此節點尚未回報有效 GPS 座標'); return; }
             document.getElementById('locationLatitude').value = String(lat);
             document.getElementById('locationLongitude').value = String(lng);
-            const accuracy = finite(device?.gps_accuracy_m); if (accuracy !== null) document.getElementById('locationAccuracy').value = String(accuracy);
+            const accuracy = finite(device?.gps_accuracy_m); document.getElementById('locationAccuracy').value = accuracy === null ? '' : String(accuracy);
             document.getElementById('locationEditorModal').dataset.locationSource = 'current_gps';
             syncLocationPickerMarker();
             locationPickerMap?.panTo({lat,lng});
@@ -1733,10 +1796,10 @@
             const longitude = finite(document.getElementById('locationLongitude').value);
             const accuracyValue = document.getElementById('locationAccuracy').value.trim();
             const accuracy = accuracyValue ? finite(accuracyValue) : null;
-            if (latitude === null || latitude < -90 || latitude > 90) throw new Error('Latitude 必須介於 -90 與 90');
-            if (longitude === null || longitude < -180 || longitude > 180) throw new Error('Longitude 必須介於 -180 與 180');
-            if (accuracyValue && (accuracy === null || accuracy < 0)) throw new Error('Accuracy 必須為 0 或正數');
-            if (locationTokenRequired && !document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入 staging write token');
+            if (latitude === null || latitude < -90 || latitude > 90) throw new Error('緯度必須介於 -90 與 90');
+            if (longitude === null || longitude < -180 || longitude > 180) throw new Error('經度必須介於 -180 與 180');
+            if (accuracyValue && (accuracy === null || accuracy < 0)) throw new Error('位置誤差必須為 0 或正數');
+            if (locationTokenRequired && !document.getElementById('locationWriteToken').value.trim()) throw new Error('請輸入寫入授權碼');
             return {latitude, longitude, accuracy_m:accuracy, location_source:document.getElementById('locationEditorModal').dataset.locationSource || 'manual_map'};
         }
         async function saveFixedLocation() {
@@ -1752,7 +1815,7 @@
                 if (body.device) upsertDevice(body.device);
                 setLocationBusy(false); closeLocationEditor();
                 await refreshSnapshot('location-update');
-                showToast(`Node ${shortNodeId(deviceId)} 固定位置已更新`);
+                showToast(`節點 ${shortNodeId(deviceId)} 固定位置已更新`);
             } catch (error) {
                 setLocationBusy(false);
                 document.getElementById('locationWriteToken').value = '';
@@ -1764,7 +1827,7 @@
             if (!deviceId) return;
             if (!state.locationClearArmed) {
                 state.locationClearArmed = true;
-                document.getElementById('locationEditorDescription').textContent = `再次按下確認清除，Node ${shortNodeId(deviceId)} 將恢復使用 raw GPS。`;
+                document.getElementById('locationEditorDescription').textContent = `再次按下確認清除，節點 ${shortNodeId(deviceId)} 將恢復使用節點回報 GPS。`;
                 document.getElementById('locationClear').textContent = '確認清除固定位置';
                 document.getElementById('locationClear').focus();
                 return;
@@ -1778,7 +1841,7 @@
                 if (body.device) upsertDevice(body.device);
                 setLocationBusy(false); closeLocationEditor();
                 await refreshSnapshot('location-clear');
-                showToast(`Node ${shortNodeId(deviceId)} 固定位置已清除`);
+                showToast(`節點 ${shortNodeId(deviceId)} 固定位置已清除`);
             } catch (error) {
                 setLocationBusy(false);
                 document.getElementById('locationWriteToken').value = '';
@@ -1880,9 +1943,9 @@
             const databaseKnown = !!state.runtime?.database;
             document.getElementById('healthList').innerHTML = [
                 healthRow('Backend API', state.backendConnected ? 'Healthy' : 'Disconnected', state.backendConnected ? 'ok' : 'error'),
-                healthRow('Database', databaseError ? 'Error' : (databaseKnown ? 'Healthy' : 'No telemetry'), databaseError ? 'error' : (databaseKnown ? 'ok' : 'info')),
+                healthRow('Database', databaseError ? 'Error' : (databaseKnown ? 'Healthy' : '尚無回報'), databaseError ? 'error' : (databaseKnown ? 'ok' : 'info')),
                 healthRow('WebSocket', state.wsConnected ? 'Connected' : 'Reconnecting', state.wsConnected ? 'ok' : 'warn'),
-                healthRow('AI Inference', aiAvailable ? 'Node reported' : 'No telemetry', aiAvailable ? 'ok' : 'info'),
+                healthRow('AI Inference', aiAvailable ? 'Node reported' : '尚無回報', aiAvailable ? 'ok' : 'info'),
                 healthRow('音訊儲存', state.runtime?.gcs_configured === true ? '已設定' : (state.runtime?.gcs_configured === false ? '未設定；無法上傳音訊' : '尚未確認'), state.runtime?.gcs_configured === true ? 'ok' : 'warn'),
                 healthRow('服務版本', state.runtime?.build?.render_git_commit ? String(state.runtime.build.render_git_commit).slice(0,7) : '尚未確認', 'info'),
                 healthRow('GPS', gpsAvailable ? 'Available' : 'Unavailable', gpsAvailable ? 'ok' : 'warn')
@@ -2058,7 +2121,7 @@
                 const position = nodeLocation(device); if (!position) return;
                 activeNodeIds.add(device.device_id);
                 const operationalOpacity = simulationIsVisible() ? .28 : 1;
-                const options = {map, position, title:`Node ${shortNodeId(device.device_id)} - ${nodeState(device).text}`, icon:nodeMarkerIcon(device, deviceOnline(device)), label:{text:shortNodeId(device.device_id), color:'#f8fbff', fontSize:'10px', fontWeight:'700'}, opacity:(deviceOnline(device) ? 1 : .55) * operationalOpacity};
+                const options = {map, position, title:`節點 ${shortNodeId(device.device_id)} - ${nodeState(device).text}`, icon:nodeMarkerIcon(device, deviceOnline(device)), label:{text:shortNodeId(device.device_id), color:'#f8fbff', fontSize:'10px', fontWeight:'700'}, opacity:(deviceOnline(device) ? 1 : .55) * operationalOpacity};
                 let marker = nodeMarkers.get(device.device_id);
                 if (!marker) { marker = new google.maps.Marker(options); marker.addListener('click', () => showNodeInfo(device.device_id)); nodeMarkers.set(device.device_id, marker); }
                 else marker.setOptions(options);
@@ -2125,7 +2188,7 @@
         function showNodeInfo(deviceId) {
             const device = state.devices.get(deviceId); const marker = nodeMarkers.get(deviceId); if (!device || !marker || !mapInfoWindow) return;
             const status = nodeState(device); const location = nodeLocation(device);
-            mapInfoWindow.setContent(`<div style="color:#0f172a;min-width:180px"><strong>Node ${safe(shortNodeId(device.device_id))}</strong><br>${safe(status.text)} · ${device.is_listening === true ? 'Listening' : 'Not listening'}<br>GPS ${location ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}` : '—'}<br>AI ${safe(device.ai_status || 'No telemetry')}<br>Queue ${safe(device.last_upload_status || 'No telemetry')}<br>Last seen ${safe(formatDateTime(device.last_seen))}</div>`);
+            mapInfoWindow.setContent(`<div style="color:#0f172a;min-width:180px"><strong>節點 ${safe(shortNodeId(device.device_id))}</strong><br>${safe(status.text)} · ${device.is_listening === true ? 'Listening' : 'Not listening'}<br>GPS ${location ? `${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}` : '—'}<br>AI ${safe(device.ai_status || '尚無回報')}<br>Queue ${safe(device.last_upload_status || '尚無回報')}<br>Last seen ${safe(formatDateTime(device.last_seen))}</div>`);
             mapInfoWindow.open({map, anchor:marker});
         }
         function focusEventOnMap(event) { const location = eventLocation(event); if (map && location) { map.panTo(location); map.setZoom(Math.max(map.getZoom() || 12, 16)); } }
@@ -2248,7 +2311,7 @@
         document.getElementById('locationClear').addEventListener('click', clearFixedLocation);
         document.getElementById('locationUseGps').addEventListener('click', useCurrentGpsForLocation);
         document.getElementById('locationEditorBackdrop').addEventListener('mousedown', event => { if (event.target === event.currentTarget) closeLocationEditor(); });
-        ['locationLatitude','locationLongitude','locationAccuracy'].forEach(id => document.getElementById(id).addEventListener('input', () => { document.getElementById('locationEditorModal').dataset.locationSource = 'manual_map'; syncLocationPickerMarker(); }));
+        ['locationLatitude','locationLongitude','locationAccuracy'].forEach(id => document.getElementById(id).addEventListener('input', () => manualLocationInput(id)));
         document.getElementById('locationEditorModal').addEventListener('keydown', event => {
             if (event.key === 'Escape') { event.preventDefault(); closeLocationEditor(); return; }
             if (event.key !== 'Tab') return;

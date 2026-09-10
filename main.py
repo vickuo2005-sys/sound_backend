@@ -37,6 +37,7 @@ from google.oauth2 import service_account
 from pydantic import BaseModel
 
 from app.protocol import ProtocolError, build_envelope, parse_node_message
+from services.audio_evidence import read_audio_evidence
 from services.classification import (
     ClassificationMetadata,
     classification_storage_values,
@@ -57,6 +58,7 @@ from services.device_location_service import (
     validate_device_location,
 )
 from services.event_fusion import (
+    get_event_group_for_event as get_fusion_group_for_event,
     get_event_group_detail as get_fusion_group_detail,
     list_event_groups as list_fusion_groups,
     process_event as process_fusion_event,
@@ -3331,6 +3333,18 @@ def get_event_fusion_group(group_id: str) -> Optional[dict]:
             group_id=group_id,
             is_postgres=False,
         )
+
+
+def get_event_fusion_context(event_id: str) -> Optional[dict]:
+    if use_postgres():
+        connection = get_postgres_connection()
+        try:
+            with connection:
+                return get_fusion_group_for_event(connection, event_id, True)
+        finally:
+            connection.close()
+    with get_sqlite_connection() as connection:
+        return get_fusion_group_for_event(connection, event_id, False)
 
 
 def json_dumps(value: Any) -> str:
@@ -10377,6 +10391,26 @@ def list_events(limit: int = Query(default=20, ge=1, le=100)):
     }
 
 
+@app.get("/events/{event_id}/context")
+def event_context(event_id: str):
+    try:
+        event = get_event_by_event_id(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        group = get_event_fusion_context(event_id)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to read event context")
+        raise HTTPException(status_code=503, detail="Event context temporarily unavailable")
+    return {
+        "status": "success",
+        "event": serialize_event_for_dashboard(event),
+        "group": group,
+        "association_status": "associated" if group else "not_associated",
+    }
+
+
 @app.delete("/events/{event_id}")
 def delete_event(
     event_id: str,
@@ -10727,6 +10761,29 @@ def export_events_csv():
             "Content-Disposition": 'attachment; filename="sound_events_export.csv"'
         },
     )
+
+
+@app.get("/events/{event_id}/audio-content")
+def event_audio_content(event_id: str):
+    try:
+        event = get_event_by_event_id(event_id)
+    except Exception as exc:
+        raise HTTPException(503, detail="event_read_unavailable") from exc
+    if not event:
+        raise HTTPException(404, detail="event_not_found")
+    audio_path = event.get("audio_path")
+    if not audio_path:
+        raise HTTPException(404, detail="audio_not_uploaded")
+    try:
+        bucket = get_gcs_bucket()
+    except Exception as exc:
+        raise HTTPException(503, detail="audio_storage_unavailable") from exc
+    content = read_audio_evidence(bucket, str(audio_path))
+    audio_format = normalize_audio_format(event.get("audio_format")) or (
+        "mp3" if str(audio_path).lower().endswith(".mp3") else "wav"
+    )
+    return Response(content=content, media_type=audio_content_type(audio_format),
+                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/events/{event_id}/audio-url")
