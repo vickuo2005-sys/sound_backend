@@ -42,8 +42,8 @@ def test_region_preview_uses_backend_coordinates_and_optional_uncertainty() -> N
 def test_historical_replay_reveals_recorded_points_without_interpolation() -> None:
     html = dashboard_html()
     assert "function startTrackReplay(id)" in html
-    assert "const visiblePoints = points.slice(0, pointIndex + 1)" in html
-    assert "replayLine.setPath(visiblePoints)" in html
+    assert "path:path.slice(0,i+1)" in html
+    assert "historyLine.setPath(f.path)" in html
     assert "interpolateTrack" not in html
 
 
@@ -72,7 +72,8 @@ def test_fixed_location_editor_is_authenticated_and_does_not_persist_token() -> 
     assert "method:'PUT'" in html
     assert "method:'DELETE'" in html
     assert "'x-upload-token':document.getElementById('locationWriteToken').value.trim()" in html
-    assert "localStorage." not in html
+    assert "localStorage.setItem('sound-dashboard-site-v1',JSON.stringify(next))" in html
+    assert "name:data.name.trim(),lat:Number(data.lat),lng:Number(data.lng),radius:Number(data.radius),arrivalRadius:Number(data.arrivalRadius)" in html
     assert "sessionStorage." not in html
     assert "document.getElementById('locationWriteToken').value = ''" in html
     assert "location_source:" in html

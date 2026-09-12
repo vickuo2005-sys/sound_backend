@@ -617,6 +617,25 @@
         #locationEditorModal .location-form { margin:0; align-content:start; }
         #locationEditorModal .confirm-modal-actions { position:sticky; bottom:0; background:#0f1d2e; padding-top:12px; }
         @media(max-width:760px) { #locationEditorModal .confirm-modal-body { grid-template-columns:1fr; } #locationPickerMap { height:260px; } }
+
+        [hidden] { display:none !important; }
+        #operationalTarget { border:2px solid #f59e0b; }
+        #operationalTarget h2 { margin:0; font-size:22px; }
+        #operationalTarget p { line-height:1.6; }
+        #siteForm label { display:grid; gap:5px; margin:10px 0; }
+        #siteForm input, #operationalTarget select, .history-controls select { padding:9px; background:#132338; color:#fff; border:1px solid #52647a; border-radius:6px; max-width:100%; }
+        .target-notice { position:fixed; right:20px; top:78px; z-index:1200; max-width:calc(100vw - 40px); padding:14px 20px; background:#42290b; color:#fff; border:2px solid #f59e0b; border-radius:10px; font:inherit; cursor:pointer; }
+        #zoneAlert { margin:auto; max-width:min(520px,90vw); background:#25121a; color:#fff; border:3px solid #ef4444; border-radius:14px; padding:24px; line-height:1.8; }
+        #zoneAlert::backdrop { background:#0009; }
+        .history-selection { display:grid; gap:16px; min-width:0; }
+        .history-replay { min-width:0; position:sticky; top:20px; }
+        #historyMap { height:430px; }
+        #historyFallback { min-height:300px; background:#0b1727; }
+        #historyFallback > svg { width:100%; height:320px; }
+        #historyFallback .drone-icon { width:30px; height:30px; }
+        .history-controls { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; align-items:center; }
+        #historySeek { width:100%; }
+        @media(max-width:899px) { #view-tracks .intelligence-grid { grid-template-columns:1fr; } .history-replay { position:static; } }
     </style>
 </head>
 <body>
@@ -741,8 +760,8 @@
             <section id="view-tracks" class="view" aria-labelledby="tracksTitle">
                 <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
                 <div class="intelligence-grid">
-                    <article class="card"><div class="card-header"><h2 class="card-title">Fused Region Estimates</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
-                    <article class="card"><div class="card-header"><h2 class="card-title">Historical Tracks</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">回放只重現已儲存 measurement path，不做平滑、補點或 future-path prediction。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">歷史事件與區域估測</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">已儲存軌跡</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">回放只重現已儲存 measurement path，不做平滑、補點或 future-path prediction。</div></div></article>
                 </div>
                 <div id="motionHome">                    <details id="motionDetails" class="card motion-disclosure"><summary>移動分析與模擬（實驗功能）</summary><article id="motionCard" class="motion-card">
                         <div class="card-header"><h2 id="motionCardTitle" class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span id="motionCardBadge" class="badge experimental">EXPERIMENTAL</span></div>
@@ -812,6 +831,7 @@
     __STATUS_SCRIPT__
     __EVENT_CONTEXT_SCRIPT__
     __AUDIO_EVIDENCE_SCRIPT__
+    __OPERATIONS_SCRIPT__
     __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
@@ -1094,7 +1114,7 @@
             if (!dashboardSimulationEnabled) return;
             const scenario = simulationScenario();
             if (!scenario?.simulation || !simulationPredictionEngine) { showToast('Simulation prediction module 無法載入'); return; }
-            clearTrackReplayObjects(); state.selectedTrackId = null;
+            window.DashboardOperationsUI?.clear(); clearTrackReplayObjects(); state.selectedTrackId = null;
             cancelAnimationFrame(simulationPlayback.animationFrame);
             Object.assign(simulationPlayback, {phase:'ready', scenario, elapsed:0, rate:Number(document.getElementById('simulationSpeed')?.value || 1), followTarget:document.getElementById('simulationFollowTarget')?.checked !== false, lastFrameAt:null, lastDomUpdateAt:null, lastPredictionAt:null, animationFrame:null, metrics:null, animationSample:null, prediction:null});
             document.getElementById('simulationMapSlot').append(document.querySelector('.map-card'));
@@ -1239,12 +1259,12 @@
         }
         function groupLabel(group) { return group?.label || group?.model_label || group?.operational_class || 'Target'; }
         function trackPointTime(point, fallbackIndex = 0) {
-            return parseTime(point?.measurement_timestamp || point?.event_time || point?.timestamp || point?.created_at) ?? fallbackIndex;
+            return finite(point?.measurement_time_ms) ?? parseTime(point?.measurement_timestamp || point?.event_time || point?.timestamp || point?.created_at) ?? fallbackIndex;
         }
         function trackPath(track) {
-            return (Array.isArray(track?.points) ? track.points : []).map((point, index) => ({
-                lat: finite(point?.filtered_lat ?? point?.measured_lat ?? point?.estimated_lat ?? point?.latitude),
-                lng: finite(point?.filtered_lng ?? point?.measured_lng ?? point?.estimated_lng ?? point?.longitude),
+            return (Array.isArray(track?.points) ? track.points : Array.isArray(track?.recent_points) ? track.recent_points : []).map((point, index) => ({
+                lat: finite(point?.measured_lat ?? point?.filtered_lat ?? point?.estimated_lat ?? point?.latitude),
+                lng: finite(point?.measured_lng ?? point?.filtered_lng ?? point?.estimated_lng ?? point?.longitude),
                 time: trackPointTime(point, index), index
             })).filter(point => point.lat !== null && point.lng !== null).sort((a, b) => a.time - b.time || a.index - b.index);
         }
@@ -1269,16 +1289,16 @@
             estimateList.innerHTML = groups.length ? groups.map(group => {
                 const id = groupId(group); const location = groupLocation(group); const devices = groupDeviceIds(group);
                 const uncertainty = finite(group.uncertainty_radius_m); const selected = id === state.selectedGroupId;
-                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(groupLabel(group))}</strong><span>${safe(group.region_type || group.status || 'Fused event group')}</span></div><span>${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}</span></div><div class="intelligence-meta"><div>Center<strong>${safe(formatCoordinate(location))}</strong></div><div>Uncertainty<strong>${safe(formatMeters(uncertainty))}</strong></div><div>Reporting nodes<strong>${devices.length || finite(group.node_count) || '—'}</strong></div><div>Group ID<strong>${safe(id || '—')}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-preview-group="${safe(id)}">${selected ? 'Focused on map' : 'Focus on map'}</button></div></article>`;
+                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(groupLabel(group))}</strong><span>${safe(group.region_type || group.status || 'Fused event group')}</span></div><span>${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}</span></div><div class="intelligence-meta"><div>Center<strong>${safe(formatCoordinate(location))}</strong></div><div>Uncertainty<strong>${safe(formatMeters(uncertainty))}</strong></div><div>Reporting nodes<strong>${devices.length || finite(group.node_count) || '—'}</strong></div><div>Group ID<strong>${safe(id || '—')}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-preview-group="${safe(id)}">${selected ? '再次回放' : '查看事件軌跡'}</button></div></article>`;
             }).join('') : '<div class="empty-state"><div><strong>尚無可定位區域</strong>等待 Backend fusion 提供中心座標</div></div>';
 
             const tracks = [...state.tracks.values()].filter(track => trackPath(track).length >= 2).sort((a,b) => trackEndTime(b) - trackEndTime(a));
             document.getElementById('trackCountBadge').textContent = `${tracks.length} TRACKS`;
             trackList.innerHTML = tracks.length ? tracks.map(track => {
                 const id = trackId(track); const points = trackPath(track); const selected = id === state.selectedTrackId;
-                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(track.label || 'Target track')}</strong><span>${safe(track.status || 'unknown')}</span></div><span>${safe(formatDateTime(track.last_event_time || track.updated_at))}</span></div><div class="intelligence-meta"><div>Recorded points<strong>${points.length}</strong></div><div>Speed<strong>${formatNumber(track.last_speed_mps,1,' m/s')}</strong></div><div>Heading<strong>${safe(headingText(track.last_heading_deg))}</strong></div><div>Confidence<strong>${formatPercent(track.last_confidence)}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-replay-track="${safe(id)}">${selected ? 'Replay again' : 'Replay on map'}</button>${selected ? '<button class="action-button" type="button" data-close-track>Close replay</button>' : ''}</div></article>`;
+                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(track.label || 'Target track')}</strong><span>${safe(track.status || 'unknown')}</span></div><span>${safe(formatDateTime(track.last_event_time || track.updated_at))}</span></div><div class="intelligence-meta"><div>Recorded points<strong>${points.length}</strong></div><div>Speed<strong>${formatNumber(track.last_speed_mps,1,' m/s')}</strong></div><div>Heading<strong>${safe(headingText(track.last_heading_deg))}</strong></div><div>Confidence<strong>${formatPercent(track.last_confidence)}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-replay-track="${safe(id)}">${selected ? '重新回放' : '播放歷史軌跡'}</button>${selected ? '<button class="action-button" type="button" data-close-track>Close replay</button>' : ''}</div></article>`;
             }).join('') : '<div class="empty-state"><div><strong>尚無歷史軌跡</strong>至少需要兩個已儲存 track points</div></div>';
-            estimateList.querySelectorAll('[data-preview-group]').forEach(button => button.addEventListener('click', () => focusGroupOnMap(button.dataset.previewGroup)));
+            estimateList.querySelectorAll('[data-preview-group]').forEach(button => button.addEventListener('click', () => window.DashboardOperationsUI?.group(button.dataset.previewGroup)));
             trackList.querySelectorAll('[data-replay-track]').forEach(button => button.addEventListener('click', () => startTrackReplay(button.dataset.replayTrack)));
             trackList.querySelectorAll('[data-close-track]').forEach(button => button.addEventListener('click', closeTrackReplay));
         }
@@ -1292,6 +1312,7 @@
                 button.classList.toggle('active', active);
                 if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
             });
+            if (viewName !== 'tracks') window.DashboardOperationsUI?.leave();
             if (viewName === 'events') renderEventsView();
             if (viewName === 'tracks') renderTracksView();
             if (viewName === 'nodes') renderNodesView();
@@ -1382,6 +1403,7 @@
             const action = document.getElementById('monitorAction');
             action.textContent = summary.action === 'nodes' ? '前往節點管理 →' : '查看系統狀態 →';
             action.onclick = () => switchView(summary.action);
+            window.DashboardOperationsUI?.render();
         }
 
         function renderCommandBar() {
@@ -1561,12 +1583,13 @@
                         `<div class="context-row"><dt>${safe(label)}</dt><dd>${safe(value)}</dd></div>`).join('')}</dl><p class="context-note">${safe(section.note)}</p></details>`
                 ).join('') + `<details class="context-section" open><summary>資料品質與限制</summary><p class="context-note">${safe(summary.qualityNote)}</p><ul class="context-reasons">${summary.reasons.map(reason => `<li>${safe(reason)}</li>`).join('')}</ul></details>`;
             }
-            const markup = `<div class="context-toolbar"><strong>事件背景與資料品質</strong><button id="refreshEventContext" class="action-button" ${current.phase === 'loading' ? 'disabled' : ''}>重新讀取</button></div>${content}`;
+            const markup = `<div class="context-toolbar"><strong>事件背景與資料品質</strong>${current.payload?.group?.id ? '<button id="eventHistoryReplay" class="action-button">播放事件軌跡</button>' : ''}<button id="refreshEventContext" class="action-button" ${current.phase === 'loading' ? 'disabled' : ''}>重新讀取</button></div>${content}`;
             if (container.dataset.signature === markup) return;
             // Preserve the user's collapsed sections during background refreshes.
             const expanded = new Map([...container.querySelectorAll('details')].map(item => [item.querySelector('summary').textContent, item.open]));
             container.innerHTML = markup; container.dataset.signature = markup;
             container.querySelectorAll('details').forEach(item => { const title = item.querySelector('summary').textContent; if (expanded.has(title)) item.open = expanded.get(title); });
+            document.getElementById('eventHistoryReplay')?.addEventListener('click', () => window.DashboardOperationsUI?.group(current.payload.group.id));
             document.getElementById('refreshEventContext').addEventListener('click', () => ensureEventContext(state.selectedEventId, true));
         }
         async function ensureEventContext(eventId, force = false) {
@@ -2032,7 +2055,9 @@
             }).filter(Boolean);
             const detection = latestDetection();
             const detectionLocation = eventLocation(detection);
-            if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:classLabel(detection), location:detectionLocation, online:true});
+            if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:`${classLabel(detection)} 回報節點`, location:detectionLocation, online:true});
+            const activeTarget = window.DashboardOperationsUI?.target();
+            if (activeTarget?.position) points.push({kind:'target',id:activeTarget.id,label:'無人機估測位置',location:activeTarget.position,online:true});
             const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
             if (estimate && estimateLocation) points.push({kind:'event', id:groupId(estimate), label:`Estimate ${groupLabel(estimate)}`, location:estimateLocation, online:true});
             if (!points.length) {
@@ -2050,7 +2075,7 @@
                 const left = 8 + ((point.location.lng - minLng) / lngSpan) * 84;
                 const top = 92 - ((point.location.lat - minLat) / latSpan) * 84;
                 const pointClass = `coordinate-point ${point.kind === 'event' ? 'event' : ''} ${point.online ? '' : 'offline'}`;
-                const glyph = point.kind === 'event' && point.label.toLowerCase() === 'drone' ? droneSvg() : safe(point.kind === 'event' ? '●' : nodeShapeText(point.id));
+                const glyph = point.kind === 'target' ? droneSvg() : safe(point.kind === 'event' ? '●' : nodeShapeText(point.id));
                 return `<span class="${pointClass}" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))" title="${safe(point.label)} · ${point.location.lat.toFixed(6)}, ${point.location.lng.toFixed(6)}">${glyph}</span><span class="coordinate-point-label" style="left:${left}%;top:clamp(22px, ${top}%, calc(100% - 38px))">${safe(point.label)}</span>`;
             }).join('');
             footer.innerHTML = `<span>${points.length} 個可定位項目 · Lat ${minLat.toFixed(5)}–${maxLat.toFixed(5)} · Lng ${minLng.toFixed(5)}–${maxLng.toFixed(5)}</span><span>● Node　● Latest detection</span>`;
@@ -2090,25 +2115,7 @@
             if (points.length === 1) { map.panTo(points[0]); map.setZoom(Math.max(map.getZoom() || 12, 16)); return; }
             const bounds = new google.maps.LatLngBounds(); points.forEach(point => bounds.extend(point)); map.fitBounds(bounds, 70);
         }
-        function startTrackReplay(id) {
-            const track = state.tracks.get(String(id)); const points = trackPath(track);
-            if (!track || points.length < 2) { showToast('此軌跡沒有足夠的已儲存 points'); return; }
-            clearTrackReplayObjects(); state.selectedTrackId = String(id); renderTracksView(); switchView('dashboard'); renderMap();
-            if (!map || !window.google?.maps) { renderCoordinateFallback(); showToast('Google Maps 未載入；已保留軌跡選取但無法動畫回放'); return; }
-            fitTrackOnMap(points);
-            replayLine = new google.maps.Polyline({map, path:[points[0]], geodesic:true, strokeColor:'#f59e0b', strokeOpacity:1, strokeWeight:5, clickable:false, zIndex:30});
-            replayMarker = new google.maps.Marker({map, position:points[0], title:'Historical track replay · recorded observation', zIndex:31, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:7}});
-            const durationMs = Math.min(12000, Math.max(3000, (points.length - 1) * 550));
-            const startedAt = performance.now();
-            const frame = now => {
-                const progress = Math.min(1, (now - startedAt) / durationMs);
-                const pointIndex = Math.min(points.length - 1, Math.floor(progress * points.length));
-                const visiblePoints = points.slice(0, pointIndex + 1);
-                replayLine.setPath(visiblePoints); replayMarker.setPosition(points[pointIndex]);
-                if (progress < 1) replayAnimationFrame = requestAnimationFrame(frame); else replayAnimationFrame = null;
-            };
-            replayAnimationFrame = requestAnimationFrame(frame);
-        }
+        function startTrackReplay(id) { return window.DashboardOperationsUI?.start(id); }
         function renderMap() {
             if (!map || !window.google?.maps) {
                 const fallback = document.getElementById('mapFallback');
@@ -2130,7 +2137,7 @@
 
             const detection = latestDetection(); const location = eventLocation(detection);
             if (location) {
-                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} 偵測回報位置 - ${formatDateTime(detection.timestamp)}`, icon:String(classLabel(detection)).toLowerCase() === 'drone' ? droneMapIcon('#f97316') : {path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
+                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} 偵測回報位置 - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
                 if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
                 else detectionMarker.setOptions(options);
                 const radius = finite(detection.uncertainty_radius_m);
@@ -2332,6 +2339,7 @@
             if (dashboardSimulationEnabled && new URLSearchParams(location.search).get('simulation') === '1') enterSimulationMode();
         });
     </script>
+    __OPERATIONS_UI_SCRIPT__
     __MAPS_SCRIPT_TAG__
 </body>
 </html>

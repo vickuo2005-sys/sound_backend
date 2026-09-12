@@ -124,6 +124,32 @@ def serialize_track_for_dashboard(
     experimental_motion_enabled: bool,
 ) -> dict[str, Any]:
     result = dict(track)
+    if experimental_motion_enabled:
+        from services.tracking.motion import estimate_constant_velocity
+
+        # Assess only recent accepted source localizations, never node/region centers.
+        accepted = []
+        for point in result.get("recent_points", result.get("points", [])) or []:
+            if not isinstance(point, dict) or point.get("rejected_as_outlier"):
+                continue
+            diagnostics = point.get("diagnostics_json") or {}
+            if isinstance(diagnostics, str):
+                try:
+                    diagnostics = json.loads(diagnostics)
+                except (ValueError, TypeError):
+                    continue
+            if isinstance(diagnostics, dict) and diagnostics.get("source") == "localization_result":
+                accepted.append(point)
+        accepted.sort(key=lambda p: _finite_number(p.get("measurement_time_ms")) or 0)
+        estimate = estimate_constant_velocity(accepted[-20:])
+        result["approach_motion"] = {
+            "quality": estimate.quality,
+            "vx_mps": estimate.vx_mps,
+            "vy_mps": estimate.vy_mps,
+            "measurement_time_ms": estimate.ordered_event_time_ms[-1] if estimate.ordered_event_time_ms else None,
+            "valid": estimate.valid and not estimate.outlier_detected,
+            "field_validated": False,
+        }
     result["dashboard_presentation"] = {
         "experimental": True,
         "field_validated": False,

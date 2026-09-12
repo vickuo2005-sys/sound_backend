@@ -10231,6 +10231,48 @@ def localization_results(
     }
 
 
+def lookup_group_tracks(connection, group_id: str, is_postgres: bool) -> list[dict]:
+    placeholder = "%s" if is_postgres else "?"
+    query = f"""
+        SELECT t.id, t.label, t.status, t.point_count
+        FROM target_tracks t
+        WHERE EXISTS (
+            SELECT 1 FROM target_track_points p
+            WHERE p.track_id = t.id AND p.group_id = {placeholder}
+        )
+        ORDER BY t.id
+        LIMIT 101
+    """
+    if is_postgres:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (group_id,))
+            return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
+    return [serialize_db_row(dict(row)) for row in connection.execute(query, (group_id,)).fetchall()]
+
+
+@app.get("/event-groups/{group_id}/tracks")
+def event_group_tracks(group_id: str):
+    # Resolve persisted membership, even when the group is outside the recent snapshot.
+    try:
+        import uuid
+        normalized_id = str(uuid.UUID(group_id))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid group ID")
+    try:
+        if use_postgres():
+            connection = get_postgres_connection()
+            try:
+                rows = lookup_group_tracks(connection, normalized_id, True)
+            finally:
+                connection.close()
+        else:
+            with get_sqlite_connection() as connection:
+                rows = lookup_group_tracks(connection, normalized_id, False)
+        return {"status": "success", "tracks": rows[:100], "truncated": len(rows) > 100}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Track association temporarily unavailable")
+
+
 @app.get("/tracks")
 def tracks(
     status_filter: Optional[str] = Query(default=None, alias="status"),

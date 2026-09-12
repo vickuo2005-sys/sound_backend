@@ -106,6 +106,8 @@ def render_dashboard_v2_4(
         )
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace("__OPERATIONS_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations.js").read_text(encoding="utf-8") + "</script>")
+        .replace("__OPERATIONS_UI_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations_ui.js").read_text(encoding="utf-8") + "</script>")
         .replace("__AUDIO_EVIDENCE_SCRIPT__", "<script>" + AUDIO_EVIDENCE_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__EVENT_CONTEXT_SCRIPT__", "<script>" + EVENT_CONTEXT_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__LOCATION_TOKEN_REQUIRED__", "true" if location_token_required else "false")
