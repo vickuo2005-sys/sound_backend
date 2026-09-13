@@ -14,26 +14,60 @@
     dialog.innerHTML='<h2 id="zoneAlertTitle">無人機進入警戒區</h2><div id="zoneAlertBody"></div><p>此警告依目標定位估測產生。</p><button id="ackZoneAlert" class="action-button primary">確認警告</button>';
     document.body.append(dialog);
     function showAlert() {
+        if(document.getElementById('view-simulation')?.classList.contains('active'))return;
         if(!alerts.length){if(dialog.open)dialog.close();return;}
         const a=alerts[0];el('zoneAlertBody').textContent=`據點：${a.site}；目標：${a.id}；首次觀測於區內：${new Date(a.time).toLocaleString('zh-TW')}。待確認 ${alerts.length} 則。`;
         if(!dialog.open)dialog.showModal();
     }
     function acknowledge(){alerts.shift();showAlert();}
     el('ackZoneAlert').onclick=acknowledge;dialog.addEventListener('cancel',event=>{event.preventDefault();acknowledge();});
-    const siteCard=document.createElement('details');siteCard.className='card';
-    siteCard.innerHTML='<summary>據點與警戒區設定</summary><form id="siteForm" class="card-body"><p>儲存於此瀏覽器，作為本畫面的警戒參考。</p><label>據點名稱<input name="name" required maxlength="60"></label><label>緯度<input name="lat" type="number" min="-85" max="85" step="any" required></label><label>經度<input name="lng" type="number" min="-180" max="180" step="any" required></label><label>警戒半徑（公尺）<input name="radius" type="number" min="1" max="10000" required></label><label>抵達據點範圍（公尺）<input name="arrivalRadius" type="number" min="1" max="10000" required></label><p id="siteMessage" role="status"></p><button class="action-button primary" type="submit">儲存設定</button> <button id="clearSite" class="action-button" type="button">清除設定</button></form>';
+    const siteCard=document.createElement('article');siteCard.id='siteSettingsCard';siteCard.className='card';
+    siteCard.innerHTML='<div class="card-body"><h2>據點與警戒區</h2><p id="siteSummary"></p><button id="openSitePicker" class="action-button primary">設定據點位置</button></div>';
     document.querySelector('.overview-summary').append(siteCard);
+    const siteDialog=document.createElement('dialog');siteDialog.id='siteLocationDialog';siteDialog.setAttribute('aria-labelledby','sitePickerTitle');
+    siteDialog.innerHTML='<div class="card-header"><h2 id="sitePickerTitle">設定據點位置</h2><button id="closeSitePicker" class="action-button" aria-label="關閉據點設定">關閉</button></div><div class="site-picker-layout"><div><div id="sitePickerMap" role="application" aria-label="點擊地圖設定據點位置"></div><p id="sitePickerHint" role="status">點擊地圖選擇據點，也可以拖曳標記微調。</p></div><form id="siteForm" class="card-body"><p>據點儲存於此瀏覽器，獨立於手機節點位置。</p><label>據點名稱<input name="name" required maxlength="60"></label><label>緯度<input name="lat" type="number" min="-85" max="85" step="any" required></label><label>經度<input name="lng" type="number" min="-180" max="180" step="any" required></label><label>警戒半徑（公尺）<input name="radius" type="number" min="1" max="10000" required></label><label>抵達據點範圍（公尺）<input name="arrivalRadius" type="number" min="1" max="10000" required></label><p id="siteMessage" role="status"></p><button class="action-button primary" type="submit">儲存設定</button> <button id="clearSite" class="action-button" type="button">清除設定</button></form></div>';
+    document.body.append(siteDialog);
     const form=el('siteForm');
-    function fillSite(){for(const key of ['name','lat','lng','radius','arrivalRadius'])form.elements[key].value=config?.[key]??'';}
-    fillSite();
+    let pickerMap=null,pickerMarker=null,pickerCircle=null,pickerListeners=[];
+    function summarySite(){el('siteSummary').textContent=config?`${config.name} · 警戒 ${config.radius} m · 抵達範圍 ${config.arrivalRadius} m`:'尚未設定。點選地圖位置，建立據點與警戒範圍。';}
+    function fillSite(){const values=config||{name:'主要據點',lat:'',lng:'',radius:150,arrivalRadius:20};for(const key of ['name','lat','lng','radius','arrivalRadius'])form.elements[key].value=values[key];}
+    function clearPicker(){pickerListeners.forEach(l=>l.remove());pickerListeners=[];pickerMarker?.setMap(null);pickerCircle?.setMap(null);pickerMap=null;pickerMarker=null;pickerCircle=null;el('sitePickerMap').replaceChildren();}
+    function syncPicker(){
+        if(!pickerMap)return;
+        const lat=form.elements.lat.value.trim(),lng=form.elements.lng.value.trim();
+        const position=lat&&lng?O.coordinate(Number(lat),Number(lng)):null;
+        if(!position){pickerMarker?.setMap(null);pickerCircle?.setMap(null);return;}
+        if(!pickerMarker){pickerMarker=new google.maps.Marker({map:pickerMap,position,draggable:true,label:'據',title:'據點預覽（尚未儲存）'});pickerListeners.push(pickerMarker.addListener('dragend',e=>pickSite(e.latLng)));}
+        else{pickerMarker.setMap(pickerMap);pickerMarker.setPosition(position);}
+        const radius=Number(form.elements.radius.value);
+        if(radius>0 && radius<=10000){
+            if(!pickerCircle)pickerCircle=new google.maps.Circle({map:pickerMap,strokeColor:'#FB7185',strokeWeight:2,fillColor:'#FB7185',fillOpacity:.10,clickable:false});
+            pickerCircle.setMap(pickerMap);pickerCircle.setCenter(position);pickerCircle.setRadius(radius);
+        }else pickerCircle?.setMap(null);
+    }
+    function pickSite(latLng){
+        if(!latLng)return;const position=O.coordinate(latLng.lat(),latLng.lng());if(!position)return;
+        form.elements.lat.value=position.lat.toFixed(6);form.elements.lng.value=position.lng.toFixed(6);syncPicker();
+        el('sitePickerHint').textContent='已選擇據點位置，可拖曳微調；按「儲存設定」才會套用。';
+    }
+    function openSitePicker(){
+        fillSite();el('siteMessage').textContent='';clearPicker();siteDialog.showModal();
+        if(!window.google?.maps || mapsLoadFailed){el('sitePickerHint').textContent='Google 地圖未載入，仍可手動輸入經緯度設定據點。';return;}
+        const center=config?{lat:config.lat,lng:config.lng}:map?.getCenter()?.toJSON() || {lat:25.033,lng:121.565};
+        pickerMap=new google.maps.Map(el('sitePickerMap'),{center,zoom:16,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,clickableIcons:false,gestureHandling:'cooperative'});
+        pickerListeners.push(pickerMap.addListener('click',e=>pickSite(e.latLng)));syncPicker();
+        el('sitePickerHint').textContent='點擊地圖選擇據點，也可以拖曳標記微調。';
+    }
+    summarySite();el('openSitePicker').onclick=openSitePicker;el('closeSitePicker').onclick=()=>siteDialog.close();siteDialog.addEventListener('close',clearPicker);
+    ['lat','lng','radius'].forEach(key=>form.elements[key].addEventListener('input',syncPicker));
     form.onsubmit=event=>{
         event.preventDefault();const data=Object.fromEntries(new FormData(form));
         const next=O.site({name:data.name.trim(),lat:Number(data.lat),lng:Number(data.lng),radius:Number(data.radius),arrivalRadius:Number(data.arrivalRadius)});
         if(!next){el('siteMessage').textContent='請輸入有效座標，抵達範圍須小於或等於警戒半徑。';return;}
-        try {localStorage.setItem('sound-dashboard-site-v1',JSON.stringify(next));config=next;entries=new O.Entries();el('siteMessage').textContent='已儲存；對目前有效定位重新判斷。';render();}
+        try {localStorage.setItem('sound-dashboard-site-v1',JSON.stringify(next));config=next;entries=new O.Entries();summarySite();siteDialog.close();showToast('據點位置與警戒範圍已儲存');render();}
         catch(_){el('siteMessage').textContent='瀏覽器無法儲存設定，請允許此網站使用儲存空間。';}
     };
-    el('clearSite').onclick=()=>{try{localStorage.removeItem('sound-dashboard-site-v1');}catch(_){}config=null;entries=new O.Entries();fillSite();render();};
+    el('clearSite').onclick=()=>{try{localStorage.removeItem('sound-dashboard-site-v1');}catch(_){}config=null;entries=new O.Entries();summarySite();siteDialog.close();render();};
     function mapObjects(target) {
         currentTarget=target;
         if(targetMarker){targetMarker.setMap(null);targetMarker=null;}
@@ -49,6 +83,8 @@
     }
     function render() {
         const now=Date.now();
+        const inLab=document.getElementById('view-simulation')?.classList.contains('active');
+        if(!inLab && alerts.length)showAlert();
         const detections=state.events.filter(e=>String(classLabel(e)).toLowerCase()==='drone' && now-eventTime(e)>=-2000 && now-eventTime(e)<120000);
         const tracks=[...state.tracks.values()].filter(t=>String(t.label).toLowerCase()==='drone');
         const assessments=tracks.map(t=>O.assess(t,config,now,state.runtime?.localization_enabled===true,experimentalMotionEnabled));
@@ -59,10 +95,10 @@
         }
         // Keep memory bounded without re-announcing records still in the active window.
         if(seen.size>1000)seen=new Set(detections.map(d=>d.event_id));
-        if(now>noticeUntil)banner.hidden=true;
+        if(now>noticeUntil || inLab)banner.hidden=true;
         for(const a of valid)if(entries.update(a.id,a.status,a.time)){
             alerts.push({id:a.id,time:a.time,site:config.name});focused=a.id;
-            banner.textContent='無人機進入警戒區，點此查看目標';banner.hidden=false;showAlert();
+            banner.textContent='無人機進入警戒區，點此查看目標';banner.hidden=!!inLab;showAlert();
         }
         const selected=valid.find(a=>a.id===focused) || valid[0];
         const active=selected || newest;
@@ -83,7 +119,7 @@
     const list=document.createElement('div');list.className='history-selection';
     while(grid.firstChild)list.append(grid.firstChild);grid.append(list,history);
     function pause(){if(replay)replay.playing=false;cancelAnimationFrame(animation);animation=null;el('historyPlay').textContent='播放';}
-    function clear(){pause();request++;replay=null;if(historyMarker)historyMarker.setMap(null);if(historyLine)historyLine.setMap(null);historyMarker=null;historyLine=null;el('historyFallback').innerHTML='';['historyPlay','historyRestart','historySeek'].forEach(id=>el(id).disabled=true);el('historyTime').textContent='';}
+    function clear(){pause();request++;replay=null;if(historyMarker)historyMarker.setMap(null);if(historyLine)historyLine.setMap(null);historyMarker=null;historyLine=null;el('historyFallback').innerHTML='';['historyPlay','historyRestart','historySeek'].forEach(id=>el(id).disabled=true);el('historySeek').value=0;el('historyTime').textContent='';el('historyReplayStatus').textContent='選擇左側事件或軌跡，自動開始回放。';}
     function draw() {
         if(!replay)return;
         const f=O.frame(replay.points,replay.progress);el('historySeek').value=replay.progress;
@@ -131,5 +167,5 @@
     el('historyPlay').onclick=()=>replay?.playing?pause():play();el('historyRestart').onclick=()=>{if(replay){replay.progress=0;play();}};
     el('historySeek').oninput=e=>{pause();if(replay){replay.progress=Number(e.target.value);draw();}};
     document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
-    window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},target:()=>currentTarget};
+    window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},site:()=>config,target:()=>currentTarget};
 })();

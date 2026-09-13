@@ -65,6 +65,7 @@ assert.equal(element('locationEditorModal').dataset.locationSource, 'current_gps
 context.state.devices = new Map([['node_A01', {fixed_latitude:26, fixed_longitude:122,
   fixed_location_accuracy_m:null, gps_accuracy_m:3, fixed_location_source:'manual_map'}]]);
 context.shortNodeId = value => value;
+context.canonicalDevices = () => [...context.state.devices.entries()].map(([device_id, node]) => ({device_id, ...node}));
 context.displayLocationSource = () => '固定位置';
 context.setLocationBusy = () => {};
 context.openLocationPicker = () => {};

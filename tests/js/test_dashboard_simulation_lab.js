@@ -1,0 +1,43 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const lab=require('../../static/dashboard_simulation_lab.js');
+const near=(actual,expected,tolerance=.01)=>assert(Math.abs(actual-expected)<tolerance,`${actual} != ${expected}`);
+let model=new lab.LabModel();
+model.preset('approach');
+let target=model.selected(),a=lab.assess(target,model.site);
+assert.equal(a.status,'outside');assert.equal(a.trend,'approaching');near(a.zoneEta,14);near(a.arrivalEta,19.2);
+model.step(14);assert.equal(model.alerts.length,1);assert.equal(lab.assess(target,model.site).status,'inside');
+model.acknowledge(model.alerts[0].id);model.step(1);assert.equal(model.alerts.length,0,'same entry does not repeatedly alert');
+model.positionTarget(target.id,{x:300,y:0});model.positionTarget(target.id,{x:20,y:0});assert.equal(model.alerts.length,1,'re-entry starts a new episode');
+model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'lost');assert.equal(lab.assess(target,model.site).arrivalEta,null);assert.equal(model.alerts.length,0);
+model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
+
+model.preset('two');assert.equal(model.geometry().length,2);model.nodes[0].online=false;assert.equal(model.geometry().length,1);
+model.preset('three');assert.equal(model.geometry().length,3);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
+assert.equal(lab.hull([{x:0,y:0},{x:1,y:0},{x:2,y:0}]).length,2,'collinear nodes do not create a fictitious polygon');
+assert.equal(lab.hull([{x:0,y:0},{x:0,y:0},{x:2,y:0}]).length,2,'coincident nodes are deduplicated');
+model.preset('missing');assert.equal(model.selected().position,null);assert.equal(model.selected().trail.length,0);assert.equal(model.alerts.length,0);assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.replayEvent(model.events[0].id);assert.equal(model.replay.playing,false);assert.equal(lab.replayPoint(model.replay),null);
+model.preset('non_drone');model.positionTarget(model.selectedId,{x:0,y:0});assert.equal(model.alerts.length,0,'non-drone events never trigger drone geofence alarms');
+model.preset('passby');assert.equal(lab.assess(model.selected(),model.site).arrivalEta,null);assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.preset('depart');assert.equal(lab.assess(model.selected(),model.site).trend,'departing');assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.preset('multiple');assert.equal(model.targets.length,2);assert.equal(model.selectedId,model.alerts[0].targetId);
+model.createEvent({position:{x:-500,y:0},speed:10,heading:90});assert.equal(model.selectedId,model.alerts[0].targetId,'new outside events do not steal pending warning focus');
+model.preset('idle');assert.equal(model.targets.length,0);assert.equal(model.nodes.length,3);assert.equal(model.playing,false);
+
+model=new lab.LabModel();model.addNode({x:1,y:2});target=model.createEvent({position:{x:0,y:0},speed:10,heading:90});
+target.waypoints=[{x:10,y:0},{x:10,y:10}];model.step(1.5);near(target.position.x,10);near(target.position.y,5);model.step(1);near(target.position.y,10);assert.equal(target.speed,0,'stops at final path waypoint');
+model.replayEvent(model.events[0].id);const saved=JSON.stringify(model.replay.points);target.trail.push({x:200,y:200,time:50});assert.equal(JSON.stringify(model.replay.points),saved,'replay owns a stable snapshot');
+assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
+assert.equal(model.setSite({x:0,y:0},-2),false);assert.equal(model.setSite({x:0,y:0},6000),false);assert.equal(model.addNode({x:Infinity,y:0}),null);
+assert.equal(model.moveNode(model.nodes[0].id,{x:22,y:31}),true);assert.equal(model.nodes[0].x,22);
+model.reset();for(let i=0;i<100;i++)model.addNode({x:i,y:i});assert.equal(model.nodes.length,lab.LIMITS.nodes);
+for(let i=0;i<100;i++)model.createEvent({position:null});assert.equal(model.targets.length,lab.LIMITS.targets);
+const p={x:150,y:-800};const restored=lab.offset(lab.latLng(p));near(restored.x,p.x);near(restored.y,p.y);
+
+const isolated=new lab.LabModel();assert.equal(isolated.targets.length,0,'separate model instances never share state');
+const source=fs.readFileSync(path.join(__dirname,'../../static/dashboard_simulation_lab.js'),'utf8');
+assert(!/\bfetch\s*\(|\bWebSocket\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bEventSource\s*\(/.test(source),'simulation performs no API, socket, or shared persistence operations');
+assert(!/root\.(?:state|map|broadcast|renderDashboard|loadDashboard)/.test(source),'simulation does not modify real dashboard globals');
+console.log('simulation lab: isolated state, presets, node geometry, alerts, ETA, movement, history replay and bounded input passed');

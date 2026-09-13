@@ -128,7 +128,8 @@ def test_state_machine_has_all_required_states() -> None:
 def test_query_parameter_opens_ready_without_autoplay() -> None:
     html = simulation_html()
     assert "new URLSearchParams(location.search).get('simulation') === '1'" in html
-    assert "Object.assign(simulationPlayback, {phase:'ready'" in html
+    assert "this.model.preset('idle');this.active=false" in html
+    assert "if (viewName === 'simulation') window.DashboardSimulationLab?.enter()" in html
 
 
 def test_animation_uses_request_animation_frame_and_interpolation() -> None:
@@ -218,8 +219,9 @@ def test_controls_cover_play_pause_restart_exit_speed_seek_and_follow() -> None:
 def test_exit_clears_only_overlay_objects_without_reload() -> None:
     html = simulation_html()
     exit_body = html.split("function exitSimulationMode()", 1)[1].split("function safe", 1)[0]
-    assert "clearSimulationMap()" in exit_body
-    assert "renderMap()" in exit_body
+    assert "switchView('dashboard')" in exit_body
+    assert "if (viewName !== 'simulation') window.DashboardSimulationLab?.leave()" in html
+    assert "root.clearInterval(this.timer)" in html
     assert "reload" not in exit_body
 
 
