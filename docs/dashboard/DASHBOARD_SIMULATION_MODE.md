@@ -81,7 +81,9 @@ created in a waiting state, then receives its own start point and route through
 the drone list. One configured drone can run by itself; any number of configured
 drones start on the same simulation clock.
 
-Node controls are grouped in a collapsible section. One shared detection radius
+Node controls are grouped in a collapsible section. The placed-node list has a
+second, collapsed-by-default disclosure so large layouts do not lengthen the
+tool column until an operator needs per-node actions. One shared detection radius
 applies to every existing node and is inherited by newly placed nodes. At least
 two online, enabled nodes must detect a drone before the lab emits a system
 position estimate. Two reporting nodes form a line region; three or more form a

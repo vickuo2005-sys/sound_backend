@@ -57,4 +57,5 @@ assert(!/root\.(?:state|map|broadcast|renderDashboard|loadDashboard)/.test(sourc
 assert(source.includes('this.googleOverlays=new Map()'),'Google overlays use stable keyed objects');
 assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animation does not delete every Google overlay on each frame');
 assert(!source.includes('data-field="unlocated"')&&!source.includes('data-action="place-target"'),'redundant pre-create location and sound-only controls are removed');
+assert(source.includes('<details class="slab-node-list">')&&!source.includes('<details class="slab-node-list" open>'),'long placed-node lists are independently collapsed by default');
 console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');
