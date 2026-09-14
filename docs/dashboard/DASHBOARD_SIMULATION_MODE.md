@@ -74,6 +74,27 @@ continue updating while the overlay is active.
 No backend event schema, tracking semantics, database schema, migration,
 Flutter code, or production environment is changed by this mode.
 
+## Interactive simulation lab
+
+The staging workspace lets an operator add drones one at a time. Each drone is
+created in a waiting state, then receives its own start point and route through
+the drone list. One configured drone can run by itself; any number of configured
+drones start on the same simulation clock.
+
+Node controls are grouped in a collapsible section. One shared detection radius
+applies to every existing node and is inherited by newly placed nodes. At least
+two online, enabled nodes must detect a drone before the lab emits a system
+position estimate. Two reporting nodes form a line region; three or more form a
+convex region.
+
+The purple path represents simulated ground truth and exists only for visual
+comparison. The blue path represents the system estimate. Warning entry,
+approach/departure state, distance to the site, protected-zone ETA, and site ETA
+are calculated exclusively from the blue estimated position and its timestamped
+history. Ground truth never fills a missing estimate and never triggers a
+warning. The sound-only/position-incomplete condition remains available as a
+quick demonstration preset rather than a manual event-creation control.
+
 ## Staging validation
 
 1. Confirm the deployed SHA and `dashboard_simulation_enabled=true` in

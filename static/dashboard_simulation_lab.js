@@ -63,20 +63,39 @@
         result.arrivalEta=circleEntry(x,y,v.x,v.y,site.arrivalRadius);
         return result;
     }
+    function estimatedVelocity(target) {
+        const path=target?.estimatedTrail||[];
+        if(target?.lost||path.length<2)return {x:0,y:0};
+        for(let i=path.length-1;i>0;i--){
+            const dt=path[i].time-path[i-1].time;
+            if(dt>.001)return {x:(path[i].x-path[i-1].x)/dt,y:(path[i].y-path[i-1].y)/dt};
+        }
+        return {x:0,y:0};
+    }
+    function assessSystem(target, site) {
+        const result={ status:target.lost?'lost':!point(target.estimatedPosition)?'unlocated':'located',distance:null,zoneEta:null,arrivalEta:null,trend:null };
+        if(target.lost||!point(target.estimatedPosition)||!point(site)||target.kind!=='drone')return result;
+        const x=target.estimatedPosition.x-site.x,y=target.estimatedPosition.y-site.y,d=Math.hypot(x,y),v=estimatedVelocity(target);
+        const closing=d?-(x*v.x+y*v.y)/d:0;
+        Object.assign(result,{distance:d,status:d<=site.radius?'inside':'outside',trend:closing>.1?'approaching':closing<-.1?'departing':'stationary'});
+        result.zoneEta=circleEntry(x,y,v.x,v.y,site.radius);
+        result.arrivalEta=circleEntry(x,y,v.x,v.y,site.arrivalRadius);
+        return result;
+    }
     class LabModel {
         constructor() { this.sequence=0; this.reset(); }
         reset() {
-            this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;
+            this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeDetectionRadius=450;
             this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;
         }
         id(prefix) { return `SIM-${prefix}-${++this.sequence}`; }
         addNode(position) {
             if (!point(position) || this.nodes.length>=LIMITS.nodes) return null;
-            const node={ id:this.id('NODE'), name:`節點 ${this.nodes.length+1}`,x:position.x,y:position.y,online:true,reporting:true,detectionRadius:450 };
+            const node={ id:this.id('NODE'), name:`節點 ${this.nodes.length+1}`,x:position.x,y:position.y,online:true,reporting:true,detectionRadius:this.nodeDetectionRadius };
             this.nodes.push(node); return node;
         }
         moveNode(id,position) { const n=this.nodes.find(n=>n.id===id); if(n&&point(position)) { n.x=position.x;n.y=position.y;this.refreshEstimates(true);return true; } return false; }
-        setNodeDetectionRadius(id,radius) { const n=this.nodes.find(n=>n.id===id);radius=Number(radius);if(!n||!Number.isFinite(radius)||radius<20||radius>5000)return false;n.detectionRadius=radius;this.targets.forEach(t=>this.updateEstimate(t,true));return true; }
+        setAllNodeDetectionRadius(radius) { radius=Number(radius);if(!Number.isFinite(radius)||radius<20||radius>5000)return false;this.nodeDetectionRadius=radius;this.nodes.forEach(n=>{n.detectionRadius=radius;});this.refreshEstimates(true);this.inspect();return true; }
         refreshEstimates(force=false) { this.targets.forEach(t=>this.updateEstimate(t,force)); }
         setSite(position,radius=this.site?.radius??150) {
             if (!point(position)||!finite(radius)||radius<20||radius>5000) return false;
@@ -123,12 +142,12 @@
         loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.updateEstimate(t,true);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
         inspect() {
             for(const target of this.targets) {
-                const state=assess(target,this.site);
+                const state=assessSystem(target,this.site);
                 if(state.status==='inside'&&!target.inside) {
                     this.alerts.push({id:this.id('ALERT'),targetId:target.id,time:this.time,simulation:true});
                     this.selectedId=target.id;
                 }
-                if(['inside','outside'].includes(state.status)) target.inside=state.status==='inside';
+                target.inside=state.status==='inside';
             }
             this.alerts=this.alerts.slice(-LIMITS.targets);
         }
@@ -206,7 +225,7 @@
     class Workspace {
         constructor(container) {
             this.container=container;this.model=new LabModel();this.model.preset('idle');this.active=false;this.timer=null;this.mode='inspect';this.editNode=null;this.editTarget=null;
-            this.pendingPosition={x:-450,y:0};this.googleMap=null;this.googleOverlays=new Map();this.googleListener=null;this.fitted=false;this.lastTime=0;this.lastDetailAt=0;
+            this.googleMap=null;this.googleOverlays=new Map();this.googleListener=null;this.fitted=false;this.lastTime=0;this.lastDetailAt=0;
             this.mount();
         }
         $(selector) { return this.container.querySelector(selector); }
@@ -215,11 +234,11 @@
                 <header class="slab-header"><div><span class="slab-eyebrow">SIMULATION LAB</span><h2>模擬工作區</h2><p>親手佈置節點、建立事件與演示警戒，所有操作都留在這個工作區。</p></div><strong class="slab-isolation">模擬資料 · 不影響即時系統</strong></header>
                 <div class="slab-steps" aria-label="操作順序"><span><b>1</b> 放置節點並設定偵測半徑</span><span><b>2</b> 畫出無人機真實飛行路線</span><span><b>3</b> 比較真值與節點推估路徑</span></div>
                 <div class="slab-presets"><label>快速展示 <select data-field="preset"><option value="approach">無人機接近 → 進入警戒</option><option value="idle">一般監控／沒有事件</option><option value="one">單節點偵測脈動</option><option value="two">兩節點連線</option><option value="three">三節點偵測範圍</option><option value="passby">旁側飛越、不會抵達</option><option value="depart">遠離據點</option><option value="inside">直接出現在警戒區內</option><option value="multiple">多目標、警戒優先</option><option value="missing">只有聲音回報、定位未完成</option><option value="lost">目標失聯</option><option value="offline">節點離線</option><option value="non_drone">非無人機聲音</option></select></label><button data-action="preset" class="slab-primary">載入展示</button><span>載入會取代目前的模擬內容。</span><div class="slab-clear-actions" aria-label="清除模擬資料"><button data-action="clear-targets">清空無人機／目標</button><button data-action="clear-nodes">清空節點</button><button data-action="clear-history">清空動畫回顧</button><button data-action="clear-all">全部清空</button></div></div>
-                <div class="slab-layout"><aside class="slab-tools"><section class="slab-card"><h3><span>01</span> 佈置場景</h3><div class="slab-two"><button data-action="place-node">＋ 點圖新增節點</button><button data-action="place-site">◎ 點圖設定據點</button></div><label>警戒半徑（公尺）<input data-field="radius" type="number" min="20" max="5000" value="150"></label><button data-action="radius">更新模擬警戒區</button><div data-slot="site" class="slab-hint"></div><p class="slab-hint">每個節點可設定自己的聲音偵測半徑。只有線上、已勾選且無人機位於半徑內的節點，才算同時偵測到。</p><div data-slot="nodes"></div></section>
-                <section class="slab-card"><h3><span>02</span> 逐台加入無人機</h3><label>聲音類型<select data-field="kind"><option value="drone">無人機 Drone</option><option value="car">汽車 Car</option><option value="airplane">飛機 Airplane</option><option value="rainfall">雨聲 Rainfall</option><option value="electric_saw">電鋸 Electric_saw</option></select></label><div class="slab-two"><label>速度（m/s）<input data-field="speed" type="number" min="0" max="100" value="25"></label><label>航向（度）<input data-field="heading" type="number" min="0" max="359" value="90"></label></div><p class="slab-hint">先點地圖選這一架的起點，再新增一架。可重複加入多架並分別設定路徑；只有一架時也能直接開始模擬。</p><label class="slab-check"><input data-field="unlocated" type="checkbox"> 只有聲音回報，定位尚未完成</label><p class="slab-hint slab-unlocated-help">用來展示節點已聽到聲音，但系統還沒有無人機座標的情況；此事件不顯示圖示、路徑或 ETA。</p><button data-action="place-target">① 點地圖選擇這架的起點</button><div data-slot="pending" class="slab-hint"></div><button data-action="create" class="slab-primary slab-wide">② 新增這一架（暫不播放）</button><div data-slot="fleet" class="slab-fleet"></div></section></aside>
-                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>◆ 節點／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線</span><span class="slab-estimate-key">┄ 節點推估路徑</span><span>青色連線／區塊：可能聲源區域</span></div><div class="slab-playbar"><button data-action="play" class="slab-primary">▶ 開始模擬</button><button data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button data-action="place-waypoint">點圖加入真實飛行路線</button><button data-action="stop-target">停止選取目標</button></div><p class="slab-hint">你設定的路徑是模擬真值；節點依偵測半徑與相對訊號強度產生另一條估測路徑。至少兩個節點同時偵測才會產生估測位置。</p></section>
+                <div class="slab-layout"><aside class="slab-tools"><section class="slab-card"><h3><span>01</span> 佈置場景</h3><button data-action="place-site" class="slab-wide">◎ 點圖設定據點</button><label>警戒半徑（公尺）<input data-field="radius" type="number" min="20" max="5000" value="150"></label><button data-action="radius">更新模擬警戒區</button><div data-slot="site" class="slab-hint"></div><details class="slab-node-config" open><summary><span>節點設定</span><small data-slot="node-summary"></small></summary><div class="slab-node-config-body"><button data-action="place-node" class="slab-wide">＋ 點圖新增節點</button><label>全部節點偵測半徑（公尺）<input data-field="node-radius" type="number" min="20" max="5000" value="450"></label><button data-action="node-radius" class="slab-wide">更新全部節點偵測範圍</button><p class="slab-hint">所有節點共用同一個偵測半徑。只有線上、已勾選且無人機位於範圍內的節點才參與系統估測。</p><div data-slot="nodes"></div></div></details></section>
+                <section class="slab-card"><h3><span>02</span> 逐台加入無人機</h3><label>聲音類型<select data-field="kind"><option value="drone">無人機 Drone</option><option value="car">汽車 Car</option><option value="airplane">飛機 Airplane</option><option value="rainfall">雨聲 Rainfall</option><option value="electric_saw">電鋸 Electric_saw</option></select></label><div class="slab-two"><label>速度（m/s）<input data-field="speed" type="number" min="0" max="100" value="25"></label><label>航向（度）<input data-field="heading" type="number" min="0" max="359" value="90"></label></div><p class="slab-hint">先新增一架，再從下方清單按「設起點」點選地圖位置，接著設定該架路徑。可逐架加入，單架也能直接模擬。</p><button data-action="create" class="slab-primary slab-wide">＋ 新增一架（等待設定起點）</button><div data-slot="fleet" class="slab-fleet"></div></section></aside>
+                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>◆ 節點／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>青色連線／區塊：可能聲源區域</span></div><div class="slab-playbar"><button data-action="play" class="slab-primary">▶ 開始模擬</button><button data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button data-action="place-waypoint">點圖加入真實飛行路線</button><button data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
                 <section class="slab-card slab-history"><h3>動畫回顧 <small>只包含本工作區建立的事件</small></h3><div data-slot="replay"></div><div data-slot="events"></div></section></main>
-                <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button data-action="lost">模擬目標失聯</button><button data-action="reconnect-target">恢復目標回報</button></div><button data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點淡圈是個別偵測範圍，可直接輸入公尺數。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色實線是你設定的真實路線，藍色虛線是節點推估路徑。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
+                <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button data-action="lost">模擬目標失聯</button><button data-action="reconnect-target">恢復目標回報</button></div><button data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點設定可折疊，全部節點共用一個偵測半徑。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色真實路線只供比較；藍色系統估測路徑負責警示、接近判斷與 ETA。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
                 <div data-slot="message" class="slab-message" role="status"></div><div data-slot="alert" class="slab-alert-host" aria-live="assertive"></div>
             </section>`;
             this.boundClick=e=>this.handleClick(e);this.boundChange=e=>this.handleChange(e);
@@ -242,11 +261,11 @@
             const button=event.target.closest('[data-action]');
             if(button&&this.container.contains(button)) {
                 const action=button.dataset.action,id=button.dataset.id,m=this.model;
-                if(action==='preset'){m.preset(this.field('preset').value);this.mode='inspect';this.field('radius').value=m.site.radius;this.fit();this.message('已載入模擬展示；所有內容僅存在於此工作區。');}
+                if(action==='preset'){m.preset(this.field('preset').value);this.mode='inspect';this.field('radius').value=m.site.radius;this.field('node-radius').value=m.nodeDetectionRadius;this.fit();this.message('已載入模擬展示；所有內容僅存在於此工作區。');}
                 else if(action==='clear-targets'){m.clearTargets();this.mode='inspect';this.message('已清空目前無人機與其他目標；節點及動畫回顧保留。');}
                 else if(action==='clear-nodes'){m.clearNodes();this.mode='inspect';this.message('已清空節點；目標及動畫回顧保留。');}
                 else if(action==='clear-history'){m.clearHistory();this.message('已清空動畫回顧；目前節點與目標保留。');}
-                else if(action==='clear-all'){m.reset();this.mode='inspect';this.field('radius').value=150;this.message('全部模擬內容已清空，即時系統未變更。');}
+                else if(action==='clear-all'){m.reset();this.mode='inspect';this.field('radius').value=150;this.field('node-radius').value=m.nodeDetectionRadius;this.message('全部模擬內容已清空，即時系統未變更。');}
                 else if(action==='place-node')this.setMode('node');
                 else if(action==='place-site')this.setMode('site');
                 else if(action==='move-node')this.setMode('move-node',id);
@@ -254,15 +273,14 @@
                 else if(action==='edit-target-route'){m.selectedId=id;m.replay=null;this.editTarget=id;if(!point(m.selected()?.position)||m.selected()?.lost)this.message('這台目標需要先設定有效起點。');else this.setMode('waypoint');}
                 else if(action==='toggle-node'){const n=m.nodes.find(n=>n.id===id);if(n){n.online=!n.online;m.refreshEstimates(true);}}
                 else if(action==='remove-node'){m.nodes=m.nodes.filter(n=>n.id!==id);m.refreshEstimates(true);}
-                else if(action==='apply-node-radius'){const input=this.$(`[data-node-radius="${id}"]`);if(!input||!m.setNodeDetectionRadius(id,input.value))this.message('節點偵測半徑需為 20 到 5000 公尺。');else this.message('已更新節點偵測半徑。');}
+                else if(action==='node-radius'){if(!m.setAllNodeDetectionRadius(this.field('node-radius').value))this.message('節點偵測半徑需為 20 到 5000 公尺。');else this.message(`已將全部節點偵測半徑更新為 ${m.nodeDetectionRadius} 公尺。`);}
                 else if(action==='radius'){const radius=Number(this.field('radius').value);if(!m.setSite(m.site,radius))this.message('請輸入 20 到 5000 公尺的警戒半徑。');else this.message('已更新模擬警戒區。');}
-                else if(action==='place-target')this.setMode('target');
                 else if(action==='place-waypoint'){if(!point(m.selected()?.position)||m.selected()?.lost)this.message('請先建立或選取一個有位置且正在回報的目標。');else this.setMode('waypoint');}
                 else if(action==='create'){
                     const speed=Number(this.field('speed').value),heading=Number(this.field('heading').value),kind=this.field('kind').value;
                     if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360){this.message('速度需為 0–100 m/s，航向需為 0–359°。');return;}
-                    const unlocated=this.field('unlocated').checked,target=m.createEvent({kind,position:unlocated?null:this.pendingPosition,speed,heading});
-                    if(!target)this.message('最多展示 20 個目標，請先清空目前目標。');else {this.mode='inspect';this.message(`已新增 ${target.id}，目前尚未播放；可設定路徑、再選位置新增下一架，或直接開始模擬。`);}
+                    const target=m.createEvent({kind,position:null,speed,heading});
+                    if(!target)this.message('最多展示 20 個目標，請先清空目前目標。');else {this.mode='inspect';this.message(`已新增 ${target.id}，目前尚未播放；請在下方清單按「設起點」，再設定路徑。`);}
                 }
                 else if(action==='play'){m.replay=null;m.playing=!m.playing;this.mode='inspect';}
                 else if(action==='step'){m.replay=null;m.playing=false;m.step(1);}
@@ -290,7 +308,6 @@
         handleChange(event) {
             const el=event.target;
             if(el.dataset.nodeCheck){const n=this.model.nodes.find(n=>n.id===el.dataset.nodeCheck);if(n){n.reporting=el.checked;this.model.refreshEstimates(true);this.render();}}
-            else if(el.dataset.nodeRadius){if(this.model.setNodeDetectionRadius(el.dataset.nodeRadius,el.value)){this.message('已更新節點偵測半徑。');this.render();}else this.message('節點偵測半徑需為 20 到 5000 公尺。');}
             else if(el.dataset.field==='rate'){this.model.rate=clamp(Number(el.value)||1,1,10);}
             else if(el.dataset.field==='replay-range'&&this.model.replay){this.model.replay.fraction=clamp(Number(el.value)/100,0,1);this.model.replay.playing=false;this.renderMap();this.renderReplay();}
         }
@@ -300,12 +317,11 @@
             else if(this.mode==='move-node'){this.model.moveNode(this.editNode,p);this.mode='inspect';this.message('已移動模擬節點。');}
             else if(this.mode==='move-target'){this.model.positionTarget(this.editTarget,p);this.mode='inspect';this.message('已設定這台目標的起點。');}
             else if(this.mode==='site'){this.model.setSite(p);this.mode='inspect';this.message('已設定模擬據點與警戒區。');}
-            else if(this.mode==='target'){this.pendingPosition={...p};this.mode='inspect';this.message('出現位置已選好，按「建立事件並主動顯示」。');}
             else if(this.mode==='waypoint'){const t=this.model.selected();if(t&&point(t.position)){t.waypoints.push({...p});if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；按開始模擬播放。`);}}
             this.render();
         }
         renderMode(){
-            const labels={inspect:'可先選擇快速展示，或用左側工具親手佈置場景。',node:'正在新增節點：點擊地圖，可連續放置。','move-node':'正在移動節點：點擊新位置。','move-target':'正在設定選取無人機的起點：點擊地圖。',site:'正在設定據點：點擊地圖，警戒圈會一起移動。',target:'正在選擇無人機初始位置：點擊地圖。',waypoint:'正在設定選取無人機的飛行路徑：依序點擊加入路徑點。'};
+            const labels={inspect:'可先選擇快速展示，或用左側工具親手佈置場景。',node:'正在新增節點：點擊地圖，可連續放置。','move-node':'正在移動節點：點擊新位置。','move-target':'正在設定選取無人機的起點：點擊地圖。',site:'正在設定據點：點擊地圖，警戒圈會一起移動。',waypoint:'正在設定選取無人機的飛行路徑：依序點擊加入路徑點。'};
             this.$('[data-slot="mode"]').innerHTML=`<span>${labels[this.mode]}</span>${this.mode!=='inspect'?'<button data-action="cancel-mode">完成選點</button>':''}`;
             this.$('[data-slot="map"]').classList.toggle('slab-picking',this.mode!=='inspect');
             if(this.googleMap)this.googleMap.setOptions({draggableCursor:this.mode==='inspect'?null:'crosshair'});
@@ -315,9 +331,10 @@
             this.renderMode();this.$('[data-slot="clock"]').textContent=`模擬 ${clock(m.time)}`;
             this.$('[data-action="play"]').textContent=m.playing?'Ⅱ 暫停模擬':'▶ 開始模擬';
             this.field('rate').value=m.rate;
-            this.$('[data-slot="nodes"]').innerHTML=m.nodes.length?m.nodes.map(n=>`<div class="slab-node-row"><label class="slab-check"><input type="checkbox" data-node-check="${n.id}" ${n.reporting?'checked':''} aria-label="${escape(n.name)} 啟用偵測"><b>${escape(n.name)}</b></label><span class="${n.online?'slab-online':'slab-offline'}">${n.online?'線上':'離線'}</span><label class="slab-node-range">偵測半徑 <span><input data-node-radius="${n.id}" type="number" min="20" max="5000" value="${n.detectionRadius}" aria-label="${escape(n.name)} 偵測半徑"> m <button data-action="apply-node-radius" data-id="${n.id}">套用</button></span></label><div class="slab-node-actions"><button data-action="move-node" data-id="${n.id}">移動</button><button data-action="toggle-node" data-id="${n.id}">${n.online?'離線':'上線'}</button><button data-action="remove-node" data-id="${n.id}" aria-label="刪除 ${escape(n.name)}">×</button></div></div>`).join(''):'<p class="slab-empty">尚未放置節點。點「新增節點」後點擊地圖。</p>';
+            this.field('node-radius').value=m.nodeDetectionRadius;
+            this.$('[data-slot="node-summary"]').textContent=`${m.nodes.length} 個 · ${m.nodeDetectionRadius} m`;
+            this.$('[data-slot="nodes"]').innerHTML=m.nodes.length?m.nodes.map(n=>`<div class="slab-node-row"><label class="slab-check"><input type="checkbox" data-node-check="${n.id}" ${n.reporting?'checked':''} aria-label="${escape(n.name)} 啟用偵測"><b>${escape(n.name)}</b></label><span class="${n.online?'slab-online':'slab-offline'}">${n.online?'線上':'離線'}</span><div class="slab-node-actions"><button data-action="move-node" data-id="${n.id}">移動</button><button data-action="toggle-node" data-id="${n.id}">${n.online?'離線':'上線'}</button><button data-action="remove-node" data-id="${n.id}" aria-label="刪除 ${escape(n.name)}">×</button></div></div>`).join(''):'<p class="slab-empty">尚未放置節點。按「點圖新增節點」後點擊地圖。</p>';
             const site=latLng(m.site);this.$('[data-slot="site"]').textContent=`據點：${site.lat.toFixed(5)}, ${site.lng.toFixed(5)} · 警戒 ${m.site.radius} m · 抵達 ${m.site.arrivalRadius} m`;
-            const pending=latLng(this.pendingPosition);this.$('[data-slot="pending"]').textContent=`出現位置：${pending.lat.toFixed(5)}, ${pending.lng.toFixed(5)}`;
             this.renderFleet();
             this.renderDetail();this.renderReplay();this.renderAlert();this.renderMap(true);
         }
@@ -327,24 +344,24 @@
         }
         renderDetail() {
             const m=this.model,t=m.selected(),slot=this.$('[data-slot="detail"]');
-            const targetMenuKey=JSON.stringify([m.selectedId,m.targets.map(item=>[item.id,item.kind,assess(item,m.site).status])]);
+            const targetMenuKey=JSON.stringify([m.selectedId,m.targets.map(item=>[item.id,item.kind,assessSystem(item,m.site).status])]);
             if(this.targetMenuKey!==targetMenuKey){
             this.targetMenuKey=targetMenuKey;
-            this.$('[data-slot="targets"]').innerHTML=m.targets.length?`<label>目前目標<select data-field="target-select">${m.targets.map(item=>`<option value="${item.id}" ${item.id===m.selectedId?'selected':''}>${escape(names[item.kind])} · ${item.id.replace('SIM-TARGET-','#')}${assess(item,m.site).status==='inside'?' · 警戒中':''}</option>`).join('')}</select></label>`:'';
+            this.$('[data-slot="targets"]').innerHTML=m.targets.length?`<label>目前目標<select data-field="target-select">${m.targets.map(item=>`<option value="${item.id}" ${item.id===m.selectedId?'selected':''}>${escape(names[item.kind])} · ${item.id.replace('SIM-TARGET-','#')}${assessSystem(item,m.site).status==='inside'?' · 系統警戒中':''}</option>`).join('')}</select></label>`:'';
             const select=this.field('target-select');if(select)select.onchange=()=>{m.selectedId=select.value;m.replay=null;this.render();};
             }
             if(!t){slot.innerHTML=`<div class="slab-idle-icon">◎</div><h4>一般節點監控</h4><p>尚無模擬事件</p><div class="slab-metrics"><div><span>線上節點</span><b>${m.nodes.filter(n=>n.online).length} / ${m.nodes.length}</b></div><div><span>模擬警戒半徑</span><b>${m.site.radius} m</b></div></div><p class="slab-hint">建立事件後，這裡會自動顯示目標資訊。</p>`;return;}
-            const a=assess(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null;
+            const a=assessSystem(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null;
             const regionLabel={none:'無',circle:'單節點偵測圈',line:'兩節點之間',polygon:`${detected.length} 節點包圍區域`}[region.kind];
             const error=point(t.estimatedPosition)&&point(t.position)?Math.round(distance(t.estimatedPosition,t.position)):null;
-            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>進入警戒 ETA</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b></div><div><span>抵達據點 ETA</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b></div></div><p class="slab-hint">${position?`${t.lost?'最後真實位置':'模擬真實位置'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'只有聲音回報：不產生目標座標、軌跡或 ETA。'}${estimated?`<br>節點推估位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>節點推估位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 推估軌跡 ${t.estimatedTrail.length} 點</p><p class="slab-disclaimer">推估路徑依模擬偵測半徑與相對訊號權重計算，用來比較節點佈置效果；真實定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
+            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p><p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
         }
         renderAlert() {
             const alerts=this.active&&!this.model.replay?this.model.alerts:[],alert=alerts[0];
             const key=JSON.stringify([alerts.map(a=>a.id),this.model.site.radius]);
             if(this.alertKey===key)return;
             this.alertKey=key;
-            this.$('[data-slot="alert"]').innerHTML=alert?`<section class="slab-alert" role="alertdialog" aria-modal="false" aria-label="模擬警戒區進入警告"><div class="slab-alert-icon">!</div><div><span class="slab-badge">SIMULATION · 模擬警告</span><h3>無人機進入警戒區</h3><p>${alert.targetId} · 模擬據點 · ${clock(alert.time)}</p><p>警戒半徑 ${this.model.site.radius} 公尺${alerts.length>1?` · 另有 ${alerts.length-1} 則模擬警告`:''}</p></div><button data-action="ack" data-id="${alert.id}" class="slab-primary">確認模擬警告</button></section>`:'';
+            this.$('[data-slot="alert"]').innerHTML=alert?`<section class="slab-alert" role="alertdialog" aria-modal="false" aria-label="系統估測進入警戒區警告"><div class="slab-alert-icon">!</div><div><span class="slab-badge">SIMULATION · 系統估測警告</span><h3>系統推估無人機進入警戒區</h3><p>${alert.targetId} · 模擬據點 · ${clock(alert.time)}</p><p>藍色估測路徑已進入 ${this.model.site.radius} 公尺警戒範圍${alerts.length>1?` · 另有 ${alerts.length-1} 則模擬警告`:''}</p></div><button data-action="ack" data-id="${alert.id}" class="slab-primary">確認模擬警告</button></section>`:'';
         }
         renderReplay() {
             const replay=this.model.replay,slot=this.$('[data-slot="replay"]');
@@ -369,8 +386,7 @@
             let targets='';
             if(replay){const current=replayPoint(replay),estimated=current?replayPointAtTime(replay.estimatedPoints,current.time):null;if(current){const q=p(current),path=replay.points.slice(0,current.index+1).concat(current);targets=`<polyline class="slab-true-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.targetSvg(q,replay.kind,'真實路徑',false,true)}`;}if(estimated){const q=p(estimated),path=replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);targets+=`<polyline class="slab-estimated-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.estimateSvg(q)}`;}}
             else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(target.waypoints.length)targets+=`<polyline class="slab-waypoints" points="${[target.position,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));}
-            const pending=this.mode==='target'?p(this.pendingPosition):null;
-            this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${m.site.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}${pending?`<circle class="slab-pending" cx="${pending.x}" cy="${pending.y}" r="10"/>`:''}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
+            this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${m.site.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
             if(this.googleMap)this.renderGoogle();
         }
         targetSvg(p,kind,label,lost,selected){return `<g class="slab-aircraft ${lost?'is-lost':''} ${selected?'is-selected':''}" transform="translate(${p.x},${p.y})"><circle class="slab-target-halo" r="24"/>${kind==='drone'?`<path d="${DRONE_PATH}"/>`:'<circle r="7"/>'}<text y="39">${escape(label)}${lost?' · 失聯':''}</text></g>`;}
@@ -417,7 +433,7 @@
         fit(){this.fitted=true;if(!this.googleMap)return;const g=root.google.maps,b=new g.LatLngBounds(),extent=this.bounds();[{x:extent.cx-400/extent.scale,y:extent.cy-260/extent.scale},{x:extent.cx+400/extent.scale,y:extent.cy+260/extent.scale}].forEach(p=>b.extend(latLng(p)));this.googleMap.fitBounds(b,30);}
     }
     let workspace=null;
-    const api={LabModel,assess,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,LIMITS,
+    const api={LabModel,assess,assessSystem,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,LIMITS,
         mount(container){if(!container)throw new Error('A simulation workspace container is required');if(workspace)workspace.destroy();workspace=new Workspace(container);return workspace;},
         enter(){workspace?.enter();},leave(){workspace?.leave();},destroy(){workspace?.destroy();workspace=null;}};
     if(typeof module==='object'&&module.exports)module.exports=api;

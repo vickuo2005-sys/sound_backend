@@ -13,12 +13,16 @@ model.positionTarget(target.id,{x:300,y:0});model.positionTarget(target.id,{x:20
 model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'lost');assert.equal(lab.assess(target,model.site).arrivalEta,null);assert.equal(model.alerts.length,0);
 model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
 
+const systemAlarm=new lab.LabModel();systemAlarm.setSite({x:0,y:0},20);systemAlarm.addNode({x:-200,y:0});systemAlarm.addNode({x:100,y:0});systemAlarm.setAllNodeDetectionRadius(500);
+const truthInside=systemAlarm.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'inside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'outside');assert.equal(systemAlarm.alerts.length,0,'truth path alone cannot trigger a system warning');
+systemAlarm.positionTarget(truthInside.id,{x:80,y:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'outside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'inside');assert.equal(systemAlarm.alerts.length,1,'the warning follows the estimated system path even while truth is outside');
+
 model.preset('one');assert.equal(model.nodes[0].detectionRadius,450);assert.equal(model.reportingNodes().length,1);assert.equal(model.sourceRegion().kind,'circle');assert.equal(model.selected().estimatedPosition,null,'one detection cannot estimate a route');
 model.preset('two');assert.equal(model.reportingNodes().length,2);assert.equal(model.geometry().length,2);assert.equal(model.sourceRegion().kind,'line');near(model.selected().estimatedPosition.x,0);near(model.selected().estimatedPosition.y,-120);
 model.positionTarget(model.selectedId,{x:40,y:-100});model.replayEvent(model.events[0].id);assert(model.replay.estimatedPoints.length>=2,'history owns a snapshot of the estimated path');model.replay=null;model.positionTarget(model.selectedId,{x:0,y:-120});
-assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,100),true);assert.equal(model.reportingNodes().length,1,'node outside its configured radius is excluded');assert.equal(model.selected().estimatedPosition,null);
-assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,10),false);assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,5001),false);
-model.setNodeDetectionRadius(model.nodes[0].id,450);model.nodes[0].online=false;model.refreshEstimates(true);assert.equal(model.geometry().length,1);model.nodes[0].online=true;model.nodes[0].reporting=false;model.refreshEstimates(true);assert.equal(model.reportingNodes().length,1,'disabled nodes do not participate');
+assert.equal(model.setAllNodeDetectionRadius(100),true);assert(model.nodes.every(n=>n.detectionRadius===100),'one control updates every node range');assert.equal(model.reportingNodes().length,0,'nodes outside the shared radius are excluded');assert.equal(model.selected().estimatedPosition,null);
+assert.equal(model.setAllNodeDetectionRadius(10),false);assert.equal(model.setAllNodeDetectionRadius(5001),false);
+model.setAllNodeDetectionRadius(450);assert.equal(model.addNode({x:0,y:0}).detectionRadius,450,'new nodes inherit the shared range');model.nodes.pop();model.nodes[0].online=false;model.refreshEstimates(true);assert.equal(model.geometry().length,1);model.nodes[0].online=true;model.nodes[0].reporting=false;model.refreshEstimates(true);assert.equal(model.reportingNodes().length,1,'disabled nodes do not participate');
 model.preset('three');assert.equal(model.reportingNodes().length,3);assert.equal(model.geometry().length,3);assert.equal(model.sourceRegion().kind,'polygon');assert(model.selected().estimatedPosition);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
 assert.equal(lab.hull([{x:0,y:0},{x:1,y:0},{x:2,y:0}]).length,2,'collinear nodes do not create a fictitious polygon');
 assert.equal(lab.hull([{x:0,y:0},{x:0,y:0},{x:2,y:0}]).length,2,'coincident nodes are deduplicated');
@@ -52,4 +56,5 @@ assert(!/\bfetch\s*\(|\bWebSocket\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bses
 assert(!/root\.(?:state|map|broadcast|renderDashboard|loadDashboard)/.test(source),'simulation does not modify real dashboard globals');
 assert(source.includes('this.googleOverlays=new Map()'),'Google overlays use stable keyed objects');
 assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animation does not delete every Google overlay on each frame');
+assert(!source.includes('data-field="unlocated"')&&!source.includes('data-action="place-target"'),'redundant pre-create location and sound-only controls are removed');
 console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');
