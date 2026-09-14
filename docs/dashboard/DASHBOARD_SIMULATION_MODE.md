@@ -76,10 +76,12 @@ Flutter code, or production environment is changed by this mode.
 
 ## Interactive simulation lab
 
-The staging workspace lets an operator add drones one at a time. Each drone is
-created in a waiting state, then receives its own start point and route through
-the drone list. One configured drone can run by itself; any number of configured
-drones start on the same simulation clock.
+The staging workspace lets an operator add drones one at a time. Adding a drone
+immediately enters map picking for that drone's start point; its route can then
+be edited through the drone list. Clearing targets resets the selected target,
+and the same add-and-pick action starts a fresh drone without reloading the page.
+One configured drone can run by itself; any number of configured drones start
+on the same simulation clock.
 
 Node controls are grouped in a collapsible section. The placed-node list has a
 second, collapsed-by-default disclosure so large layouts do not lengthen the

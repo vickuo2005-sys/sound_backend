@@ -58,4 +58,5 @@ assert(source.includes('this.googleOverlays=new Map()'),'Google overlays use sta
 assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animation does not delete every Google overlay on each frame');
 assert(!source.includes('data-field="unlocated"')&&!source.includes('data-action="place-target"'),'redundant pre-create location and sound-only controls are removed');
 assert(source.includes('<details class="slab-node-list">')&&!source.includes('<details class="slab-node-list" open>'),'long placed-node lists are independently collapsed by default');
+assert(source.includes('＋ 新增一架並點圖設起點')&&source.includes("this.editTarget=target.id;this.setMode('move-target')"),'adding a drone immediately starts map placement, including after target clearing');
 console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');
