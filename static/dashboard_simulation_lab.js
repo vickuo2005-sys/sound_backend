@@ -312,8 +312,8 @@
             if(this.googleMap||!root.google?.maps?.Map)return;
             try{this.googleMap=new root.google.maps.Map(this.$('[data-slot="google"]'),{center:ORIGIN,zoom:16,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,gestureHandling:'cooperative'});
                 this.googleListener=this.googleMap.addListener('click',event=>{if(this.mode!=='inspect'&&event.latLng)this.mapClick(offset({lat:event.latLng.lat(),lng:event.latLng.lng()}));});
-                this.$('[data-slot="google"]').hidden=false;this.$('[data-slot="map"]').hidden=true;this.renderGoogle();this.fit();
-            }catch{this.googleMap=null;this.$('[data-slot="google"]').hidden=true;this.$('[data-slot="map"]').hidden=false;}
+                this.$('[data-slot="google"]').hidden=false;this.$('[data-slot="map"]').setAttribute('hidden','');this.renderGoogle();this.fit();
+            }catch{this.googleMap=null;this.$('[data-slot="google"]').hidden=true;this.$('[data-slot="map"]').removeAttribute('hidden');}
         }
         clearGoogle(){this.googleOverlays.forEach(o=>o.setMap(null));this.googleOverlays=[];}
         renderGoogle(){
