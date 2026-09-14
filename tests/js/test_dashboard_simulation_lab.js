@@ -13,8 +13,13 @@ model.positionTarget(target.id,{x:300,y:0});model.positionTarget(target.id,{x:20
 model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'lost');assert.equal(lab.assess(target,model.site).arrivalEta,null);assert.equal(model.alerts.length,0);
 model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
 
-model.preset('two');assert.equal(model.geometry().length,2);model.nodes[0].online=false;assert.equal(model.geometry().length,1);
-model.preset('three');assert.equal(model.geometry().length,3);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
+model.preset('one');assert.equal(model.nodes[0].detectionRadius,450);assert.equal(model.reportingNodes().length,1);assert.equal(model.sourceRegion().kind,'circle');assert.equal(model.selected().estimatedPosition,null,'one detection cannot estimate a route');
+model.preset('two');assert.equal(model.reportingNodes().length,2);assert.equal(model.geometry().length,2);assert.equal(model.sourceRegion().kind,'line');near(model.selected().estimatedPosition.x,0);near(model.selected().estimatedPosition.y,-120);
+model.positionTarget(model.selectedId,{x:40,y:-100});model.replayEvent(model.events[0].id);assert(model.replay.estimatedPoints.length>=2,'history owns a snapshot of the estimated path');model.replay=null;model.positionTarget(model.selectedId,{x:0,y:-120});
+assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,100),true);assert.equal(model.reportingNodes().length,1,'node outside its configured radius is excluded');assert.equal(model.selected().estimatedPosition,null);
+assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,10),false);assert.equal(model.setNodeDetectionRadius(model.nodes[0].id,5001),false);
+model.setNodeDetectionRadius(model.nodes[0].id,450);model.nodes[0].online=false;model.refreshEstimates(true);assert.equal(model.geometry().length,1);model.nodes[0].online=true;model.nodes[0].reporting=false;model.refreshEstimates(true);assert.equal(model.reportingNodes().length,1,'disabled nodes do not participate');
+model.preset('three');assert.equal(model.reportingNodes().length,3);assert.equal(model.geometry().length,3);assert.equal(model.sourceRegion().kind,'polygon');assert(model.selected().estimatedPosition);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
 assert.equal(lab.hull([{x:0,y:0},{x:1,y:0},{x:2,y:0}]).length,2,'collinear nodes do not create a fictitious polygon');
 assert.equal(lab.hull([{x:0,y:0},{x:0,y:0},{x:2,y:0}]).length,2,'coincident nodes are deduplicated');
 model.preset('missing');assert.equal(model.selected().position,null);assert.equal(model.selected().trail.length,0);assert.equal(model.alerts.length,0);assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
@@ -40,4 +45,6 @@ const isolated=new lab.LabModel();assert.equal(isolated.targets.length,0,'separa
 const source=fs.readFileSync(path.join(__dirname,'../../static/dashboard_simulation_lab.js'),'utf8');
 assert(!/\bfetch\s*\(|\bWebSocket\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bEventSource\s*\(/.test(source),'simulation performs no API, socket, or shared persistence operations');
 assert(!/root\.(?:state|map|broadcast|renderDashboard|loadDashboard)/.test(source),'simulation does not modify real dashboard globals');
-console.log('simulation lab: isolated state, presets, node geometry, alerts, ETA, movement, history replay and bounded input passed');
+assert(source.includes('this.googleOverlays=new Map()'),'Google overlays use stable keyed objects');
+assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animation does not delete every Google overlay on each frame');
+console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');

@@ -11,3 +11,15 @@
 @media(max-width:850px){.slab-layout{grid-template-columns:1fr}.slab-main{grid-row:1}.slab-tools{grid-template-columns:1fr 1fr}.slab-detail{grid-column:auto}.slab-header{flex-direction:column;gap:12px}.slab-header h2{font-size:25px}.slab-steps{gap:10px}.slab-presets>span{width:100%}.slab-map-frame,.slab-map{min-height:300px}.slab-google{height:380px}}
 @media(max-width:580px){.slab-tools,.slab-detail{grid-template-columns:1fr}.slab-card{padding:14px}.slab-map-card{padding:0}.slab-presets label{width:100%}.slab-presets select{flex:1;max-width:none}.slab-alert{gap:10px;padding:14px;flex-wrap:wrap}.slab-alert-icon{display:none}.slab-alert button{margin-left:0;width:100%}.slab-alert h3{font-size:17px}.slab-map-top{padding:12px;flex-wrap:wrap}.slab-map-watermark{font-size:8px}.slab-map-top>span{margin-left:auto}.slab-playbar{padding:10px 12px}.slab-map-top h3{font-size:13px}.slab-steps span{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.slab-pulse,.slab-reporting-region,.slab-alert{animation:none}}
+
+/* Simulation sensor coverage and dual-path comparison. */
+.slab-node-row{display:grid;grid-template-columns:minmax(90px,1fr) auto;gap:7px 9px;align-items:center}
+.slab-node-row>label{margin:0}
+.slab-node-range{grid-column:1/-1;display:flex!important;flex-direction:row!important;align-items:center;justify-content:space-between;margin:0!important;padding:7px 9px;border-radius:9px;background:var(--slab-bg)}
+.slab-node-range span{display:flex;align-items:center;gap:5px}.slab-node-range input{width:82px;min-height:30px;padding:4px 7px}.slab-node-actions{grid-column:1/-1;display:flex;gap:5px;justify-content:flex-end}
+.slab-detection-range{fill:var(--slab-primary);fill-opacity:.025;stroke:var(--slab-primary);stroke-opacity:.28;stroke-width:1}.slab-detection-range.is-active{fill-opacity:.1;stroke-opacity:.8;stroke-width:2}
+.slab-reporting-region{fill-opacity:.15;stroke:#22D3EE;stroke-width:3}
+.slab-true-trail{fill:none;stroke:var(--slab-lavender);stroke-width:3.5;opacity:.9}.slab-estimated-trail{fill:none;stroke:var(--info,#60A5FA);stroke-width:3;stroke-dasharray:8 6;opacity:.95}.slab-true-trail.is-muted,.slab-estimated-trail.is-muted{opacity:.25}
+.slab-true-key{color:var(--slab-lavender)}.slab-estimate-key{color:var(--info,#60A5FA)}.slab-waypoints{stroke:var(--slab-warning)}
+.slab-estimate-marker circle{fill:var(--info,#60A5FA);stroke:#DBEAFE;stroke-width:2}.slab-estimate-marker path{stroke:#0B1220;stroke-width:2}.slab-estimate-marker text{text-anchor:middle;font-size:10px;fill:var(--info,#60A5FA)}
+.slab-metrics .slab-metric-small{font-size:13px;line-height:1.35}
