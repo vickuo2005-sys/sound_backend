@@ -83,9 +83,17 @@ and the same add-and-pick action starts a fresh drone without reloading the page
 One configured drone can run by itself; any number of configured drones start
 on the same simulation clock.
 
+Clearing targets or the whole scene resets creation fields to Drone, 25 m/s,
+and 90 degrees. Validation feedback appears directly below the add button and
+focuses invalid inputs. All supported sound types appear in the editable target
+list; the add button names the selected type. Creating or editing a target
+pauses playback and exits history replay. Route edits stay attached to the
+chosen target even if warning selection changes.
+
 Node controls are grouped in a collapsible section. The placed-node list has a
 second, collapsed-by-default disclosure so large layouts do not lengthen the
-tool column until an operator needs per-node actions. One shared detection radius
+tool column until an operator needs per-node actions. Up to 100 simulation nodes
+can be placed; the expanded list scrolls within 420 pixels. One shared detection radius
 applies to every existing node and is inherited by newly placed nodes. At least
 two online, enabled nodes must detect a drone before the lab emits a system
 position estimate. Two reporting nodes form a line region; three or more form a
