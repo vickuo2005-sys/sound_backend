@@ -106,6 +106,9 @@ turns orange and pulses; its detection range also pulses. Two participating
 nodes draw an orange connection, while three or more draw an orange convex
 region. The animation follows the estimated path only, so the hidden simulation
 truth path cannot trigger an operational warning, approach state, or ETA.
+Configured offline nodes remain on the map at their fixed positions. They use a
+solid slate fill, light outline and an `×` suffix instead of the white online
+style, and never receive the orange reporting pulse while offline.
 
 The purple path represents simulated ground truth and exists only for visual
 comparison. The blue path represents the system estimate. Warning entry,

@@ -26,6 +26,7 @@ model.setAllNodeDetectionRadius(450);assert.equal(model.addNode({x:0,y:0}).detec
 model.preset('three');assert.equal(model.reportingNodes().length,3);assert.equal(model.geometry().length,3);assert.equal(model.sourceRegion().kind,'polygon');assert(model.selected().estimatedPosition);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
 assert.deepEqual([1,2,3,4,5].map(n=>lab.nodeVisual(n).shape),['circle','square','triangle','diamond','hexagon'],'simulation nodes follow the V2.2 shape sequence');
 assert.equal(lab.nodeVisual(1,true,false).fill,'#F8FAFC');assert.equal(lab.nodeVisual(2,true,true,0).scale,14);assert.equal(lab.nodeVisual(2,true,true,1).scale,20);assert.equal(lab.nodeVisual(2,true,true).fill,'#F97316');
+assert.equal(lab.nodeVisual(3,false,true).fill,'#475569','offline nodes stay gray even when a recent detection references them');assert.equal(lab.nodeVisual(3,false,true).opacity,.95);assert.equal(lab.nodeVisual(3,false,true).scale,14,'offline nodes never use the reporting pulse');
 const stableOrdinal=model.nodes[1].ordinal;model.nodes.shift();assert.equal(model.nodes[0].ordinal,stableOrdinal,'deleting another node does not change this node shape');
 assert.equal(lab.hull([{x:0,y:0},{x:1,y:0},{x:2,y:0}]).length,2,'collinear nodes do not create a fictitious polygon');
 assert.equal(lab.hull([{x:0,y:0},{x:0,y:0},{x:2,y:0}]).length,2,'coincident nodes are deduplicated');

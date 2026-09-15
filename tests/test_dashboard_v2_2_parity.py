@@ -88,8 +88,11 @@ def test_unsafe_v2_2_fake_alert_is_not_restored() -> None:
 def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
     html = dashboard_html()
     assert "function nodeMarkerIcon(device, online, active=false, pulse=.5)" in html
-    assert "fillColor:active?'#f97316':online?'#f8fafc':'#64748b'" in html
-    assert "scale:active?14+Math.max(0,Math.min(1,pulse))*6:14" in html
+    assert "fillColor:reporting?'#f97316':online?'#f8fafc':'#475569'" in html
+    assert "fillOpacity:online?1:.95" in html
+    assert "scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14" in html
+    assert "text:`${shortNodeId(device.device_id)}${online?'':'×'}`" in html
+    assert "固定節點離線後仍保留在地圖" in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
     assert "onPulse:updateNodeMarkerPulse" in html
 

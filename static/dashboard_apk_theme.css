@@ -174,10 +174,11 @@ tbody tr:focus-visible { outline-offset: -3px; }
 .coordinate-mode { background: var(--surface-2); border-color: var(--outline); color: var(--text-secondary); font-size: 11px; letter-spacing: 0; }
 .coordinate-plot { background-color: var(--surface-lowest); border-color: var(--border); background-image: linear-gradient(#27384f66 1px, transparent 1px), linear-gradient(90deg, #27384f66 1px, transparent 1px); }
 .coordinate-point:not(.event) { background: var(--primary-muted); border-color: var(--primary); color: var(--on-primary-container); box-shadow: 0 2px 8px #0005; }
-.coordinate-point.offline { background: var(--surface-2); border-color: var(--outline); color: var(--text-primary); opacity: .8; }
+.coordinate-point.offline { background:#475569; border-color:#f8fafc; border-style:dashed; color:#f8fafc; opacity:1; box-shadow:0 0 0 3px #47556966; }
 .coordinate-point.event { background: var(--target); border-color: #ffedd5; }
 .node-alert-geometry { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; overflow: visible; pointer-events: none; }
 .coordinate-point.node-alert-active { background:#fff7e6; border-color:#f97316; color:#101820; animation:node-alert-bounce .78s ease-in-out infinite; }
+.coordinate-point.offline.node-alert-active { background:#475569; border-color:#f8fafc; color:#f8fafc; animation:none; }
 .node-alert-geometry polygon { fill: #f9731620; stroke: #f97316; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .node-alert-geometry polyline { fill: none; stroke: #f97316; stroke-width: 5; vector-effect: non-scaling-stroke; }
 .node-alert-geometry .node-alert-pulse { fill: #f973161a; stroke: #f97316; stroke-width: 3; vector-effect: non-scaling-stroke; transform-box:fill-box; transform-origin:center; animation:node-alert-ripple 1.25s ease-out infinite; }

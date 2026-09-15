@@ -32,7 +32,8 @@
 /* V2.2 node language: white fixed nodes, orange reporting nodes, and a bounded ripple. */
 .slab-node .slab-node-symbol{fill:#f8fafc;stroke:#111827;stroke-width:.38;vector-effect:non-scaling-stroke}
 .slab-node.is-active .slab-node-symbol{fill:#f97316;stroke:#ffb86b;stroke-width:.5;transform-box:fill-box;transform-origin:center;animation:slab-node-bounce .78s ease-in-out infinite}
-.slab-node.is-offline .slab-node-symbol{fill:#64748b;stroke:#e7f7ff;opacity:.55}
+.slab-node.is-offline .slab-node-symbol{fill:#475569;stroke:#f8fafc;opacity:.95}
+.slab-node.is-offline text{fill:#cbd5e1}
 .slab-detection-range{fill:var(--slab-primary);fill-opacity:.045;stroke:var(--slab-primary);stroke-opacity:.42;stroke-width:1.5}
 .slab-detection-range.is-active{fill:#f97316;fill-opacity:.1;stroke:#f97316;stroke-opacity:.85;stroke-width:2.5}
 .slab-pulse{fill:#f97316;fill-opacity:.1;stroke:#f97316;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:slab-node-ripple 1.25s ease-out infinite}
