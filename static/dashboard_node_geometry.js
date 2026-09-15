@@ -162,7 +162,9 @@
             if (expiryTimer !== null) unschedule?.(expiryTimer);
             frame = null; expiryTimer = null;
         }
-        function clear() { stopTimers(); overlays.forEach(remove); overlays.clear(); current = null; }
+        function activeDeviceIds() { return new Set([...overlays.values()].flatMap(entry => entry.deviceIds || [])); }
+        function publishPulse(pulse) { if (typeof current?.onPulse === 'function') current.onPulse(activeDeviceIds(),pulse); }
+        function clear() { stopTimers();publishPulse(0);overlays.forEach(remove); overlays.clear(); current = null; }
         function animate() {
             if (!current || !overlays.size) return;
             const pulse = (Math.sin(clock()/650)+1)/2;
@@ -170,6 +172,7 @@
                 entry.rings.forEach(ring => ring.setOptions({radius:24+18*pulse, fillOpacity:.03+.05*pulse, strokeOpacity:.5+.4*pulse}));
                 entry.shape?.setOptions(entry.kind === 'polygon' ? {fillOpacity:.07+.07*pulse,strokeOpacity:.65+.3*pulse} : {strokeOpacity:.65+.3*pulse});
             }
+            publishPulse(pulse);
             frame = requestFrame?.(animate) ?? null;
         }
         function update(input={}) {
@@ -185,13 +188,14 @@
                 let entry = overlays.get(item.id);
                 if (entry && (entry.signature !== signature || entry.map !== input.map || entry.api !== api)) { remove(entry); overlays.delete(item.id); entry = null; }
                 if (!entry) {
-                    const shared = {map:input.map, clickable:false, strokeColor:'#f59e0b', strokeWeight:3, strokeOpacity:.85, fillColor:'#f59e0b', fillOpacity:.1, zIndex:4};
+                    const shared = {map:input.map, clickable:false, strokeColor:'#f97316', strokeWeight:3, strokeOpacity:.85, fillColor:'#f97316', fillOpacity:.1, zIndex:4};
                     const rings = item.participants.map(node => new api.Circle({...shared,center:node.position,radius:30,strokeWeight:2,fillOpacity:.04}));
                     const shape = item.kind === 'polygon' ? new api.Polygon({...shared,paths:item.path,geodesic:true}) : item.kind === 'line' ? new api.Polyline({...shared,path:item.path,geodesic:true}) : null;
-                    entry = {signature, map:input.map, api, rings, shape, kind:item.kind, objects:shape ? [...rings,shape] : rings};
+                    entry = {signature, map:input.map, api, rings, shape, kind:item.kind, deviceIds:item.deviceIds, objects:shape ? [...rings,shape] : rings};
                     overlays.set(item.id,entry);
-                }
+                } else entry.deviceIds=item.deviceIds;
             }
+            publishPulse(.5);
             const reduced = input.reducedMotion ?? options.reducedMotion ?? root.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
             // Static rings remain visible with reduced motion. Expiration still runs.
             if (!reduced && input.animate !== false && requestFrame && overlays.size) frame = requestFrame(animate);

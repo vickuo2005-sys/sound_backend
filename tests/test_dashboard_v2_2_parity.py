@@ -85,6 +85,15 @@ def test_unsafe_v2_2_fake_alert_is_not_restored() -> None:
     assert "const eventId = `simulated_" not in html
 
 
+def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
+    html = dashboard_html()
+    assert "function nodeMarkerIcon(device, online, active=false, pulse=.5)" in html
+    assert "fillColor:active?'#f97316':online?'#f8fafc':'#64748b'" in html
+    assert "scale:active?14+Math.max(0,Math.min(1,pulse))*6:14" in html
+    assert "activeReportingNodeIds.has(device.device_id)" in html
+    assert "onPulse:updateNodeMarkerPulse" in html
+
+
 def test_parity_plan_pins_the_exact_v2_2_baseline_and_exclusions() -> None:
     plan = (ROOT / "docs" / "dashboard" / "DASHBOARD_V2_2_PARITY_PLAN.md").read_text(
         encoding="utf-8"

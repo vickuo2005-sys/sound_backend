@@ -99,6 +99,14 @@ two online, enabled nodes must detect a drone before the lab emits a system
 position estimate. Two reporting nodes form a line region; three or more form a
 convex region.
 
+Simulation and operational maps reuse the V2.2 node language. Fixed nodes cycle
+through circle, square, triangle, diamond, and hexagon symbols with a white fill
+and dark outline. A node that currently participates in the system estimate
+turns orange and pulses; its detection range also pulses. Two participating
+nodes draw an orange connection, while three or more draw an orange convex
+region. The animation follows the estimated path only, so the hidden simulation
+truth path cannot trigger an operational warning, approach state, or ETA.
+
 The purple path represents simulated ground truth and exists only for visual
 comparison. The blue path represents the system estimate. Warning entry,
 approach/departure state, distance to the site, protected-zone ETA, and site ETA

@@ -85,13 +85,14 @@
     class LabModel {
         constructor() { this.sequence=0; this.reset(); }
         reset() {
-            this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeDetectionRadius=450;
+            this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeSequence=0;this.nodeDetectionRadius=450;
             this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;
         }
         id(prefix) { return `SIM-${prefix}-${++this.sequence}`; }
         addNode(position) {
             if (!point(position) || this.nodes.length>=LIMITS.nodes) return null;
-            const node={ id:this.id('NODE'), name:`節點 ${this.nodes.length+1}`,x:position.x,y:position.y,online:true,reporting:true,detectionRadius:this.nodeDetectionRadius };
+            const ordinal=++this.nodeSequence;
+            const node={ id:this.id('NODE'), ordinal, name:`節點 ${ordinal}`,x:position.x,y:position.y,online:true,reporting:true,detectionRadius:this.nodeDetectionRadius };
             this.nodes.push(node); return node;
         }
         moveNode(id,position) { const n=this.nodes.find(n=>n.id===id); if(n&&point(position)) { n.x=position.x;n.y=position.y;this.refreshEstimates(true);return true; } return false; }
@@ -222,10 +223,27 @@
     const duration=seconds=>seconds===null?'—':seconds===0?'已到達':`${Math.ceil(seconds)} 秒`;
     const clock=seconds=>`${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
     const DRONE_PATH='M -9 -6 L 9 6 M -9 6 L 9 -6 M -13 -6 A 4 4 0 1 0 -5 -6 A 4 4 0 1 0 -13 -6 M 5 -6 A 4 4 0 1 0 13 -6 A 4 4 0 1 0 5 -6 M -13 6 A 4 4 0 1 0 -5 6 A 4 4 0 1 0 -13 6 M 5 6 A 4 4 0 1 0 13 6 A 4 4 0 1 0 5 6';
+    const NODE_PATHS=Object.freeze([
+        'M 0 -1 A 1 1 0 1 1 0 1 A 1 1 0 1 1 0 -1',
+        'M -1 -1 L 1 -1 L 1 1 L -1 1 Z',
+        'M 0 -1.2 L 1.15 1 L -1.15 1 Z',
+        'M 0 -1.2 L 1.2 0 L 0 1.2 L -1.2 0 Z',
+        'M 0 -1.2 L 1.05 -.6 L 1.05 .6 L 0 1.2 L -1.05 .6 L -1.05 -.6 Z'
+    ]);
+    function nodeVisual(ordinal,online=true,active=false,pulse=.5) {
+        const index=Math.max(0,(Number(ordinal)||1)-1)%NODE_PATHS.length;
+        return {
+            shape:['circle','square','triangle','diamond','hexagon'][index],path:NODE_PATHS[index],
+            fill:active?'#F97316':online?'#F8FAFC':'#64748B',
+            stroke:active?'#FFB86B':online?'#111827':'#E7F7FF',
+            opacity:online||active?1:.45,strokeWidth:active?4:3,
+            scale:active?14+clamp(pulse,0,1)*6:14
+        };
+    }
     class Workspace {
         constructor(container) {
             this.container=container;this.model=new LabModel();this.model.preset('idle');this.active=false;this.timer=null;this.mode='inspect';this.editNode=null;this.editTarget=null;
-            this.googleMap=null;this.googleOverlays=new Map();this.googleListener=null;this.fitted=false;this.lastTime=0;this.lastDetailAt=0;
+            this.googleMap=null;this.googleOverlays=new Map();this.googleListener=null;this.fitted=false;this.lastTime=0;this.lastDetailAt=0;this.lastEffectAt=0;
             this.mount();
         }
         $(selector) { return this.container.querySelector(selector); }
@@ -236,7 +254,7 @@
                 <div class="slab-presets"><label>快速展示 <select data-field="preset"><option value="approach">無人機接近 → 進入警戒</option><option value="idle">一般監控／沒有事件</option><option value="one">單節點偵測脈動</option><option value="two">兩節點連線</option><option value="three">三節點偵測範圍</option><option value="passby">旁側飛越、不會抵達</option><option value="depart">遠離據點</option><option value="inside">直接出現在警戒區內</option><option value="multiple">多目標、警戒優先</option><option value="missing">只有聲音回報、定位未完成</option><option value="lost">目標失聯</option><option value="offline">節點離線</option><option value="non_drone">非無人機聲音</option></select></label><button type="button" data-action="preset" class="slab-primary">載入展示</button><span>載入會取代目前的模擬內容。</span><div class="slab-clear-actions" aria-label="清除模擬資料"><button type="button" data-action="clear-targets">清空無人機／目標</button><button type="button" data-action="clear-nodes">清空節點</button><button type="button" data-action="clear-history">清空動畫回顧</button><button type="button" data-action="clear-all">全部清空</button></div></div>
                 <div class="slab-layout"><aside class="slab-tools"><section class="slab-card"><h3><span>01</span> 佈置場景</h3><button type="button" data-action="place-site" class="slab-wide">◎ 點圖設定據點</button><label>警戒半徑（公尺）<input data-field="radius" type="number" min="20" max="5000" value="150"></label><button type="button" data-action="radius">更新模擬警戒區</button><div data-slot="site" class="slab-hint"></div><details class="slab-node-config" open><summary><span>節點設定</span><small data-slot="node-summary"></small></summary><div class="slab-node-config-body"><button type="button" data-action="place-node" class="slab-wide">＋ 點圖新增節點</button><label>全部節點偵測半徑（公尺）<input data-field="node-radius" type="number" min="20" max="5000" value="450"></label><button type="button" data-action="node-radius" class="slab-wide">更新全部節點偵測範圍</button><p class="slab-hint">最多可放置 ${LIMITS.nodes} 個節點，並共用同一個偵測半徑。只有線上、已勾選且無人機位於範圍內的節點才參與系統估測。</p><details class="slab-node-list"><summary><span>已放置節點</span><small data-slot="node-list-summary"></small></summary><div data-slot="nodes" class="slab-node-list-body"></div></details></div></details></section>
                 <section class="slab-card"><h3><span>02</span> 逐台加入無人機</h3><label>聲音類型<select data-field="kind"><option value="drone">無人機 Drone</option><option value="car">汽車 Car</option><option value="airplane">飛機 Airplane</option><option value="rainfall">雨聲 Rainfall</option><option value="electric_saw">電鋸 Electric_saw</option></select></label><div class="slab-two"><label>速度（m/s）<input data-field="speed" type="number" min="0" max="100" value="25"></label><label>航向（度）<input data-field="heading" type="number" min="0" max="359" value="90"></label></div><p class="slab-hint">按下新增後直接在地圖點選這一架的起點，再從下方清單設定路徑。可逐架加入，單架也能直接模擬。</p><button type="button" data-action="create" class="slab-primary slab-wide">＋ 新增一架並點圖設起點</button><p data-slot="create-message" class="slab-create-message" role="status" aria-live="polite"></p><div data-slot="fleet" class="slab-fleet"></div></section></aside>
-                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>◆ 節點／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>青色連線／區塊：可能聲源區域</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
+                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>● ■ ▲ ◆ ⬢ 節點／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>橘色脈動／連線／區塊：正在參與系統估測</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
                 <section class="slab-card slab-history"><h3>動畫回顧 <small>只包含本工作區建立的事件</small></h3><div data-slot="replay"></div><div data-slot="events"></div></section></main>
                 <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button type="button" data-action="lost">模擬目標失聯</button><button type="button" data-action="reconnect-target">恢復目標回報</button></div><button type="button" data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點設定可折疊，全部節點共用一個偵測半徑。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色真實路線只供比較；藍色系統估測路徑負責警示、接近判斷與 ETA。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
                 <div data-slot="message" class="slab-message" role="status"></div><div data-slot="alert" class="slab-alert-host" aria-live="assertive"></div>
@@ -250,6 +268,7 @@
             this.timer=root.setInterval(()=>{const now=Date.now(),elapsed=Math.min(1,(now-this.lastTime)/1000);this.lastTime=now;
                 if(this.model.replay?.playing) {this.model.replay.fraction=Math.min(1,this.model.replay.fraction+elapsed/12*this.model.rate);if(this.model.replay.fraction>=1)this.model.replay.playing=false;this.renderMap();if(now-this.lastDetailAt>=500){this.lastDetailAt=now;this.renderReplay();}}
                 else if(this.model.playing){this.model.step(elapsed*this.model.rate);this.$('[data-slot="clock"]').textContent=`模擬 ${clock(this.model.time)}`;if(now-this.lastDetailAt>=500){this.lastDetailAt=now;this.renderDetail();}this.renderAlert();this.renderMap();}
+                else if(this.googleMap&&now-this.lastEffectAt>=250){this.lastEffectAt=now;this.renderGoogle();}
             },100);
         }
         leave() {this.active=false;if(this.timer)root.clearInterval(this.timer);this.timer=null;this.model.leave();this.render();}
@@ -420,7 +439,7 @@
         renderMap(refit=false) {
             if(refit||!this.mapBounds)this.mapBounds=this.bounds();const m=this.model,p=this.project.bind(this),site=p(m.site),geometry=m.geometry(),replay=m.replay;
             const detected=!replay?m.reportingNodes():[];
-            const nodes=m.nodes.map(n=>{const xy=p(n),active=detected.some(item=>item.id===n.id)&&m.selected()?.kind==='drone'&&!m.selected()?.lost,range=n.detectionRadius*this.mapBounds.scale;return `<circle class="slab-detection-range ${active?'is-active':''}" cx="${xy.x}" cy="${xy.y}" r="${range}"/>${active?`<circle class="slab-pulse" cx="${xy.x}" cy="${xy.y}" r="20"/>`:''}<g class="slab-node ${n.online?'':'is-offline'}" transform="translate(${xy.x},${xy.y})"><path d="M0 -8L8 0L0 8L-8 0Z"/><text y="25">${escape(n.name)} · ${n.detectionRadius}m${n.online?'':' · 離線'}</text></g>`;}).join('');
+            const nodes=m.nodes.map(n=>{const xy=p(n),active=detected.some(item=>item.id===n.id)&&m.selected()?.kind==='drone'&&!m.selected()?.lost,range=n.detectionRadius*this.mapBounds.scale,visual=nodeVisual(n.ordinal,n.online,active);return `<circle class="slab-detection-range ${active?'is-active':''}" cx="${xy.x}" cy="${xy.y}" r="${range}"/>${active?`<circle class="slab-pulse" cx="${xy.x}" cy="${xy.y}" r="20"/>`:''}<g class="slab-node shape-${visual.shape} ${active?'is-active':''} ${n.online?'':'is-offline'}" transform="translate(${xy.x},${xy.y})"><g transform="scale(8)"><path class="slab-node-symbol" d="${visual.path}"/></g><text y="27">${escape(n.name)} · ${n.detectionRadius}m${n.online?'':' · 離線'}</text></g>`;}).join('');
             const region=!replay&&m.selected()?.kind==='drone'&&!m.selected()?.lost&&geometry.length>=2?`<${geometry.length===2?'polyline':'polygon'} class="slab-reporting-region" points="${geometry.map(n=>{const q=p(n);return `${q.x},${q.y}`;}).join(' ')}"/>`:'';
             let targets='';
             if(replay){const current=replayPoint(replay),estimated=current?replayPointAtTime(replay.estimatedPoints,current.time):null;if(current){const q=p(current),path=replay.points.slice(0,current.index+1).concat(current);targets=`<polyline class="slab-true-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.targetSvg(q,replay.kind,'真實路徑',false,true)}`;}if(estimated){const q=p(estimated),path=replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);targets+=`<polyline class="slab-estimated-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.estimateSvg(q)}`;}}
@@ -444,15 +463,17 @@
             put('site-zone',g.Circle,{center:latLng(m.site),radius:m.site.radius,strokeColor:'#FBBF24',strokeOpacity:.8,strokeWeight:2,fillColor:'#FBBF24',fillOpacity:.1,clickable:false});
             put('site-marker',g.Marker,{position:latLng(m.site),label:{text:'據點',color:'#0B1220',fontWeight:'700'},icon:{path:g.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
             const target=m.selected(),detected=!m.replay&&target?.kind==='drone'&&!target.lost?m.reportingNodes(target):[],detectedIds=new Set(detected.map(n=>n.id));
+            const pulse=(Math.sin(Date.now()/180)+1)/2;
             for(const n of m.nodes){
-                put(`node-range:${n.id}`,g.Circle,{center:latLng(n),radius:n.detectionRadius,strokeColor:detectedIds.has(n.id)?'#22D3EE':'#5EEAD4',strokeOpacity:detectedIds.has(n.id)?.8:.5,strokeWeight:detectedIds.has(n.id)?2.5:1.5,fillColor:'#5EEAD4',fillOpacity:detectedIds.has(n.id)?.12:.06,clickable:false});
-                put(`node:${n.id}`,g.Marker,{position:latLng(n),title:`${n.name} · 偵測 ${n.detectionRadius}m${n.online?'':' · 離線'}`,label:{text:n.name,color:'#0B1220',fontSize:'11px'},icon:{path:g.SymbolPath.CIRCLE,scale:18,fillColor:n.online?'#5EEAD4':'#9EACC0',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
+                const active=detectedIds.has(n.id),visual=nodeVisual(n.ordinal,n.online,active,pulse);
+                put(`node-range:${n.id}`,g.Circle,{center:latLng(n),radius:n.detectionRadius,strokeColor:active?'#F97316':'#5EEAD4',strokeOpacity:active?.85:.42,strokeWeight:active?2.5:1.5,fillColor:active?'#F97316':'#5EEAD4',fillOpacity:active?.1:.045,clickable:false});
+                put(`node:${n.id}`,g.Marker,{position:latLng(n),title:`${n.name} · 偵測 ${n.detectionRadius}m${n.online?'':' · 離線'}`,label:{text:`N${String(n.ordinal).padStart(2,'0')}`,color:'#111827',fontSize:'12px',fontWeight:'800'},icon:{path:visual.path,scale:visual.scale,fillColor:visual.fill,fillOpacity:visual.opacity,strokeColor:visual.stroke,strokeWeight:visual.strokeWidth},zIndex:active?30:10,clickable:false});
             }
-            if(detected.length){const pulse=(Math.sin(m.time*4)+1)/2;for(const n of detected)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),radius:18+pulse*18,strokeColor:'#22D3EE',strokeWeight:2,strokeOpacity:1-pulse*.6,fillColor:'#22D3EE',fillOpacity:.12,clickable:false});}
+            if(detected.length)for(const n of detected)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),radius:24+pulse*28,strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.9-pulse*.75,fillColor:'#F97316',fillOpacity:.1-pulse*.07,clickable:false});
             const geometry=m.geometry(target);
             if(!m.replay&&target?.kind==='drone'&&!target.lost){
-                if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),strokeColor:'#22D3EE',strokeWeight:4,strokeOpacity:.8,clickable:false});
-                else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),strokeColor:'#22D3EE',strokeWeight:2,fillColor:'#22D3EE',fillOpacity:.17,clickable:false});
+                if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:5,strokeOpacity:.95,clickable:false});
+                else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.85,fillColor:'#F97316',fillOpacity:.12,clickable:false});
             }
             const trueLine=(key,trail,muted=false)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#C4B5FD',strokeOpacity:muted?.3:.9,strokeWeight:4,clickable:false});};
             const estimateLine=(key,trail)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#60A5FA',strokeOpacity:0,strokeWeight:2,icons:[{icon:{path:'M 0,-1 0,1',strokeColor:'#60A5FA',strokeOpacity:1,strokeWeight:3,scale:3},offset:'0',repeat:'14px'}],clickable:false});};
@@ -472,7 +493,7 @@
         fit(){this.fitted=true;if(!this.googleMap)return;const g=root.google.maps,b=new g.LatLngBounds(),extent=this.bounds();[{x:extent.cx-400/extent.scale,y:extent.cy-260/extent.scale},{x:extent.cx+400/extent.scale,y:extent.cy+260/extent.scale}].forEach(p=>b.extend(latLng(p)));this.googleMap.fitBounds(b,30);}
     }
     let workspace=null;
-    const api={LabModel,assess,assessSystem,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,LIMITS,
+    const api={LabModel,assess,assessSystem,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,nodeVisual,LIMITS,
         mount(container){if(!container)throw new Error('A simulation workspace container is required');if(workspace)workspace.destroy();workspace=new Workspace(container);return workspace;},
         enter(){workspace?.enter();},leave(){workspace?.leave();},destroy(){workspace?.destroy();workspace=null;}};
     if(typeof module==='object'&&module.exports)module.exports=api;

@@ -28,3 +28,15 @@
 .slab-fleet{margin-top:14px;border-top:1px solid var(--slab-border);padding-top:12px}.slab-fleet h4{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin:0 0 8px}.slab-fleet h4 small{font-size:10px;color:var(--slab-muted);font-weight:400}.slab-fleet-row{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:8px;border:1px solid var(--slab-border);border-radius:10px;background:var(--slab-bg);margin-top:6px}.slab-fleet-row.is-selected{border-color:var(--slab-primary)}.slab-fleet-row span{grid-column:1/-1;color:var(--slab-muted);font-size:10px}.slab-fleet-row button{min-height:28px;padding:4px 6px;font-size:10px}.slab-fleet-name{grid-column:1/-1;text-align:left;color:var(--slab-primary);font-weight:700}
 
 .slab-create-message{margin-top:10px!important;font-size:12px;color:var(--slab-primary)}.slab-create-message:empty{display:none}.slab-create-message.is-error{color:var(--slab-danger)}.slab input[aria-invalid="true"]{border-color:var(--slab-danger)}
+
+/* V2.2 node language: white fixed nodes, orange reporting nodes, and a bounded ripple. */
+.slab-node .slab-node-symbol{fill:#f8fafc;stroke:#111827;stroke-width:.38;vector-effect:non-scaling-stroke}
+.slab-node.is-active .slab-node-symbol{fill:#f97316;stroke:#ffb86b;stroke-width:.5;transform-box:fill-box;transform-origin:center;animation:slab-node-bounce .78s ease-in-out infinite}
+.slab-node.is-offline .slab-node-symbol{fill:#64748b;stroke:#e7f7ff;opacity:.55}
+.slab-detection-range{fill:var(--slab-primary);fill-opacity:.045;stroke:var(--slab-primary);stroke-opacity:.42;stroke-width:1.5}
+.slab-detection-range.is-active{fill:#f97316;fill-opacity:.1;stroke:#f97316;stroke-opacity:.85;stroke-width:2.5}
+.slab-pulse{fill:#f97316;fill-opacity:.1;stroke:#f97316;stroke-width:3;transform-box:fill-box;transform-origin:center;animation:slab-node-ripple 1.25s ease-out infinite}
+.slab-reporting-region{fill:#f97316;fill-opacity:.12;stroke:#f97316;stroke-width:3}
+@keyframes slab-node-bounce{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+@keyframes slab-node-ripple{0%{transform:scale(.86);opacity:.9}100%{transform:scale(2.3);opacity:0}}
+@media(prefers-reduced-motion:reduce){.slab-node.is-active .slab-node-symbol{animation:none}}

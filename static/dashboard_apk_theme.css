@@ -177,10 +177,13 @@ tbody tr:focus-visible { outline-offset: -3px; }
 .coordinate-point.offline { background: var(--surface-2); border-color: var(--outline); color: var(--text-primary); opacity: .8; }
 .coordinate-point.event { background: var(--target); border-color: #ffedd5; }
 .node-alert-geometry { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; overflow: visible; pointer-events: none; }
-.node-alert-geometry polygon { fill: #fbbf2426; stroke: var(--warning); stroke-width: 2; vector-effect: non-scaling-stroke; }
-.node-alert-geometry polyline { fill: none; stroke: var(--warning); stroke-width: 3; vector-effect: non-scaling-stroke; }
-.node-alert-geometry .node-alert-pulse { fill: #fbbf2433; stroke: var(--warning); stroke-width: 2; vector-effect: non-scaling-stroke; animation: node-alert-emphasis 1.8s ease-in-out infinite; }
-@keyframes node-alert-emphasis { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.coordinate-point.node-alert-active { background:#fff7e6; border-color:#f97316; color:#101820; animation:node-alert-bounce .78s ease-in-out infinite; }
+.node-alert-geometry polygon { fill: #f9731620; stroke: #f97316; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.node-alert-geometry polyline { fill: none; stroke: #f97316; stroke-width: 5; vector-effect: non-scaling-stroke; }
+.node-alert-geometry .node-alert-pulse { fill: #f973161a; stroke: #f97316; stroke-width: 3; vector-effect: non-scaling-stroke; transform-box:fill-box; transform-origin:center; animation:node-alert-ripple 1.25s ease-out infinite; }
+@keyframes node-alert-bounce { 0%, 100% { transform:translate(-50%,-50%) scale(1); } 50% { transform:translate(-50%,-50%) scale(1.08); } }
+@keyframes node-alert-ripple { 0% { opacity:.9; transform:scale(.86); } 100% { opacity:0; transform:scale(1.9); } }
+@media (prefers-reduced-motion:reduce) { .coordinate-point.node-alert-active,.node-alert-geometry .node-alert-pulse { animation:none; } }
 .coordinate-footer { font-size: 12px; }
 .legend-symbol.simulation-prediction { color: var(--primary); }
 .legend-symbol.simulation-site { color: var(--experimental); }

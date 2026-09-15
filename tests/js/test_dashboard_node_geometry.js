@@ -90,13 +90,15 @@ class Polyline extends Overlay {}
 const maps={Circle,Polygon,Polyline};
 let wall=now, timerId=0, rafId=0;
 const timers=new Map(), frames=new Map();
+let pulseNodeIds=[];
 const renderer=geometry.createRenderer({clock:()=>wall,
     setTimeout:(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;},clearTimeout:id=>timers.delete(id),
     requestAnimationFrame:callback=>{frames.set(++rafId,callback);return rafId;},cancelAnimationFrame:id=>frames.delete(id)});
 const map={};
-renderer.update({...input,map,google:{maps}});
+renderer.update({...input,map,google:{maps},onPulse:ids=>{pulseNodeIds=[...ids].sort();}});
 assert.equal(made.filter(o=>o instanceof Polygon && o.map===map).length,1);
 assert.equal(made.filter(o=>o instanceof Circle && o.map===map).length,4);
+assert.deepEqual(pulseNodeIds,nodes.map(n=>n.device_id).sort(),'the V2.2 marker pulse receives the participating node set');
 assert.equal(frames.size,1);
 assert.equal(timers.size,1);
 renderer.update({...input,map,google:{maps},reducedMotion:true});
