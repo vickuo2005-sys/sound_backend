@@ -24,7 +24,7 @@ assert.equal(model.setAllNodeDetectionRadius(100),true);assert(model.nodes.every
 assert.equal(model.setAllNodeDetectionRadius(10),false);assert.equal(model.setAllNodeDetectionRadius(5001),false);
 model.setAllNodeDetectionRadius(450);assert.equal(model.addNode({x:0,y:0}).detectionRadius,450,'new nodes inherit the shared range');model.nodes.pop();model.nodes[0].online=false;model.refreshEstimates(true);assert.equal(model.geometry().length,1);model.nodes[0].online=true;model.nodes[0].reporting=false;model.refreshEstimates(true);assert.equal(model.reportingNodes().length,1,'disabled nodes do not participate');
 model.preset('three');assert.equal(model.reportingNodes().length,3);assert.equal(model.geometry().length,3);assert.equal(model.sourceRegion().kind,'polygon');assert(model.selected().estimatedPosition);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
-assert.deepEqual([1,2,3,4,5].map(n=>lab.nodeVisual(n).shape),['circle','square','triangle','diamond','hexagon'],'simulation nodes follow the V2.2 shape sequence');
+assert.deepEqual([1,2,3,4,5].map(n=>lab.nodeVisual(n).shape),['circle','circle','circle','circle','circle'],'all nodes share one circle icon');
 assert.equal(lab.nodeVisual(1,true,false).fill,'#F8FAFC');assert.equal(lab.nodeVisual(2,true,true,0).scale,14);assert.equal(lab.nodeVisual(2,true,true,1).scale,20);assert.equal(lab.nodeVisual(2,true,true).fill,'#F97316');
 assert.equal(lab.nodeVisual(3,false,true).fill,'#475569','offline nodes stay gray even when a recent detection references them');assert.equal(lab.nodeVisual(3,false,true).opacity,.95);assert.equal(lab.nodeVisual(3,false,true).scale,14,'offline nodes never use the reporting pulse');
 const stableOrdinal=model.nodes[1].ordinal;model.nodes.shift();assert.equal(model.nodes[0].ordinal,stableOrdinal,'deleting another node does not change this node shape');
@@ -63,3 +63,16 @@ assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animati
 assert(!source.includes('data-field="unlocated"')&&!source.includes('data-action="place-target"'),'redundant pre-create location and sound-only controls are removed');
 assert(source.includes('<details class="slab-node-list">')&&!source.includes('<details class="slab-node-list" open>'),'long placed-node lists are independently collapsed by default');
 console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');
+
+// Regression: adding a drone without placing it must not activate every node.
+const pending=new lab.LabModel();
+pending.addNode({x:0,y:0});pending.addNode({x:2000,y:0});
+const draft=pending.createEvent({kind:'drone'});
+assert.deepEqual(pending.reportingNodes(draft),[]);
+assert.deepEqual(draft.detectedNodeIds,[]);
+assert.equal(pending.sourceRegion(draft).kind,'none');
+assert.equal(pending.alerts.length,0);
+pending.positionTarget(draft.id,{x:50,y:0});
+assert.deepEqual(pending.reportingNodes(draft).map(n=>n.id),[pending.nodes[0].id]);
+pending.loseTarget(draft.id);
+assert.deepEqual(pending.reportingNodes(draft),[]);

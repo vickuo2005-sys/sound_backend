@@ -1,0 +1,47 @@
+Audio analysis: tone frequency, dBFS amplitude, silence, time order and bounds passed
+Audio viewer: playback, decode failures, stale requests and resource cleanup passed
+Event context loading: selection races, deduplication, errors and retry passed
+Event context: historical times, coordinate provenance and missing-data semantics passed
+Location picker coordinates, request source and busy guard passed
+Location synchronization: null-device DELETE/WS, both snapshot races, fresh refresh and replay-close cleanup passed
+Dashboard node geometry: fixed-node persistence, explicit participation, freshness, hull, and renderer lifecycle passed
+dashboard operations: geometry, freshness, provenance, alert episodes and timed replay passed
+monitor overview: live/stale/failed/empty snapshots, node health and recent-event counts passed
+overview API degradation and shared live-map node icons passed
+PASS idle: clear-targets permits two consecutive additions and map placements
+PASS idle: clear-all permits two consecutive additions and map placements
+PASS idle: clear-nodes permits two consecutive additions and map placements
+PASS idle: clear-history permits two consecutive additions and map placements
+PASS playing: clear-targets permits two consecutive additions and map placements
+PASS playing: clear-all permits two consecutive additions and map placements
+PASS playing: clear-nodes permits two consecutive additions and map placements
+PASS playing: clear-history permits two consecutive additions and map placements
+PASS replaying: clear-targets permits two consecutive additions and map placements
+PASS replaying: clear-all permits two consecutive additions and map placements
+PASS replaying: clear-nodes permits two consecutive additions and map placements
+PASS replaying: clear-history permits two consecutive additions and map placements
+PASS paused replay: clear-targets permits two consecutive additions and map placements
+PASS paused replay: clear-all permits two consecutive additions and map placements
+PASS paused replay: clear-nodes permits two consecutive additions and map placements
+PASS paused replay: clear-history permits two consecutive additions and map placements
+PASS clear-targets resets stale sound and invalid motion inputs
+PASS clear-all resets stale sound and invalid motion inputs
+PASS creating drone never produces a hidden setup target
+PASS creating car never produces a hidden setup target
+PASS creating airplane never produces a hidden setup target
+PASS creating rainfall never produces a hidden setup target
+PASS creating electric_saw never produces a hidden setup target
+PASS invalid speed=-1 shows nearby feedback and focuses the invalid field
+PASS invalid speed=101 shows nearby feedback and focuses the invalid field
+PASS invalid heading=-1 shows nearby feedback and focuses the invalid field
+PASS invalid heading=360 shows nearby feedback and focuses the invalid field
+PASS newly added drone stays selected despite an existing warning
+PASS editing a start position exits active replay and updates the visible current scene
+PASS route points stay attached to the edited drone when alert selection changes
+PASS a removed target cannot produce a false successful placement
+PASS node placement continues past twelve and enforces the new 100-node capacity
+PASS adding an unplaced drone keeps SVG nodes inactive until a covered position is chosen
+simulation lab controls: clear/recreate, visible targets, validation, edit isolation and node capacity passed
+simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed
+dashboard_simulation_prediction: all assertions passed
+Dashboard status scenarios passed

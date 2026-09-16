@@ -243,5 +243,19 @@ test('node placement continues past twelve and enforces the new 100-node capacit
     assert(ui.slot('message').textContent.includes('100'));
 });
 
+test('adding an unplaced drone keeps SVG nodes inactive until a covered position is chosen', () => {
+    const ui = setup();
+    ui.model.preset('idle');
+    ui.click('create');
+    assert.equal(ui.model.targets.length,1);
+    assert.equal(ui.model.selected().position,null);
+    assert.equal(ui.model.reportingNodes().length,0);
+    assert(!/class="slab-node [^"]*is-active/.test(ui.slot('map').innerHTML));
+    assert.equal(ui.model.alerts.length,0);
+    ui.workspace.mapClick({x:0,y:0});
+    assert.equal(ui.model.reportingNodes().length,3);
+    assert(/class="slab-node [^"]*is-active/.test(ui.slot('map').innerHTML));
+});
+
 if (failures) process.exitCode = 1;
 else console.log('simulation lab controls: clear/recreate, visible targets, validation, edit isolation and node capacity passed');

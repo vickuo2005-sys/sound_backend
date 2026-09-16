@@ -649,7 +649,7 @@
             </div>
         </div>
         <div class="command-status" aria-label="連線狀態">
-            <span class="environment-badge">STAGING</span>
+            <span class="environment-badge">__ENVIRONMENT_LABEL__</span>
             __SIMULATION_TOPBAR_BADGE__
             <span class="command-chip"><span id="backendSymbol" class="status-symbol info">○</span><span id="backendStatus">Backend 連線中</span></span>
             <span class="command-chip"><span id="wsSymbol" class="status-symbol info">○</span><span id="wsStatus">WebSocket 連線中</span></span>
@@ -694,13 +694,13 @@
                     <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
                 </div>
 
-                <article class="card overview-location-card"><h2 class="card-title">節點位置設定</h2><p class="muted">選擇節點後，可自訂經緯度，作為地圖與區域估測的固定位置。</p><button class="action-button" data-view-target="nodes" type="button">設定節點位置 →</button></article>
+                <article class="card overview-location-card"><h2 class="card-title">監控資料狀態</h2><div id="overviewPipeline" class="overview-pipeline" aria-live="polite">正在連接服務…</div><button class="action-button" data-view-target="system" type="button">查看服務詳情 →</button></article>
                 </div>
 
                 <div id="overviewMapSlot" class="operational-grid">
                     <article class="card map-card">
                         <div class="card-header">
-                            <div><h2 class="card-title">節點與偵測位置</h2><div class="map-legend"><span><b class="legend-symbol">◆</b> 在線節點</span><span><b class="legend-symbol" style="color:#94a3b8">◆×</b> 離線節點</span><span><b class="legend-symbol event">●</b> 偵測紀錄</span><span><b class="legend-symbol event">◎</b> 區域估測</span><span><b class="legend-symbol track">━</b> 歷史軌跡</span><span><b class="legend-symbol event">△</b> 參與節點範圍</span>__SIMULATION_MAP_LEGEND__</div><div class="muted" style="font-size:13px">固定節點離線後仍保留在地圖；警示線與範圍表示參與偵測的節點，並非無人機實際位置。</div></div>
+                            <div><h2 class="card-title">節點與偵測位置</h2><div class="map-legend"><span><b class="legend-symbol">●</b> 在線節點</span><span><b class="legend-symbol" style="color:#94a3b8">●×</b> 離線節點</span><span><b class="legend-symbol event">●</b> 偵測紀錄</span><span><b class="legend-symbol event">◎</b> 區域估測</span><span><b class="legend-symbol track">━</b> 歷史軌跡</span><span><b class="legend-symbol event">△</b> 參與節點範圍</span>__SIMULATION_MAP_LEGEND__</div><div class="muted" style="font-size:13px">固定節點離線後仍保留在地圖；警示線與範圍表示參與偵測的節點，並非無人機實際位置。</div></div>
                             <div class="map-tools">__SIMULATION_CONTROLS__<button id="fitMapButton" class="ghost-button" aria-label="縮放以顯示所有節點與事件">顯示所有位置</button></div>
                         </div>
                         <div id="map" role="application" aria-label="Google Maps 節點與事件地圖"></div>
@@ -718,6 +718,11 @@
                     </article>
                 </div>
 
+                <div class="overview-live-grid">
+                    <article class="card overview-signal"><span class="eyebrow">近期偵測</span><h2>無人機聲音</h2><strong id="overviewDroneCount">—</strong><p id="overviewDroneNote">等待事件同步…</p><button class="action-button" data-view-target="detections" type="button">查看偵測摘要 →</button></article>
+                    <article class="card"><div class="card-header"><div><h2 class="card-title">節點健康</h2><p id="overviewNodeNote" class="muted">等待節點資料…</p></div><button class="ghost-button" data-view-target="nodes" type="button">管理節點 →</button></div><div id="overviewNodes" class="overview-list"></div></article>
+                    <article class="card"><div class="card-header"><div><h2 class="card-title">最新事件</h2><p id="overviewEventNote" class="muted">等待事件同步…</p></div><button class="ghost-button" data-view-target="events" type="button">全部事件 →</button></div><div id="overviewEvents" class="overview-list"></div></article>
+                </div>
             </section>
 
             <section id="view-detections" class="view" aria-labelledby="detectionsTitle">
@@ -834,6 +839,7 @@
     __AUDIO_EVIDENCE_SCRIPT__
     __OPERATIONS_SCRIPT__
     __NODE_GEOMETRY_SCRIPT__
+    __OVERVIEW_SCRIPT__
     __SIMULATION_SCENARIO_SCRIPT__
     <script>
         'use strict';
@@ -848,7 +854,7 @@
         const state = {
             events: [], devices: new Map(), fixedLocations: new Map(), locationsVersion:0, tracks: new Map(), groups: new Map(),
             health: null, runtime: null, backendConnected: false, wsConnected: false,
-            loaded: false, devicesAt: null, devicesFailed: false, snapshotInFlight: false,
+            loaded: false, devicesAt: null, devicesFailed: false, eventsAt:null, eventsFailed:false, snapshotInFlight: false,
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
             selectedEventId: null, selectedNodeId: 'node_A01', selectedGroupId: null, selectedTrackId: null,
             commands: new Map(), confirmAction: null, locationEditDeviceId: null, locationBusy: false, locationClearArmed: false,
@@ -1321,7 +1327,9 @@
             try {
                 const response = await fetch(url, {cache:'no-store', signal:controller.signal});
                 if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-                return await response.json();
+                const payload = await response.json();
+                if (['degraded','error'].includes(payload?.status)) throw new Error(`${url} data unavailable`);
+                return payload;
             } finally { clearTimeout(timeout); }
         }
 
@@ -1338,9 +1346,11 @@
             state.loaded = true;
             state.snapshotInFlight = false;
             state.devicesFailed = devicesResult.status !== 'fulfilled' || !Array.isArray(devicesResult.value?.devices);
+            state.eventsFailed = eventsResult.status !== 'fulfilled' || !Array.isArray(eventsResult.value?.events);
             state.backendConnected = healthResult.status === 'fulfilled' || eventsResult.status === 'fulfilled';
             if (eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value.events)) {
                 state.events = eventsResult.value.events.map(normalizeEvent).sort((a,b) => eventTime(b)-eventTime(a)).slice(0,200);
+                state.eventsAt = Date.now();
                 state.latestDetectionOrder = state.events.length ? eventTime(state.events[0]) : -Infinity;
             }
             if (locationsVersion === state.locationsVersion && devicesResult.status === 'fulfilled' && Array.isArray(devicesResult.value.devices)) {
@@ -1405,7 +1415,38 @@
             const action = document.getElementById('monitorAction');
             action.textContent = summary.action === 'nodes' ? '前往節點管理 →' : '查看系統狀態 →';
             action.onclick = () => switchView(summary.action);
+            renderMonitoringOverview();
             window.DashboardOperationsUI?.render();
+        }
+
+        function renderMonitoringOverview() {
+            const data = DashboardOverview.summarize({
+                ...state, now:Date.now(),
+                devices:canonicalDevices().filter(d=>state.devices.has(d.device_id)||state.fixedLocations.has(d.device_id)).map(d=>({id:d.device_id, online:deviceOnline(d), listening:d.is_listening===true, located:Boolean(nodeLocation(d)), lastSeen:d.last_seen})),
+                events:state.events.map(e=>({id:e.event_id, time:eventTime(e), drone:String(classLabel(e)).toLowerCase()==='drone', label:classNamesZh[modelLabel(e)] || classLabel(e), device:e.device_id, score:modelScore(e)}))
+            });
+            const statusRow=(label,value,ok)=>`<div><span>${safe(label)}</span><strong class="${ok?'overview-ok':'overview-warn'}">${safe(value)}</strong></div>`;
+            document.getElementById('overviewPipeline').innerHTML =
+                statusRow('後端服務',state.backendConnected?'已連線':'未連線',state.backendConnected) +
+                statusRow('即時事件',state.wsConnected?'即時連線':'定期同步 / 重連中',state.wsConnected) +
+                statusRow('節點資料',data.nodesFresh?'已更新':'待確認 / 已過期',data.nodesFresh) +
+                statusRow('事件資料',data.eventsFresh?'已更新':'待確認 / 已過期',data.eventsFresh);
+            document.getElementById('overviewDroneCount').textContent = data.recentDroneCount ?? '—';
+            document.getElementById('overviewDroneNote').textContent = data.eventsFresh ? '近 60 秒無人機聲音紀錄，非無人機架數' : '事件同步尚未完成，暫不判定';
+            document.getElementById('overviewNodeNote').textContent = data.nodesFresh ? `${data.online} 在線 · ${data.offline} 離線 · ${data.missingLocation} 未設定位置` : '狀態待確認；以下保留最後回報';
+            const nodes = document.getElementById('overviewNodes');
+            const nodeHTML = data.devices.map(d=>`<button type="button" class="overview-node" data-overview-node="${safe(d.id)}"><span class="overview-node-dot ${!data.nodesFresh?'unknown':d.online?'online':'offline'}" aria-hidden="true">●</span><span><strong>${safe(shortNodeId(d.id))}</strong><small>${d.located?'位置已設定':'尚無位置'} · ${safe(formatTime(d.lastSeen))}</small></span><span class="overview-node-state">${!data.nodesFresh?'待確認':!d.online?'離線':d.listening?'監聽中':'尚未監聽'}</span></button>`).join('') || '<p class="overview-empty">尚無節點回報。連接手機 APP 後，節點會自動出現在這裡。</p>';
+            if(nodes.innerHTML !== nodeHTML) {
+                nodes.innerHTML=nodeHTML;
+                nodes.querySelectorAll('[data-overview-node]').forEach(button=>button.onclick=()=>{state.selectedNodeId=button.dataset.overviewNode;switchView('nodes');});
+            }
+            document.getElementById('overviewEventNote').textContent = data.eventsFresh ? `同步 ${formatTime(new Date(state.eventsAt).toISOString())} · 最近 5 筆` : '資料未確認；舊紀錄不代表目前仍在偵測';
+            const events = document.getElementById('overviewEvents');
+            const eventHTML = data.recentEvents.map(e=>`<button type="button" class="overview-event" data-overview-event="${safe(e.id)}"><span class="overview-event-class ${e.drone?'drone':''}">${e.drone?'◎':'○'}</span><span><strong>${safe(e.label)}</strong><small>${safe(shortNodeId(e.device))} · ${safe(formatDateTime(new Date(e.time).toISOString()))}</small></span><span>${formatPercent(e.score)}<small>模型分數</small></span></button>`).join('') || `<p class="overview-empty">${data.eventsFresh?'尚無偵測紀錄。請先確認節點已開始監聽。':'等待事件資料…'}</p>`;
+            if(events.innerHTML !== eventHTML) {
+                events.innerHTML=eventHTML;
+                events.querySelectorAll('[data-overview-event]').forEach(button=>button.onclick=()=>selectEvent(button.dataset.overviewEvent));
+            }
         }
 
         function renderCommandBar() {
@@ -1422,12 +1463,11 @@
         }
 
         function renderMetrics() {
-            const devices = canonicalDevices();
+            const devices = canonicalDevices().filter(d=>state.devices.has(d.device_id)||state.fixedLocations.has(d.device_id));
             const online = devices.filter(deviceOnline).length;
-            const reported = devices.filter(device => state.devices.has(device.device_id)).length;
             const listening = devices.filter(device => deviceOnline(device) && device.is_listening === true).length;
-            document.getElementById('nodesOnlineMetric').textContent = `${online} / ${canonicalNodeSlots.length}`;
-            document.getElementById('nodesOnlineDetail').textContent = `${reported} 台曾回報；包含離線節點`;
+            document.getElementById('nodesOnlineMetric').textContent = `${online} / ${devices.length}`;
+            document.getElementById('nodesOnlineDetail').textContent = `${devices.length} 個已登錄節點；包含離線節點`;
             document.getElementById('listeningMetric').textContent = String(listening);
             const aiStates = devices.filter(deviceOnline).map(device => String(device.ai_status || '').trim()).filter(Boolean);
             document.getElementById('aiMetric').textContent = aiStates.length ? aiStates[0].toUpperCase() : '—';
@@ -1611,8 +1651,7 @@
             request.loadedAt = Date.now(); renderEventContext();
         }
         function nodeShapeText(deviceId) {
-            const id = shortNodeId(deviceId).toUpperCase();
-            if (id === 'A01') return '●'; if (id === 'A02') return '◆'; if (id === 'A03') return '▲'; if (id === 'A04') return '■'; return '⬡';
+            return '●';
         }
         function nodeState(device) {
             if (!device.reported && !state.devices.has(device.device_id)) return {text:'未回報', css:'off'};
@@ -2007,14 +2046,9 @@
         }
 
         function nodeMarkerIcon(device, online, active=false, pulse=.5) {
-            const id = shortNodeId(device.device_id).toUpperCase();
             const reporting=active&&online;
             const common = {fillColor:reporting?'#f97316':online?'#f8fafc':'#475569',fillOpacity:online?1:.95,strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc',strokeWeight:reporting?4:3,scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14};
-            if (id === 'A01') return {...common, path:google.maps.SymbolPath.CIRCLE};
-            if (id === 'A02') return {...common, path:'M -1 -1 L 1 -1 L 1 1 L -1 1 Z'};
-            if (id === 'A03') return {...common, path:'M 0 -1.3 L 1.2 1 L -1.2 1 Z'};
-            if (id === 'A04') return {...common, path:'M 0 -1.2 L 1.2 0 L 0 1.2 L -1.2 0 Z'};
-            return {...common, path:'M 0 -1.2 L 1.05 -.6 L 1.05 .6 L 0 1.2 L -1.05 .6 L -1.05 -.6 Z'};
+            return {...common, path:google.maps.SymbolPath.CIRCLE};
         }
         window.initOperationalMap = function initOperationalMap() {
             if (!window.google?.maps || mapStarted || mapsLoadFailed) return;

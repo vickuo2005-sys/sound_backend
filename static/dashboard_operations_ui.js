@@ -103,7 +103,7 @@
         const selected=valid.find(a=>a.id===focused) || valid[0];
         const active=selected || newest;
         panel.hidden=!active;
-        el('monitorStatus').hidden=!!active;
+        el('monitorStatus').hidden=false;
         if(!active){banner.hidden=true;mapObjects(null);return;}
         const lost=!selected && now-eventTime(newest)>15000;
         const title=lost?'目標失去更新':selected?.status==='inside'?'無人機進入警戒區':'偵測到無人機';
