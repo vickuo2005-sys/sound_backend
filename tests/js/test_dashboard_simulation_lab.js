@@ -13,6 +13,11 @@ model.positionTarget(target.id,{x:300,y:0});model.positionTarget(target.id,{x:20
 model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'lost');assert.equal(lab.assess(target,model.site).arrivalEta,null);assert.equal(model.alerts.length,0);
 model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
 
+const fittedIntegration=new lab.LabModel();fittedIntegration.preset('approach');for(let i=0;i<8;i++)fittedIntegration.step(1);const fittedTarget=fittedIntegration.selected();
+assert.equal(fittedTarget.sitePrediction.raw.motion.source,'fitted_estimated_trajectory','live lab ETA uses one fitted estimated trajectory');
+assert(fittedTarget.etaEvaluation.length>0,'each simulation frame records ETA evaluation data');
+assert(Object.hasOwn(fittedTarget.etaEvaluation.at(-1),'truthEtaSeconds'),'ground truth is retained only as an evaluation field');
+
 const systemAlarm=new lab.LabModel();systemAlarm.setSite({x:0,y:0},20);systemAlarm.addNode({x:-200,y:0});systemAlarm.addNode({x:100,y:0});systemAlarm.setAllNodeDetectionRadius(500);
 const truthInside=systemAlarm.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'inside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'outside');assert.equal(systemAlarm.alerts.length,0,'truth path alone cannot trigger a system warning');
 systemAlarm.positionTarget(truthInside.id,{x:80,y:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'outside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'inside');assert.equal(systemAlarm.alerts.length,1,'the warning follows the estimated system path even while truth is outside');

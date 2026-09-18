@@ -1,5 +1,7 @@
 (function (root) {
     'use strict';
+    const Eta = root.DashboardSimulationEta || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_eta.js') : null);
+    if(!Eta)throw new Error('DashboardSimulationEta must load before DashboardSimulationLab');
     // This workspace owns all of its state. It must never import live dashboard state,
     // call application APIs, or publish simulated events onto the real event bus.
     const ORIGIN = Object.freeze({ lat: 25.039, lng: 121.5752 });
@@ -38,6 +40,8 @@
         return {kind:shape.length===2?'line':'polygon',path:shape,estimate};
     }
     function estimateFromDetections(nodes,target) {
+        // Simulation-only oracle localization: truth synthesizes noisy/partial sensor estimates.
+        // ETA prediction below only consumes the resulting estimatedTrail observations.
         if(!point(target?.position)||nodes.length<2)return null;
         const weighted=nodes.map(node=>{
             const range=Math.max(20,Number(node.detectionRadius)||300),d=distance(node,target.position);
@@ -75,18 +79,23 @@
     function assessSystem(target, site) {
         const result={ status:target.lost?'lost':!point(target.estimatedPosition)?'unlocated':'located',distance:null,zoneEta:null,arrivalEta:null,trend:null };
         if(target.lost||!point(target.estimatedPosition)||!point(site)||target.kind!=='drone')return result;
-        const x=target.estimatedPosition.x-site.x,y=target.estimatedPosition.y-site.y,d=Math.hypot(x,y),v=estimatedVelocity(target);
+        const prediction=target.sitePrediction,raw=prediction?.raw,motion=raw?.motion;
+        const current=motion?.valid&&point(motion.position)?motion.position:target.estimatedPosition;
+        const x=current.x-site.x,y=current.y-site.y,d=Math.hypot(x,y),v=motion?.valid?{x:motion.vx,y:motion.vy}:estimatedVelocity(target);
         const closing=d?-(x*v.x+y*v.y)/d:0;
         Object.assign(result,{distance:d,status:d<=site.radius?'inside':'outside',trend:closing>.1?'approaching':closing<-.1?'departing':'stationary'});
-        result.zoneEta=circleEntry(x,y,v.x,v.y,site.radius);
-        result.arrivalEta=circleEntry(x,y,v.x,v.y,site.arrivalRadius);
+        if(prediction){
+            result.zoneEta=prediction.display?.displayEtaSeconds??null;
+            result.arrivalEta=prediction.arrivalRaw?.valid?prediction.arrivalRaw.rawEtaSeconds:null;
+            if(raw?.motion?.valid)result.trend={APPROACHING:'approaching',DEPARTING:'departing',STATIONARY:'stationary',UNCERTAIN:'stationary'}[raw.trend]||result.trend;
+        }
         return result;
     }
     class LabModel {
         constructor() { this.sequence=0; this.reset(); }
         reset() {
             this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeSequence=0;this.nodeDetectionRadius=450;
-            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;
+            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;this.etaStabilizers=new Map();
         }
         id(prefix) { return `SIM-${prefix}-${++this.sequence}`; }
         addNode(position) {
@@ -101,7 +110,7 @@
         setSite(position,radius=this.site?.radius??150) {
             if (!point(position)||!finite(radius)||radius<20||radius>5000) return false;
             this.site={ x:position.x,y:position.y,name:'模擬據點',radius,arrivalRadius:Math.min(20,radius) };
-            this.targets.forEach(t=>{t.inside=false;}); this.inspect(); return true;
+            this.targets.forEach(t=>{t.inside=false;t.sitePrediction=null;});this.etaStabilizers.clear();this.inspect(); return true;
         }
         createEvent(options={}) {
             if(this.targets.length>=LIMITS.targets) return null;
@@ -109,7 +118,8 @@
             const reporters=(options.reporters || this.nodes.filter(n=>n.reporting&&n.online).map(n=>n.id)).filter(id=>this.nodes.some(n=>n.id===id&&n.online));
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
-                waypoints:[],reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1) };
+                waypoints:[],reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
+                motionSegment:0,sitePrediction:null,etaEvaluation:[] };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
             const event={ id:this.id('EVENT'),targetId:target.id,kind,time:this.time,reporters:reporters.slice(),simulation:true };
@@ -125,23 +135,51 @@
         }
         geometry(target=this.selected()) { return hull(this.reportingNodes(target)); }
         sourceRegion(target=this.selected()) { return possibleSource(this.reportingNodes(target)); }
+        predictionHistory(target) { return (target?.estimatedTrail||[]).filter(p=>(p.motionSegment??0)===(target.motionSegment??0)); }
+        stabilizer(target) {
+            if(!this.etaStabilizers.has(target.id))this.etaStabilizers.set(target.id,new Eta.EtaStabilizer());
+            return this.etaStabilizers.get(target.id);
+        }
+        resetPrediction(target,incrementSegment=false) {
+            if(!target)return;
+            if(incrementSegment)target.motionSegment=(target.motionSegment??0)+1;
+            target.sitePrediction=null;this.etaStabilizers.delete(target.id);
+        }
+        updatePrediction(target) {
+            const referenceTimeMs=this.time*1000;
+            if(!target||target.kind!=='drone'||target.lost){this.resetPrediction(target);return null;}
+            const history=this.predictionHistory(target);
+            const raw=Eta.createRawSitePrediction({history,referenceTimeMs,site:this.site});
+            const display=this.stabilizer(target).update(raw,referenceTimeMs);
+            const arrivalRaw=Eta.createRawSitePrediction({history,referenceTimeMs,site:{...this.site,radius:this.site.arrivalRadius}});
+            const truthEtaSeconds=Eta.groundTruthEta(target,this.site);
+            const rawErrorSeconds=raw.rawEtaSeconds===null||truthEtaSeconds===null?null:raw.rawEtaSeconds-truthEtaSeconds;
+            const displayErrorSeconds=display.displayEtaSeconds===null||truthEtaSeconds===null?null:display.displayEtaSeconds-truthEtaSeconds;
+            target.sitePrediction={raw,display,arrivalRaw,truthEtaSeconds,rawErrorSeconds,displayErrorSeconds};
+            const frame={timeMs:referenceTimeMs,truthEtaSeconds,rawEtaSeconds:raw.rawEtaSeconds,displayEtaSeconds:display.displayEtaSeconds,rawErrorSeconds,displayErrorSeconds,state:display.state,reason:raw.reason};
+            const previous=target.etaEvaluation.at(-1);
+            if(previous?.timeMs===referenceTimeMs)target.etaEvaluation[target.etaEvaluation.length-1]=frame;else target.etaEvaluation.push(frame);
+            target.etaEvaluation=target.etaEvaluation.slice(-LIMITS.points);
+            return target.sitePrediction;
+        }
         updateEstimate(target,force=false) {
             if(!target)return null;
             const detected=this.reportingNodes(target);target.detectedNodeIds=detected.map(n=>n.id);
             const estimate=target.kind==='drone'&&!target.lost?estimateFromDetections(detected,target):null;
             target.estimatedPosition=estimate;
             if(estimate&&(force||!target.estimatedTrail.length||this.time-target.estimatedTrail.at(-1).time>=.18)){
-                target.estimatedTrail.push({...estimate,time:this.time,nodeCount:detected.length});target.estimatedTrail=target.estimatedTrail.slice(-LIMITS.points);
+                target.estimatedTrail.push({...estimate,time:this.time,measurementTimeMs:this.time*1000,nodeCount:detected.length,motionSegment:target.motionSegment??0,source:'simulation_oracle_localization'});target.estimatedTrail=target.estimatedTrail.slice(-LIMITS.points);
             }
             return estimate;
         }
         positionTarget(id,p) {
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
-            t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
+            this.resetPrediction(t,true);t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
         }
-        loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.updateEstimate(t,true);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
+        loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.updateEstimate(t,true);this.resetPrediction(t);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
         inspect() {
             for(const target of this.targets) {
+                this.updatePrediction(target);
                 const state=assessSystem(target,this.site);
                 if(state.status==='inside'&&!target.inside) {
                     this.alerts.push({id:this.id('ALERT'),targetId:target.id,time:this.time,simulation:true});
@@ -180,9 +218,9 @@
         preserveHistory() {
             for(const event of this.events){const target=this.targets.find(t=>t.id===event.targetId);if(target){event.points=copy(target.trail);event.estimatedPoints=copy(target.estimatedTrail);}}
         }
-        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;}
-        clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.estimatedPosition=null;target.detectedNodeIds=[];target.estimatedTrail=[];}}
-        clearHistory(){this.events=[];this.replay=null;}
+        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();}
+        clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.estimatedPosition=null;target.detectedNodeIds=[];target.estimatedTrail=[];target.etaEvaluation=[];this.resetPrediction(target);}}
+        clearHistory(){this.events=[];this.replay=null;this.targets.forEach(t=>{t.etaEvaluation=[];});}
         leave() { this.playing=false;this.alerts=[];if(this.replay)this.replay.playing=false; }
         preset(name) {
             this.reset();
@@ -220,6 +258,23 @@
     const statuses={inside:'已進入警戒區',outside:'警戒區外',located:'已放置模擬位置',lost:'目標失聯',unlocated:'位置未知'};
     const trends={approaching:'往據點靠近',departing:'正在遠離據點',stationary:'停止或橫向移動'};
     const duration=seconds=>seconds===null?'—':seconds===0?'已到達':`${Math.ceil(seconds)} 秒`;
+    const metric=(value,digits=1)=>finite(value)?Number(value).toFixed(digits):'—';
+    const simTimestamp=value=>finite(value)?`T+${(value/1000).toFixed(2)}s`:'—';
+    const predictionStates={STABLE:'穩定',HOLDING:'暫時保留',CLEARED:'已清除',UNSTABLE:'資料不足'};
+    function predictionDebug(target){
+        const prediction=target?.sitePrediction,raw=prediction?.raw||{},display=prediction?.display||{},motion=raw.motion||{};
+        return `<details class="slab-prediction-debug"><summary>ETA 工程資訊 <small>${escape(predictionStates[display.state]||'無預測')}</small></summary><dl>
+            <dt>Raw ETA</dt><dd>${duration(raw.rawEtaSeconds??null)}</dd><dt>Display ETA</dt><dd>${duration(display.displayEtaSeconds??null)}</dd>
+            <dt>Raw 進入時間</dt><dd>${simTimestamp(raw.rawEntryTimeMs)}</dd><dt>平滑進入時間</dt><dd>${simTimestamp(display.smoothedEntryTimeMs)}</dd>
+            <dt>回歸位置 x / y</dt><dd>${metric(motion.position?.x)} / ${metric(motion.position?.y)} m</dd><dt>速度 vx / vy</dt><dd>${metric(motion.vx,2)} / ${metric(motion.vy,2)} m/s</dd>
+            <dt>速率 / 航向</dt><dd>${metric(motion.speed,2)} m/s / ${metric(motion.heading)}°</dd><dt>樣本 / 時窗</dt><dd>${motion.sampleCount??0} / ${metric((motion.timeSpanMs??0)/1000,2)} s</dd>
+            <dt>最大間隔 / RMSE</dt><dd>${metric(finite(motion.maximumGapMs)?motion.maximumGapMs/1000:null,2)} s / ${metric(motion.residualRmse)} m</dd><dt>Closing speed</dt><dd>${metric(raw.closingSpeed,2)} m/s</dd>
+            <dt>CPA 距離 / 時間</dt><dd>${metric(raw.cpaDistance)} m / ${metric(raw.cpaTime)} s</dd><dt>軌跡不確定度</dt><dd>±${metric(raw.trajectoryUncertaintyM)} m</dd>
+            <dt>交會判定</dt><dd>${escape(raw.rawIntersectionState||'UNAVAILABLE')} / ${escape(raw.mathematicalIntersection||'—')}</dd><dt>穩定器</dt><dd>${escape(display.state||'UNSTABLE')} · hold ${metric(display.holdAgeMs??0,0)} ms</dd>
+            <dt>Reason</dt><dd>${escape(raw.reason||'NO_PREDICTION')}</dd><dt>真值 ETA（只供評估）</dt><dd>${duration(prediction?.truthEtaSeconds??null)}</dd>
+            <dt>Raw / Display 誤差</dt><dd>${metric(prediction?.rawErrorSeconds)} / ${metric(prediction?.displayErrorSeconds)} s</dd><dt>資料來源</dt><dd>${escape(motion.source||'estimated trajectory only')}</dd>
+        </dl><p>以上為模擬工程參數與評估資料，尚未經實地校正；真值不會送入 ETA 估算器。</p></details>`;
+    }
     const clock=seconds=>`${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
     const DRONE_PATH='M -9 -6 L 9 6 M -9 6 L 9 -6 M -13 -6 A 4 4 0 1 0 -5 -6 A 4 4 0 1 0 -13 -6 M 5 -6 A 4 4 0 1 0 13 -6 A 4 4 0 1 0 5 -6 M -13 6 A 4 4 0 1 0 -5 6 A 4 4 0 1 0 -13 6 M 5 6 A 4 4 0 1 0 13 6 A 4 4 0 1 0 5 6';
     const NODE_PATH='M 0 -1 A 1 1 0 1 1 0 1 A 1 1 0 1 1 0 -1';
@@ -401,10 +456,10 @@
             const select=this.field('target-select');if(select)select.onchange=()=>{this.resetEditing();m.selectedId=select.value;this.render();};
             }
             if(!t){slot.innerHTML=`<div class="slab-idle-icon">◎</div><h4>一般節點監控</h4><p>尚無模擬事件</p><div class="slab-metrics"><div><span>線上節點</span><b>${m.nodes.filter(n=>n.online).length} / ${m.nodes.length}</b></div><div><span>模擬警戒半徑</span><b>${m.site.radius} m</b></div></div><p class="slab-hint">建立事件後，這裡會自動顯示目標資訊。</p>`;return;}
-            const a=assessSystem(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null;
+            const a=assessSystem(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null,prediction=t.sitePrediction;
             const regionLabel={none:'無',circle:'單節點偵測圈',line:'兩節點之間',polygon:`${detected.length} 節點包圍區域`}[region.kind];
             const error=point(t.estimatedPosition)&&point(t.position)?Math.round(distance(t.estimatedPosition,t.position)):null;
-            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p><p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
+            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b><small>${t.kind==='drone'?escape(predictionStates[prediction?.display?.state]||'資料不足'):''}</small></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p>${t.kind==='drone'?predictionDebug(t):''}<p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
         }
         renderAlert() {
             const alerts=this.active&&!this.model.replay?this.model.alerts:[],alert=alerts[0];

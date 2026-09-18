@@ -99,9 +99,9 @@ two online, enabled nodes must detect a drone before the lab emits a system
 position estimate. Two reporting nodes form a line region; three or more form a
 convex region.
 
-Simulation and operational maps reuse the V2.2 node language. Fixed nodes cycle
-through circle, square, triangle, diamond, and hexagon symbols with a white fill
-and dark outline. A node that currently participates in the system estimate
+Simulation and operational maps reuse the V2.2 node language. Fixed nodes use
+one consistent circle symbol with a white fill and dark outline. A node that
+currently participates in the system estimate
 turns orange and pulses; its detection range also pulses. Two participating
 nodes draw an orange connection, while three or more draw an orange convex
 region. The animation follows the estimated path only, so the hidden simulation
@@ -114,9 +114,14 @@ The purple path represents simulated ground truth and exists only for visual
 comparison. The blue path represents the system estimate. Warning entry,
 approach/departure state, distance to the site, protected-zone ETA, and site ETA
 are calculated exclusively from the blue estimated position and its timestamped
-history. Ground truth never fills a missing estimate and never triggers a
-warning. The sound-only/position-incomplete condition remains available as a
-quick demonstration preset rather than a manual event-creation control.
+history. Position and velocity come from the same finite regression trajectory.
+The display ETA smooths the absolute entry timestamp and briefly holds an
+unstable frame; CPA tolerance comes from trajectory residuals. Ground truth is
+recorded only for per-frame ETA evaluation, never estimator input, and never
+triggers a warning. See `SIMULATION_LAB_ETA_STABILITY.md` for the algorithm,
+constants, reason codes, and deterministic tests. The sound-only/position-
+incomplete condition remains available as a quick demonstration preset rather
+than a manual event-creation control.
 
 ## Staging validation
 

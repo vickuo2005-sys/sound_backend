@@ -16,6 +16,7 @@ PREDICTION_PATH = (
     / "static"
     / "dashboard_simulation_prediction.js"
 )
+LAB_ETA_PATH = Path(__file__).resolve().parents[1] / "static" / "dashboard_simulation_eta.js"
 
 
 def simulation_html() -> str:
@@ -103,6 +104,17 @@ def test_pure_prediction_module_loads_before_scenarios() -> None:
     assert html.index("function computeSimulationPredictionTick") < html.index(
         "function attachSimulationScenarios"
     )
+
+
+def test_simulation_lab_eta_module_loads_before_the_lab() -> None:
+    html = simulation_html()
+    assert html.index("function createRawSitePrediction") < html.index(
+        "class LabModel"
+    )
+    source = LAB_ETA_PATH.read_text(encoding="utf-8")
+    for forbidden in ("Date.now", "Math.random", "fetch(", "WebSocket(", "document."):
+        assert forbidden not in source
+    assert "timeMs>referenceTimeMs" in source
 
 
 def test_pure_prediction_module_has_no_runtime_or_nondeterministic_dependencies() -> None:
