@@ -39,3 +39,21 @@ assert(stale.predict(1999));
 assert.equal(stale.predict(2001), null);
 
 console.log('simulation alpha-beta tracker tests passed');
+
+
+// High-quality measurements should be trusted more than uncertain ones.
+const highQuality = new Tracking.AlphaBetaTracker({measurementIntervalMs:1000});
+const lowQuality = new Tracking.AlphaBetaTracker({measurementIntervalMs:1000});
+highQuality.update({x:0,y:0},0,{uncertaintyM:5,qualityScore:.9});
+lowQuality.update({x:0,y:0},0,{uncertaintyM:80,qualityScore:.2});
+const highCorrection = highQuality.update({x:50,y:0},1000,{uncertaintyM:5,qualityScore:.9});
+const lowCorrection = lowQuality.update({x:50,y:0},1000,{uncertaintyM:80,qualityScore:.2});
+assert(highCorrection.accepted && lowCorrection.accepted);
+assert(highCorrection.alphaUsed > lowCorrection.alphaUsed);
+assert(highCorrection.betaUsed > lowCorrection.betaUsed);
+assert(highCorrection.state.x > lowCorrection.state.x,'better localization quality should pull the track closer to the measurement');
+assert(highCorrection.uncertaintyM < lowCorrection.uncertaintyM,'better measurements should leave a tighter track uncertainty');
+
+// Prediction uncertainty expands while no fresh measurement arrives.
+const uncertaintyGrowth = highQuality.predict(1500);
+assert(uncertaintyGrowth.uncertaintyM > highCorrection.uncertaintyM);
