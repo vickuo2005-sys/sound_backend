@@ -107,8 +107,8 @@
             this.nodes.push(node); return node;
         }
         moveNode(id,position) { const n=this.nodes.find(n=>n.id===id); if(n&&point(position)) { n.x=position.x;n.y=position.y;this.refreshEstimates(true);return true; } return false; }
-        setAllNodeDetectionRadius(radius) { radius=Number(radius);if(!Number.isFinite(radius)||radius<20||radius>5000)return false;this.nodeDetectionRadius=radius;this.nodes.forEach(n=>{n.detectionRadius=radius;});this.refreshEstimates(true);this.inspect();return true; }
-        refreshEstimates(force=false) { this.targets.forEach(t=>this.updateEstimate(t,force)); }
+        setAllNodeDetectionRadius(radius) { radius=Number(radius);if(!Number.isFinite(radius)||radius<20||radius>5000)return false;this.nodeDetectionRadius=radius;this.nodes.forEach(n=>{n.detectionRadius=radius;});this.refreshEstimates(true);return true; }
+        refreshEstimates(force=false) { this.targets.forEach(t=>this.updateEstimate(t,force));this.inspect(); }
         setSite(position,radius=this.site?.radius??150) {
             if (!point(position)||!finite(radius)||radius<20||radius>5000) return false;
             this.site={ x:position.x,y:position.y,name:'模擬據點',radius,arrivalRadius:Math.min(20,radius) };
@@ -647,22 +647,24 @@
         clearGoogle(){this.googleOverlays.forEach(o=>o.setMap(null));this.googleOverlays.clear();}
         googleOverlay(key,Type,options,used){let overlay=this.googleOverlays.get(key);if(!overlay){overlay=new Type({...options,map:this.googleMap});this.googleOverlays.set(key,overlay);}else overlay.setOptions({...options,map:this.googleMap});used.add(key);return overlay;}
         renderGoogle(){
-            const g=root.google.maps,m=this.model,used=new Set(),put=(key,Type,options)=>this.googleOverlay(key,Type,options,used);
-            put('site-zone',g.Circle,{center:latLng(m.site),radius:m.site.radius,strokeColor:'#FBBF24',strokeOpacity:.8,strokeWeight:2,fillColor:'#FBBF24',fillOpacity:.1,clickable:false});
-            put('site-marker',g.Marker,{position:latLng(m.site),label:{text:'據點',color:'#0B1220',fontWeight:'700'},icon:{path:g.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
-            const target=m.selected(),detected=!m.replay&&target?.kind==='drone'&&!target.lost?m.reportingNodes(target):[],detectedIds=new Set(detected.map(n=>n.id));
-            const pulse=(Math.sin(Date.now()/180)+1)/2;
-            for(const n of m.nodes){
-                const active=detectedIds.has(n.id),visual=nodeVisual(n.ordinal,n.online,active,pulse);
+            const g=root.google.maps,m=this.model,used=new Set(),put=(key,Type,options)=>this.googleOverlay(key,Type,options,used),
+                replay=m.replay,replayT=replay?replayTime(replay):null,replayFrame=replay?replayFrameAtTime(replay.frames,replayT):null,
+                siteModel=replayFrame?.site||m.site,nodeModels=replayFrame?.nodes||m.nodes;
+            put('site-zone',g.Circle,{center:latLng(siteModel),radius:siteModel.radius,strokeColor:'#FBBF24',strokeOpacity:.8,strokeWeight:2,fillColor:'#FBBF24',fillOpacity:.1,clickable:false});
+            put('site-marker',g.Marker,{position:latLng(siteModel),label:{text:'據點',color:'#0B1220',fontWeight:'700'},icon:{path:g.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
+            const target=m.selected(),liveDetected=!replay&&target?.kind==='drone'&&!target.lost?m.reportingNodes(target):[],
+                detectedIds=new Set(replayFrame?.detectedNodeIds||liveDetected.map(n=>n.id));
+            const pulse=(Math.sin(Date.now()/180)+1)/2,activeNodes=[];
+            for(const n of nodeModels){
+                const active=replayFrame?Boolean(n.active):detectedIds.has(n.id),visual=nodeVisual(n.ordinal,n.online,active,pulse);
+                if(active)activeNodes.push(n);
                 put(`node-range:${n.id}`,g.Circle,{center:latLng(n),radius:n.detectionRadius,strokeColor:active?'#F97316':'#5EEAD4',strokeOpacity:active?.85:.42,strokeWeight:active?2.5:1.5,fillColor:active?'#F97316':'#5EEAD4',fillOpacity:active?.1:.045,clickable:false});
                 put(`node:${n.id}`,g.Marker,{position:latLng(n),title:`${n.name} · 偵測 ${n.detectionRadius}m${n.online?'':' · 離線'}`,label:{text:`N${String(n.ordinal).padStart(2,'0')}${n.online?'':'×'}`,color:n.online?'#111827':'#F8FAFC',fontSize:'12px',fontWeight:'800'},icon:{path:visual.path,scale:visual.scale,fillColor:visual.fill,fillOpacity:visual.opacity,strokeColor:visual.stroke,strokeWeight:visual.strokeWidth},zIndex:active&&n.online?30:10,clickable:false});
             }
-            if(detected.length)for(const n of detected)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),radius:24+pulse*28,strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.9-pulse*.75,fillColor:'#F97316',fillOpacity:.1-pulse*.07,clickable:false});
-            const geometry=m.geometry(target);
-            if(!m.replay&&target?.kind==='drone'&&!target.lost){
-                if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:5,strokeOpacity:.95,clickable:false});
-                else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.85,fillColor:'#F97316',fillOpacity:.12,clickable:false});
-            }
+            if(activeNodes.length)for(const n of activeNodes)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),radius:24+pulse*28,strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.9-pulse*.75,fillColor:'#F97316',fillOpacity:.1-pulse*.07,clickable:false});
+            const geometry=replayFrame?.sourceRegion?.path||(!replay?m.geometry(target):[]);
+            if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:5,strokeOpacity:.95,clickable:false});
+            else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.85,fillColor:'#F97316',fillOpacity:.12,clickable:false});
             const trueLine=(key,trail,muted=false)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#C4B5FD',strokeOpacity:muted?.3:.9,strokeWeight:4,clickable:false});};
             const estimateLine=(key,trail)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#60A5FA',strokeOpacity:0,strokeWeight:2,icons:[{icon:{path:'M 0,-1 0,1',strokeColor:'#60A5FA',strokeOpacity:1,strokeWeight:3,scale:3},offset:'0',repeat:'14px'}],clickable:false});};
             const trueMarker=(key,position,kind,label,lost=false)=>put(key,g.Marker,{position:latLng(position),title:label,icon:{path:kind==='drone'?DRONE_PATH:g.SymbolPath.CIRCLE,scale:kind==='drone'?1.1:8,strokeColor:lost?'#9EACC0':'#FBBF24',strokeWeight:2,fillColor:'#142033',fillOpacity:1},clickable:false});
