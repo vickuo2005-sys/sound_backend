@@ -230,7 +230,7 @@
         }
         resetTargetToStart(target,{preserveRoute=true,recordRun=true}={}) {
             if(!target||!point(target.startPosition))return false;
-            if(recordRun)this.preserveHistory();
+            if(recordRun)this.preserveTargetHistory(target);
             target.position={...target.startPosition};
             target.waypointIndex=0;
             if(!preserveRoute)target.waypoints=[];
@@ -251,7 +251,7 @@
         clearRoute(id) {
             const target=this.targets.find(t=>t.id===id);
             if(!target)return false;
-            this.preserveHistory();
+            this.preserveTargetHistory(target);
             if(point(target.startPosition))target.position={...target.startPosition};
             target.waypoints=[];
             target.waypointIndex=0;
@@ -352,15 +352,16 @@
             this.replay={eventId,targetId:event.targetId,kind:event.kind,points,estimatedPoints,frames,fraction:0,playing:sampleCount>1};
             return true;
         }
+        preserveTargetHistory(target) {
+            if(!target)return;
+            const event=this.events.find(item=>item.targetId===target.id);
+            if(!event)return;
+            event.points=copy(target.trail);
+            event.estimatedPoints=copy(target.estimatedTrail);
+            event.frames=copy(target.replayFrames||[]);
+        }
         preserveHistory() {
-            for(const event of this.events){
-                const target=this.targets.find(t=>t.id===event.targetId);
-                if(target){
-                    event.points=copy(target.trail);
-                    event.estimatedPoints=copy(target.estimatedTrail);
-                    event.frames=copy(target.replayFrames||[]);
-                }
-            }
+            for(const target of this.targets)this.preserveTargetHistory(target);
         }
         clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();this.trackers.clear();}
         clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.detectedNodeIds=[];target.etaEvaluation=[];this.resetTracking(target);this.resetPrediction(target);}}
