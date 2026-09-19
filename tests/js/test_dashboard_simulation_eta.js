@@ -129,3 +129,34 @@ assert.notEqual(truthA, truthB);
 assert.deepEqual(raw(straight,5), straightRaw, 'estimator depends only on estimated history, time, site, and configuration');
 
 console.log('simulation ETA: A-L stability, deterministic time, no-future-leak and fitted-state tests passed');
+
+
+// M. ETA range expands with trajectory uncertainty.
+const lowUncertaintyRaw = Eta.createRawSitePredictionFromMotion({
+    referenceTimeMs: 0,
+    site,
+    uncertaintyM: 5,
+    motion: {position:{x:500,y:0},vx:-20,vy:0,speed:20,heading:270,source:'test'}
+});
+const highUncertaintyRaw = Eta.createRawSitePredictionFromMotion({
+    referenceTimeMs: 0,
+    site,
+    uncertaintyM: 40,
+    motion: {position:{x:500,y:0},vx:-20,vy:0,speed:20,heading:270,source:'test'}
+});
+assert.equal(lowUncertaintyRaw.valid,true);
+assert.equal(highUncertaintyRaw.valid,true);
+assert(lowUncertaintyRaw.etaUncertaintySeconds < highUncertaintyRaw.etaUncertaintySeconds);
+assert((lowUncertaintyRaw.etaUpperSeconds-lowUncertaintyRaw.etaLowerSeconds) < (highUncertaintyRaw.etaUpperSeconds-highUncertaintyRaw.etaLowerSeconds));
+
+// N. Adaptive ETA smoothing reacts faster to high-confidence predictions.
+const highConfidenceStabilizer = new Eta.EtaStabilizer();
+const lowConfidenceStabilizer = new Eta.EtaStabilizer();
+const seed = {valid:true,rawEtaSeconds:20,rawEntryTimeMs:20000,trend:'APPROACHING',reason:'INTERSECTS',trajectoryUncertaintyM:10,etaUncertaintySeconds:.5};
+highConfidenceStabilizer.update(seed,0);
+lowConfidenceStabilizer.update({...seed,trajectoryUncertaintyM:80,etaUncertaintySeconds:4},0);
+const shiftedHigh = highConfidenceStabilizer.update({...seed,rawEtaSeconds:23,rawEntryTimeMs:24000,trajectoryUncertaintyM:5,etaUncertaintySeconds:.25},1000);
+const shiftedLow = lowConfidenceStabilizer.update({...seed,rawEtaSeconds:23,rawEntryTimeMs:24000,trajectoryUncertaintyM:80,etaUncertaintySeconds:4},1000);
+assert(shiftedHigh.emaAlphaUsed > shiftedLow.emaAlphaUsed);
+assert(shiftedHigh.smoothedEntryTimeMs > shiftedLow.smoothedEntryTimeMs,'high-confidence ETA should follow a credible timing change faster');
+assert(shiftedHigh.displayEtaUpperSeconds-shiftedHigh.displayEtaLowerSeconds < shiftedLow.displayEtaUpperSeconds-shiftedLow.displayEtaLowerSeconds);
