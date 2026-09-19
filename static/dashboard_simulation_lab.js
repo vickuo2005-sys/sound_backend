@@ -120,7 +120,7 @@
             const reporters=(options.reporters || this.nodes.filter(n=>n.reporting&&n.online).map(n=>n.id)).filter(id=>this.nodes.some(n=>n.id===id&&n.online));
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
-                waypoints:[],waypointIndex:0,startPosition:point(options.position)?{x:options.position.x,y:options.position.y}:null,routeRunCount:0,reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
+                waypoints:[],waypointIndex:0,startPosition:point(options.position)?{x:options.position.x,y:options.position.y}:null,routeRunCount:0,routeReady:false,reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
                 motionSegment:0,sitePrediction:null,etaEvaluation:[],replayFrames:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
@@ -226,7 +226,7 @@
         }
         positionTarget(id,p) {
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
-            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
+            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.routeReady=false;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
         }
         resetTargetToStart(target,{preserveRoute=true,recordRun=true}={}) {
             if(!target||!point(target.startPosition))return false;
@@ -235,6 +235,7 @@
             target.waypointIndex=0;
             if(!preserveRoute)target.waypoints=[];
             target.routeRunCount=(target.routeRunCount??0)+(recordRun?1:0);
+            target.routeReady=Boolean(recordRun&&preserveRoute&&target.waypoints.length);
             target.inside=false;
             target.lost=false;
             target.trail=[{...target.position,time:this.time}];
@@ -254,6 +255,7 @@
             if(point(target.startPosition))target.position={...target.startPosition};
             target.waypoints=[];
             target.waypointIndex=0;
+            target.routeReady=false;
             target.trail=point(target.position)?[{...target.position,time:this.time}]:[];
             target.estimatedTrail=[];
             target.etaEvaluation=[];
@@ -317,7 +319,7 @@
             this.time+=seconds;
             const completed=[];
             for(const target of this.targets) {
-                if(!point(target.position)||target.lost||target.speed<=0) continue;
+                if(!point(target.position)||target.lost||target.speed<=0||target.routeReady) continue;
                 let remaining=seconds*target.speed;
                 if(target.waypoints.length) {
                     while(remaining>0&&(target.waypointIndex??0)<target.waypoints.length) {
@@ -337,7 +339,7 @@
             }
             this.inspect();
             for(const target of completed)this.resetTargetToStart(target,{preserveRoute:true,recordRun:true});
-            if(completed.length&&this.targets.every(target=>target.lost||!target.waypoints.length||(target.waypointIndex??0)===0))this.playing=false;
+            if(completed.length&&this.targets.every(target=>target.lost||target.speed<=0||(target.waypoints.length?target.routeReady:false)))this.playing=false;
         }
         replayEvent(eventId) {
             const event=this.events.find(e=>e.id===eventId),target=this.targets.find(t=>t.id===event?.targetId);
@@ -538,13 +540,13 @@
                         this.renderFleet();this.creatorMessage(`已新增${names[target.kind]} ${target.id.replace('SIM-TARGET-','#')}。請在地圖點選起點；場景已暫停，可先逐台設定。`);
                     }
                 }
-                else if(action==='play'){this.resetEditing();m.playing=!m.playing;}
+                else if(action==='play'){this.resetEditing();if(m.playing)m.playing=false;else{m.targets.forEach(t=>{if(t.routeReady)t.routeReady=false;});m.playing=true;}}
                 else if(action==='step'){m.replay=null;m.playing=false;m.step(1);}
                 else if(action==='select-target'){this.resetEditing();m.selectedId=id;}
                 else if(action==='stop-target'){const t=m.selected();if(t){t.speed=0;}else this.message('請先選擇目標。');}
                 else if(action==='lost')m.loseTarget(m.selectedId);
                 else if(action==='reconnect-target'){const t=m.selected();if(t){t.lost=false;m.updateEstimate(t,true);m.inspect();}}
-                else if(action==='apply-motion'){const t=m.selected(),speed=Number(this.field('speed').value),heading=Number(this.field('heading').value);if(!t)this.message('請先建立或選取目標。');else if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360)this.message('請確認速度與航向範圍。');else{t.speed=speed;t.heading=heading;t.waypoints=[];t.waypointIndex=0;this.message('已套用指定運動值，原飛行路徑已清除。');}}
+                else if(action==='apply-motion'){const t=m.selected(),speed=Number(this.field('speed').value),heading=Number(this.field('heading').value);if(!t)this.message('請先建立或選取目標。');else if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360)this.message('請確認速度與航向範圍。');else{t.speed=speed;t.heading=heading;t.waypoints=[];t.waypointIndex=0;t.routeReady=false;this.message('已套用指定運動值，原飛行路徑已清除。');}}
                 else if(action==='replay'){m.replayEvent(id);this.mode='inspect';}
                 else if(action==='replay-play'){if(m.replay){if(m.replay.fraction>=1)m.replay.fraction=0;m.replay.playing=!m.replay.playing;}}
                 else if(action==='replay-restart'){if(m.replay){m.replay.fraction=0;m.replay.playing=Math.max(m.replay.points.length,m.replay.estimatedPoints.length,m.replay.frames?.length||0)>1;}}
@@ -578,7 +580,7 @@
                 else this.creatorMessage('此目標已不存在，請按「新增一架」重新建立。',true);
             }
             else if(this.mode==='site'){this.model.setSite(p);this.mode='inspect';this.message('已設定模擬據點與警戒區。');}
-            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.startPosition||t.position)){if(!t.startPosition)t.startPosition={...t.position};t.waypoints.push({...p});t.waypointIndex=0;if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；路徑會保留，跑完後自動回起點。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
+            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.startPosition||t.position)){if(!t.startPosition)t.startPosition={...t.position};t.waypoints.push({...p});t.waypointIndex=0;t.routeReady=false;if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；路徑會保留，跑完後自動回起點。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
             this.render();
         }
         renderMode(){
