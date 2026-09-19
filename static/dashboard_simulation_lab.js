@@ -258,6 +258,8 @@
             this.playing=false;
             this.replay=null;
             this.alerts=[];
+            this.preserveHistory();
+            this.time=0;
             for(const target of routed)this.resetTargetToStart(target,{preserveRoute:true});
             this.inspect();
             this.playing=routed.some(target=>target.speed>0);
