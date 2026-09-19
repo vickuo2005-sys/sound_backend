@@ -155,7 +155,7 @@
         update(raw,currentTimeMs){
             const c=this.config;if(!finite(currentTimeMs))throw new Error('simulation time is required');
             if(this.lastTimeMs!==null&&currentTimeMs<this.lastTimeMs)this.reset();
-            const signature=JSON.stringify([raw?.valid??false,raw?.rawEntryTimeMs??null,raw?.trajectoryUncertaintyM??null,raw?.trend||null,raw?.reason||null]);
+            const signature=JSON.stringify([raw?.valid??false,raw?.rawEntryTimeMs??null,raw?.trajectoryUncertaintyM??null,raw?.etaUncertaintySeconds??null,raw?.trend||null,raw?.reason||null]);
             if(this.lastTimeMs===currentTimeMs&&this.lastSignature===signature&&this.lastOutput)return {...this.lastOutput};
             this.lastTimeMs=currentTimeMs;
             this.lastSignature=signature;
