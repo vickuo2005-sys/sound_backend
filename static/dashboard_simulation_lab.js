@@ -67,10 +67,10 @@
             hullAreaM2=Math.abs(hullAreaM2)/2;
         }
         const shapeScore=count>=3&&spreadM>0?clamp(4*hullAreaM2/(spreadM*spreadM),0,1):0;
-        let uncertaintyM=count===2?65:count===3?38:Math.max(14,34-(count-3)*4);
-        if(count>=3)uncertaintyM*=1.35-.55*shapeScore;
-        uncertaintyM=clamp(uncertaintyM,10,120);
-        const qualityScore=clamp(1-uncertaintyM/110,.08,.95);
+        let uncertaintyM=count===2?55:count===3?22:Math.max(8,18-(count-4)*2);
+        if(count>=3)uncertaintyM*=1.15-.45*shapeScore;
+        uncertaintyM=clamp(uncertaintyM,7,120);
+        const qualityScore=clamp(1-uncertaintyM/90,.08,.95);
         const geometryQuality=count<3?'limited':shapeScore>.55?'good':shapeScore>.2?'fair':'poor';
         return {uncertaintyM,qualityScore,geometryQuality,nodeCount:count,spreadM,hullAreaM2};
     }
