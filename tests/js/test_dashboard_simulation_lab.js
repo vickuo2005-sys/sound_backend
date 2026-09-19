@@ -37,6 +37,40 @@ assert.notDeepEqual(trackedAfter,rawAfter,'node-set changes are corrected throug
 assert.equal(transitionTarget.trackState.source,'simulation_alpha_beta_track');
 assert(Number.isFinite(transitionTarget.trackState.vx)&&Number.isFinite(transitionTarget.trackState.vy));
 
+// Replay snapshots preserve the system state from that exact simulation time.
+const replaySnapshots=new lab.LabModel();
+replaySnapshots.setSite({x:0,y:0},150);
+const rsNodeA=replaySnapshots.addNode({x:-200,y:-100});
+const rsNodeB=replaySnapshots.addNode({x:200,y:-100});
+replaySnapshots.setAllNodeDetectionRadius(600);
+const rsTarget=replaySnapshots.createEvent({kind:'drone',position:{x:-400,y:0},speed:20,heading:90});
+replaySnapshots.step(2);
+assert(rsTarget.replayFrames.length>=2,'simulation records replay system frames');
+let latestFrame=rsTarget.replayFrames.at(-1);
+assert.equal(latestFrame.nodes.length,2);
+assert(latestFrame.prediction&&Object.hasOwn(latestFrame.prediction,'display'),'replay frame stores ETA prediction output');
+assert(latestFrame.system&&Object.hasOwn(latestFrame.system,'zoneEta'),'replay frame stores system assessment');
+
+rsNodeB.online=false;
+replaySnapshots.refreshEstimates(true);
+latestFrame=rsTarget.replayFrames.at(-1);
+assert.equal(latestFrame.time,replaySnapshots.time,'paused node changes overwrite the same simulation-time frame');
+assert.equal(latestFrame.nodes.find(n=>n.id===rsNodeB.id).online,false,'historical frame records node offline state');
+
+const rsEventId=replaySnapshots.events.find(e=>e.targetId===rsTarget.id).id;
+const frozenSnapshot=JSON.stringify(latestFrame);
+assert.equal(replaySnapshots.replayEvent(rsEventId),true);
+const frameAtEnd=lab.replayFrameAtTime(replaySnapshots.replay.frames,lab.replayTime({...replaySnapshots.replay,fraction:1}));
+assert.equal(JSON.stringify(frameAtEnd),frozenSnapshot,'replay returns the stored frame instead of recomputing current state');
+rsNodeB.online=true;rsNodeB.x=999;
+assert.equal(JSON.stringify(replaySnapshots.replay.frames.at(-1)),frozenSnapshot,'editing live nodes cannot mutate an active replay snapshot');
+
+replaySnapshots.clearTargets();
+assert.equal(replaySnapshots.replayEvent(rsEventId),true,'event remains replayable after live targets are cleared');
+assert(replaySnapshots.replay.frames.length,'preserved event keeps historical system frames after target clear');
+assert.equal(replaySnapshots.replay.frames.at(-1).nodes.find(n=>n.id===rsNodeB.id).online,false,'preserved replay keeps the historical node state');
+assert(replaySnapshots.replay.frames.at(-1).prediction,'preserved replay keeps historical ETA/CPA prediction data');
+
 const systemAlarm=new lab.LabModel();systemAlarm.setSite({x:0,y:0},20);systemAlarm.addNode({x:-200,y:0});systemAlarm.addNode({x:100,y:0});systemAlarm.setAllNodeDetectionRadius(500);
 const truthInside=systemAlarm.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'inside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'outside');assert.equal(systemAlarm.alerts.length,0,'truth path alone cannot trigger a system warning');
 systemAlarm.positionTarget(truthInside.id,{x:80,y:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'outside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'inside');assert.equal(systemAlarm.alerts.length,1,'the warning follows the estimated system path even while truth is outside');
