@@ -228,14 +228,12 @@
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
             this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.routeReady=false;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
         }
-        resetTargetToStart(target,{preserveRoute=true,recordRun=true}={}) {
+        resetTargetToStart(target,{preserveRoute=true}={}) {
             if(!target||!point(target.startPosition))return false;
-            if(recordRun)this.preserveTargetHistory(target);
             target.position={...target.startPosition};
             target.waypointIndex=0;
             if(!preserveRoute)target.waypoints=[];
-            target.routeRunCount=(target.routeRunCount??0)+(recordRun?1:0);
-            target.routeReady=Boolean(recordRun&&preserveRoute&&target.waypoints.length);
+            target.routeReady=false;
             target.inside=false;
             target.lost=false;
             target.trail=[{...target.position,time:this.time}];
@@ -245,7 +243,24 @@
             this.resetPrediction(target,true);
             this.resetTracking(target);
             this.updateEstimate(target,true);
+            return true;
+        }
+        completeTargetRoute(target) {
+            if(!target||!target.waypoints.length)return false;
+            this.preserveTargetHistory(target);
+            target.routeRunCount=(target.routeRunCount??0)+1;
+            target.routeReady=true;
+            return true;
+        }
+        restartSimulation() {
+            const routed=this.targets.filter(target=>target.waypoints.length&&point(target.startPosition)&&!target.lost);
+            if(!routed.length)return false;
+            this.playing=false;
+            this.replay=null;
+            this.alerts=[];
+            for(const target of routed)this.resetTargetToStart(target,{preserveRoute:true});
             this.inspect();
+            this.playing=routed.some(target=>target.speed>0);
             return true;
         }
         clearRoute(id) {
@@ -338,7 +353,7 @@
                 target.trail.push({...target.position,time:this.time});target.trail=target.trail.slice(-LIMITS.points);this.updateEstimate(target);
             }
             this.inspect();
-            for(const target of completed)this.resetTargetToStart(target,{preserveRoute:true,recordRun:true});
+            for(const target of completed)this.completeTargetRoute(target);
             if(completed.length&&this.targets.every(target=>target.lost||target.speed<=0||(target.waypoints.length?target.routeReady:false)))this.playing=false;
         }
         replayEvent(eventId) {
@@ -460,9 +475,9 @@
                 <div class="slab-presets"><label>快速展示 <select data-field="preset"><option value="approach">無人機接近 → 進入警戒</option><option value="idle">一般監控／沒有事件</option><option value="one">單節點偵測脈動</option><option value="two">兩節點連線</option><option value="three">三節點偵測範圍</option><option value="passby">旁側飛越、不會抵達</option><option value="depart">遠離據點</option><option value="inside">直接出現在警戒區內</option><option value="multiple">多目標、警戒優先</option><option value="missing">只有聲音回報、定位未完成</option><option value="lost">目標失聯</option><option value="offline">節點離線</option><option value="non_drone">非無人機聲音</option></select></label><button type="button" data-action="preset" class="slab-primary">載入展示</button><span>載入會取代目前的模擬內容。</span><div class="slab-clear-actions" aria-label="清除模擬資料"><button type="button" data-action="clear-targets">清空無人機／目標</button><button type="button" data-action="clear-nodes">清空節點</button><button type="button" data-action="clear-history">清空動畫回顧</button><button type="button" data-action="clear-all">全部清空</button></div></div>
                 <div class="slab-layout"><aside class="slab-tools"><section class="slab-card"><h3><span>01</span> 佈置場景</h3><button type="button" data-action="place-site" class="slab-wide">◎ 點圖設定據點</button><label>警戒半徑（公尺）<input data-field="radius" type="number" min="20" max="5000" value="150"></label><button type="button" data-action="radius">更新模擬警戒區</button><div data-slot="site" class="slab-hint"></div><details class="slab-node-config" open><summary><span>節點設定</span><small data-slot="node-summary"></small></summary><div class="slab-node-config-body"><button type="button" data-action="place-node" class="slab-wide">＋ 點圖新增節點</button><label>全部節點偵測半徑（公尺）<input data-field="node-radius" type="number" min="20" max="5000" value="450"></label><button type="button" data-action="node-radius" class="slab-wide">更新全部節點偵測範圍</button><p class="slab-hint">最多可放置 ${LIMITS.nodes} 個節點，並共用同一個偵測半徑。只有線上、已勾選且無人機位於範圍內的節點才參與系統估測。</p><details class="slab-node-list"><summary><span>已放置節點</span><small data-slot="node-list-summary"></small></summary><div data-slot="nodes" class="slab-node-list-body"></div></details></div></details></section>
                 <section class="slab-card"><h3><span>02</span> 逐台加入無人機</h3><label>聲音類型<select data-field="kind"><option value="drone">無人機 Drone</option><option value="car">汽車 Car</option><option value="airplane">飛機 Airplane</option><option value="rainfall">雨聲 Rainfall</option><option value="electric_saw">電鋸 Electric_saw</option></select></label><div class="slab-two"><label>速度（m/s）<input data-field="speed" type="number" min="0" max="100" value="25"></label><label>航向（度）<input data-field="heading" type="number" min="0" max="359" value="90"></label></div><p class="slab-hint">按下新增後直接在地圖點選這一架的起點，再從下方清單設定路徑。可逐架加入，單架也能直接模擬。</p><button type="button" data-action="create" class="slab-primary slab-wide">＋ 新增一架並點圖設起點</button><p data-slot="create-message" class="slab-create-message" role="status" aria-live="polite"></p><div data-slot="fleet" class="slab-fleet"></div></section></aside>
-                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>● 白色：在線／灰色×：離線／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>橘色脈動／連線／區塊：正在參與系統估測</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
+                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>● 白色：在線／灰色×：離線／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>橘色脈動／連線／區塊：正在參與系統估測</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="restart-simulation" disabled>↺ 重新模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
                 <section class="slab-card slab-history"><h3>動畫回顧 <small>只包含本工作區建立的事件</small></h3><div data-slot="replay"></div><div data-slot="events"></div></section></main>
-                <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button type="button" data-action="lost">模擬目標失聯</button><button type="button" data-action="reconnect-target">恢復目標回報</button></div><button type="button" data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點設定可折疊，全部節點共用一個偵測半徑。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色真實路線只供比較；藍色系統估測路徑負責警示、接近判斷與 ETA。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
+                <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button type="button" data-action="lost">模擬目標失聯</button><button type="button" data-action="reconnect-target">恢復目標回報</button></div><button type="button" data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點設定可折疊，全部節點共用一個偵測半徑。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色真實路線只供比較；藍色系統估測路徑負責警示、接近判斷與 ETA。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>有設定路徑的目標跑完後會停在終點；按「重新模擬」會回到起點並直接再跑一次。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
                 <div data-slot="message" class="slab-message" role="status"></div><div data-slot="alert" class="slab-alert-host" aria-live="assertive"></div>
             </section>`;
             this.boundClick=e=>this.handleClick(e);this.boundChange=e=>this.handleChange(e);
@@ -524,7 +539,7 @@
                 else if(action==='place-site')this.setMode('site');
                 else if(action==='move-node')this.setMode('move-node',id);
                 else if(action==='edit-target-start'){m.selectedId=id;this.editTarget=id;this.setMode('move-target');}
-                else if(action==='edit-target-route'){m.selectedId=id;m.replay=null;this.editTarget=id;if(!point(m.selected()?.position)||m.selected()?.lost)this.message('這台目標需要先設定有效起點。');else this.setMode('waypoint');}
+                else if(action==='edit-target-route'){m.selectedId=id;m.replay=null;this.editTarget=id;const t=m.selected();if(!point(t?.position)||t?.lost)this.message('這台目標需要先設定有效起點。');else{if(t.routeReady){m.resetTargetToStart(t,{preserveRoute:true});m.inspect();}this.setMode('waypoint');}}
                 else if(action==='clear-target-route'){m.playing=false;if(m.clearRoute(id))this.message('已清空這台目標的飛行路徑並回到起點；歷史回顧保留。');}
                 else if(action==='toggle-node'){const n=m.nodes.find(n=>n.id===id);if(n){n.online=!n.online;m.refreshEstimates(true);}}
                 else if(action==='remove-node'){m.nodes=m.nodes.filter(n=>n.id!==id);m.refreshEstimates(true);}
@@ -541,7 +556,8 @@
                         this.renderFleet();this.creatorMessage(`已新增${names[target.kind]} ${target.id.replace('SIM-TARGET-','#')}。請在地圖點選起點；場景已暫停，可先逐台設定。`);
                     }
                 }
-                else if(action==='play'){this.resetEditing();if(m.playing)m.playing=false;else{m.targets.forEach(t=>{if(t.routeReady)t.routeReady=false;});m.playing=true;}}
+                else if(action==='play'){this.resetEditing();if(m.playing)m.playing=false;else{const runnable=m.targets.some(t=>point(t.position)&&!t.lost&&t.speed>0&&(!t.waypoints.length||!t.routeReady));if(runnable)m.playing=true;else this.message('本輪已完成；按「重新模擬」即可回到起點並再次播放同一路徑。');}}
+                else if(action==='restart-simulation'){this.resetEditing();if(m.restartSimulation())this.message('已回到起點，開始重新模擬同一路徑。');else this.message('目前沒有可重新模擬的已設定路徑。');}
                 else if(action==='step'){m.replay=null;m.playing=false;m.step(1);}
                 else if(action==='select-target'){this.resetEditing();m.selectedId=id;}
                 else if(action==='stop-target'){const t=m.selected();if(t){t.speed=0;}else this.message('請先選擇目標。');}
@@ -581,7 +597,7 @@
                 else this.creatorMessage('此目標已不存在，請按「新增一架」重新建立。',true);
             }
             else if(this.mode==='site'){this.model.setSite(p);this.mode='inspect';this.message('已設定模擬據點與警戒區。');}
-            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.startPosition||t.position)){if(!t.startPosition)t.startPosition={...t.position};t.waypoints.push({...p});t.waypointIndex=0;t.routeReady=false;if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；路徑會保留，跑完後自動回起點。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
+            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.startPosition||t.position)){if(!t.startPosition)t.startPosition={...t.position};t.waypoints.push({...p});t.waypointIndex=0;t.routeReady=false;if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；路徑會保留，跑完後會停在終點。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
             this.render();
         }
         renderMode(){
@@ -593,7 +609,9 @@
         render() {
             const m=this.model;
             this.renderMode();this.$('[data-slot="clock"]').textContent=`模擬 ${clock(m.time)}`;
-            this.$('[data-action="play"]').textContent=m.playing?'Ⅱ 暫停模擬':'▶ 開始模擬';
+            this.$('[data-action="play"]').textContent=m.playing?'Ⅱ 暫停模擬':'▶ 開始／繼續模擬';
+            const restart=this.$('[data-action="restart-simulation"]');
+            if(restart)restart.disabled=m.playing||!m.targets.some(t=>t.routeReady);
             this.field('rate').value=m.rate;
             this.field('node-radius').value=m.nodeDetectionRadius;
             this.$('[data-slot="node-summary"]').textContent=`${m.nodes.length} 個 · ${m.nodeDetectionRadius} m`;
@@ -605,7 +623,7 @@
         }
         renderFleet(){
             const targets=this.model.targets,slot=this.$('[data-slot="fleet"]');if(!slot)return;
-            slot.innerHTML=targets.length?`<h4>目標路徑設定 <small>${targets.length} 個 · 跑完自動回起點</small></h4>${targets.map(t=>`<div class="slab-fleet-row ${t.id===this.model.selectedId?'is-selected':''}"><button type="button" data-action="select-target" data-id="${t.id}" class="slab-fleet-name">${escape(names[t.kind])} ${t.id.replace('SIM-TARGET-','#')}</button><span>起點 ${point(t.startPosition||t.position)?'已設定':'未設定'} · 路徑 ${t.waypoints.length} 點${t.routeRunCount? ` · 已完成 ${t.routeRunCount} 次`:''}</span><button type="button" data-action="edit-target-start" data-id="${t.id}">設起點</button><button type="button" data-action="edit-target-route" data-id="${t.id}">設路徑</button><button type="button" data-action="clear-target-route" data-id="${t.id}" ${t.waypoints.length?'':'disabled'}>清空路徑</button></div>`).join('')}`:'<p class="slab-hint">新增一架無人機後，這裡會顯示它的起點與路徑；可繼續逐架加入。</p>';
+            slot.innerHTML=targets.length?`<h4>目標路徑設定 <small>${targets.length} 個 · 跑完停在終點</small></h4>${targets.map(t=>`<div class="slab-fleet-row ${t.id===this.model.selectedId?'is-selected':''}"><button type="button" data-action="select-target" data-id="${t.id}" class="slab-fleet-name">${escape(names[t.kind])} ${t.id.replace('SIM-TARGET-','#')}</button><span>起點 ${point(t.startPosition||t.position)?'已設定':'未設定'} · 路徑 ${t.waypoints.length} 點${t.routeRunCount? ` · 已完成 ${t.routeRunCount} 次${t.routeReady?' · 停在終點':''}`:''}</span><button type="button" data-action="edit-target-start" data-id="${t.id}">設起點</button><button type="button" data-action="edit-target-route" data-id="${t.id}">設路徑</button><button type="button" data-action="clear-target-route" data-id="${t.id}" ${t.waypoints.length?'':'disabled'}>清空路徑</button></div>`).join('')}`:'<p class="slab-hint">新增一架無人機後，這裡會顯示它的起點與路徑；可繼續逐架加入。</p>';
         }
         renderDetail() {
             const m=this.model,t=m.selected(),slot=this.$('[data-slot="detail"]');
