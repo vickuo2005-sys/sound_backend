@@ -604,6 +604,7 @@
             const replay=this.model.replay,slot=this.$('[data-slot="replay"]');
             if(replay){
                 const time=replayTime(replay),frame=replayFrameAtTime(replay.frames,time),sampleCount=Math.max(replay.points.length,replay.estimatedPoints.length,replay.frames?.length||0),canPlay=sampleCount>1;
+                if(finite(time))this.$('[data-slot="clock"]').textContent=`回顧 T+${time.toFixed(1)}s`;
                 const snapshot=frame?`<p class="slab-hint">目前回顧 T+${frame.time.toFixed(1)}s · 在線 ${frame.nodes.filter(n=>n.online).length}/${frame.nodes.length} · 參與 ${frame.nodes.filter(n=>n.active).length} 節點 · 警戒 ETA ${duration(frame.prediction?.display?.displayEtaSeconds??null)} · 抵達 ETA ${duration(frame.prediction?.arrivalDisplay?.displayEtaSeconds??null)}</p>`:'';
                 slot.innerHTML=`<div class="slab-replay"><b>回顧 ${replay.eventId}</b><p>同步回放真實路徑、Track 路徑、當時節點狀態與 ETA/CPA 預測快照。</p>${snapshot}<div class="slab-playbar"><button type="button" data-action="replay-play" ${canPlay?'':'disabled'}>${replay.playing?'Ⅱ 暫停回顧':'▶ 播放回顧'}</button><button type="button" data-action="replay-restart" ${canPlay?'':'disabled'}>重播</button><input data-field="replay-range" aria-label="模擬歷史回顧時間軸" type="range" min="0" max="100" value="${Math.round(replay.fraction*100)}" ${canPlay?'':'disabled'}><span>${Math.round(replay.fraction*100)}%</span><button type="button" data-action="replay-close">返回模擬現場</button></div></div>`;
             }else slot.innerHTML='<p class="slab-hint">點選下方事件，可回放當時節點狀態、定位、Track 與 ETA/CPA 預測。</p>';
