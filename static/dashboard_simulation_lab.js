@@ -52,6 +52,28 @@
         const total=weighted.reduce((sum,item)=>sum+item.weight,0);
         return weighted.reduce((p,item)=>({x:p.x+item.node.x*item.weight/total,y:p.y+item.node.y*item.weight/total}),{x:0,y:0});
     }
+    function localizationQuality(nodes) {
+        const usable=(nodes||[]).filter(point),count=usable.length;
+        if(count<2)return {uncertaintyM:120,qualityScore:.08,geometryQuality:'insufficient',nodeCount:count,spreadM:0,hullAreaM2:0};
+        let spreadM=0;
+        for(let i=0;i<usable.length;i++)for(let j=i+1;j<usable.length;j++)spreadM=Math.max(spreadM,distance(usable[i],usable[j]));
+        const shape=hull(usable);
+        let hullAreaM2=0;
+        if(shape.length>=3){
+            for(let i=0;i<shape.length;i++){
+                const a=shape[i],b=shape[(i+1)%shape.length];
+                hullAreaM2+=a.x*b.y-b.x*a.y;
+            }
+            hullAreaM2=Math.abs(hullAreaM2)/2;
+        }
+        const shapeScore=count>=3&&spreadM>0?clamp(4*hullAreaM2/(spreadM*spreadM),0,1):0;
+        let uncertaintyM=count===2?65:count===3?38:Math.max(14,34-(count-3)*4);
+        if(count>=3)uncertaintyM*=1.35-.55*shapeScore;
+        uncertaintyM=clamp(uncertaintyM,10,120);
+        const qualityScore=clamp(1-uncertaintyM/110,.08,.95);
+        const geometryQuality=count<3?'limited':shapeScore>.55?'good':shapeScore>.2?'fair':'poor';
+        return {uncertaintyM,qualityScore,geometryQuality,nodeCount:count,spreadM,hullAreaM2};
+    }
     function velocity(target) {
         if (target.lost || !point(target.position) || target.speed<=0) return { x:0, y:0 };
         const next = target.waypoints[target.waypointIndex??0];
@@ -167,11 +189,18 @@
             const motion=state&&point(state)?{
                 position:{x:state.x,y:state.y},
                 vx:state.vx,vy:state.vy,speed:state.speed,heading:state.heading,
+                uncertaintyM:state.uncertaintyM,
+                qualityScore:state.qualityScore,
+                alphaUsed:state.alphaUsed,betaUsed:state.betaUsed,
                 lastMeasurementTimeMs:state.sourceTimeMs,
                 source:'simulation_alpha_beta_track'
             }:null;
             const innovation=Number(target.trackingDiagnostics?.innovationM)||0;
-            const trackUncertaintyM=clamp(innovation*.15,3,12);
+            const trackUncertaintyM=clamp(
+                Number(state?.uncertaintyM) || Number(target.trackingDiagnostics?.uncertaintyM) || Math.max(3,innovation*.15),
+                3,
+                120
+            );
             const raw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:this.site,uncertaintyM:trackUncertaintyM});
             const stabilizers=this.stabilizers(target);
             const display=stabilizers.zone.update(raw,referenceTimeMs);
@@ -193,16 +222,28 @@
             const detected=this.reportingNodes(target);target.detectedNodeIds=detected.map(n=>n.id);
             const measurement=target.kind==='drone'&&!target.lost?estimateFromDetections(detected,target):null;
             target.rawEstimatedPosition=measurement;
+            const localization=localizationQuality(detected);
             const timeMs=this.time*1000,tracker=this.tracker(target);
             let trackingResult=null;
             if(measurement&&(!tracker.hasState()||tracker.shouldAcceptMeasurement(timeMs))){
-                trackingResult=tracker.update(measurement,timeMs);
+                trackingResult=tracker.update(measurement,timeMs,{
+                    uncertaintyM:localization.uncertaintyM,
+                    qualityScore:localization.qualityScore
+                });
                 target.trackingDiagnostics={
                     accepted:trackingResult.accepted,
                     reason:trackingResult.reason,
                     innovationM:trackingResult.innovationM??0,
                     gateM:trackingResult.gateM??null,
                     nodeCount:detected.length,
+                    uncertaintyM:trackingResult.uncertaintyM??localization.uncertaintyM,
+                    localizationUncertaintyM:localization.uncertaintyM,
+                    localizationQualityScore:localization.qualityScore,
+                    geometryQuality:localization.geometryQuality,
+                    spreadM:localization.spreadM,
+                    hullAreaM2:localization.hullAreaM2,
+                    alphaUsed:trackingResult.alphaUsed??null,
+                    betaUsed:trackingResult.betaUsed??null,
                     measurement:{...measurement}
                 };
             }
@@ -218,7 +259,9 @@
                     motionSegment:target.motionSegment??0,
                     source:'simulation_alpha_beta_track',
                     vx:state.vx,vy:state.vy,
-                    innovationM:target.trackingDiagnostics?.innovationM??0
+                    innovationM:target.trackingDiagnostics?.innovationM??0,
+                    uncertaintyM:state.uncertaintyM??null,
+                    qualityScore:state.qualityScore??null
                 });
                 target.estimatedTrail=target.estimatedTrail.slice(-LIMITS.points);
             }
@@ -443,7 +486,9 @@
             <dt>Raw ETA</dt><dd>${duration(raw.rawEtaSeconds??null)}</dd><dt>Display ETA</dt><dd>${duration(display.displayEtaSeconds??null)}</dd>
             <dt>Raw 進入時間</dt><dd>${simTimestamp(raw.rawEntryTimeMs)}</dd><dt>平滑進入時間</dt><dd>${simTimestamp(display.smoothedEntryTimeMs)}</dd>
             <dt>回歸位置 x / y</dt><dd>${metric(motion.position?.x)} / ${metric(motion.position?.y)} m</dd><dt>速度 vx / vy</dt><dd>${metric(motion.vx,2)} / ${metric(motion.vy,2)} m/s</dd>
-            <dt>速率 / 航向</dt><dd>${metric(motion.speed,2)} m/s / ${metric(motion.heading)}°</dd><dt>樣本 / 時窗</dt><dd>${motion.sampleCount??0} / ${metric((motion.timeSpanMs??0)/1000,2)} s</dd>
+            <dt>速率 / 航向</dt><dd>${metric(motion.speed,2)} m/s / ${metric(motion.heading)}°</dd><dt>Track 不確定度</dt><dd>±${metric(motion.uncertaintyM??raw.trajectoryUncertaintyM)} m</dd>
+            <dt>Tracker α / β</dt><dd>${metric(motion.alphaUsed,2)} / ${metric(motion.betaUsed,2)}</dd><dt>品質分數</dt><dd>${metric((motion.qualityScore??0)*100,0)}%</dd>
+            <dt>樣本 / 時窗</dt><dd>${motion.sampleCount??0} / ${metric((motion.timeSpanMs??0)/1000,2)} s</dd>
             <dt>最大間隔 / RMSE</dt><dd>${metric(finite(motion.maximumGapMs)?motion.maximumGapMs/1000:null,2)} s / ${metric(motion.residualRmse)} m</dd><dt>Closing speed</dt><dd>${metric(raw.closingSpeed,2)} m/s</dd>
             <dt>CPA 距離 / 時間</dt><dd>${metric(raw.cpaDistance)} m / ${metric(raw.cpaTime)} s</dd><dt>軌跡不確定度</dt><dd>±${metric(raw.trajectoryUncertaintyM)} m</dd>
             <dt>交會判定</dt><dd>${escape(raw.rawIntersectionState||'UNAVAILABLE')} / ${escape(raw.mathematicalIntersection||'—')}</dd><dt>穩定器</dt><dd>${escape(display.state||'UNSTABLE')} · hold ${metric(display.holdAgeMs??0,0)} ms</dd>
@@ -663,7 +708,7 @@
             const a=assessSystem(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null,prediction=t.sitePrediction;
             const regionLabel={none:'無',circle:'單節點偵測圈',line:'兩節點之間',polygon:`${detected.length} 節點包圍區域`}[region.kind];
             const error=point(t.estimatedPosition)&&point(t.position)?Math.round(distance(t.estimatedPosition,t.position)):null;
-            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b><small>${t.kind==='drone'?escape(predictionStates[prediction?.display?.state]||'資料不足'):''}</small></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p>${t.kind==='drone'?predictionDebug(t):''}<p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
+            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b><small>${t.kind==='drone'?escape(predictionStates[prediction?.display?.state]||'資料不足'):''}${prediction?.display?.displayEtaLowerSeconds!=null&&prediction?.display?.displayEtaUpperSeconds!=null?` · 約 ${Math.ceil(prediction.display.displayEtaLowerSeconds)}–${Math.ceil(prediction.display.displayEtaUpperSeconds)} 秒`:''}</small></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b><small>${prediction?.arrivalDisplay?.displayEtaLowerSeconds!=null&&prediction?.arrivalDisplay?.displayEtaUpperSeconds!=null?`約 ${Math.ceil(prediction.arrivalDisplay.displayEtaLowerSeconds)}–${Math.ceil(prediction.arrivalDisplay.displayEtaUpperSeconds)} 秒`:''}</small></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p>${t.kind==='drone'?predictionDebug(t):''}<p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
         }
         renderAlert() {
             const alerts=this.active&&!this.model.replay?this.model.alerts:[],alert=alerts[0];
