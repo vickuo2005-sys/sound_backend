@@ -121,7 +121,7 @@
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
                 waypoints:[],reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
-                motionSegment:0,sitePrediction:null,etaEvaluation:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
+                motionSegment:0,sitePrediction:null,etaEvaluation:[],replayFrames:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
             const event={ id:this.id('EVENT'),targetId:target.id,kind,time:this.time,reporters:reporters.slice(),simulation:true };
@@ -228,6 +228,38 @@
             this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
         }
         loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.resetTracking(t);this.resetPrediction(t);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
+        replayFrame(target,state=null) {
+            if(!target)return null;
+            const detected=this.reportingNodes(target),region=this.sourceRegion(target);
+            return {
+                time:this.time,
+                targetId:target.id,
+                kind:target.kind,
+                site:copy(this.site),
+                nodes:this.nodes.map(node=>({
+                    id:node.id,ordinal:node.ordinal,name:node.name,x:node.x,y:node.y,
+                    online:node.online,reporting:node.reporting,detectionRadius:node.detectionRadius,
+                    active:detected.some(item=>item.id===node.id)
+                })),
+                detectedNodeIds:detected.map(node=>node.id),
+                sourceRegion:{kind:region.kind,path:copy(region.path||[])},
+                truePosition:point(target.position)?{x:target.position.x,y:target.position.y}:null,
+                rawEstimatedPosition:point(target.rawEstimatedPosition)?copy(target.rawEstimatedPosition):null,
+                estimatedPosition:point(target.estimatedPosition)?copy(target.estimatedPosition):null,
+                trackState:target.trackState?copy(target.trackState):null,
+                trackingDiagnostics:target.trackingDiagnostics?copy(target.trackingDiagnostics):null,
+                system:copy(state||assessSystem(target,this.site)),
+                prediction:target.sitePrediction?copy(target.sitePrediction):null
+            };
+        }
+        recordReplayFrame(target,state=null) {
+            if(!target)return;
+            const frame=this.replayFrame(target,state);
+            const previous=target.replayFrames.at(-1);
+            if(previous?.time===frame.time)target.replayFrames[target.replayFrames.length-1]=frame;
+            else target.replayFrames.push(frame);
+            target.replayFrames=target.replayFrames.slice(-LIMITS.points);
+        }
         inspect() {
             for(const target of this.targets) {
                 this.updatePrediction(target);
@@ -237,6 +269,7 @@
                     this.selectedId=target.id;
                 }
                 target.inside=state.status==='inside';
+                this.recordReplayFrame(target,state);
             }
             this.alerts=this.alerts.slice(-LIMITS.targets);
         }
@@ -262,16 +295,26 @@
             const event=this.events.find(e=>e.id===eventId),target=this.targets.find(t=>t.id===event?.targetId);
             if(!event) return false;
             this.playing=false;this.alerts=[];
-            const points=copy(target?.trail?.length?target.trail:event.points||[]),estimatedPoints=copy(target?.estimatedTrail?.length?target.estimatedTrail:event.estimatedPoints||[]);
-            this.replay={eventId,kind:event.kind,points,estimatedPoints,fraction:0,playing:points.length>1};
+            const points=copy(target?.trail?.length?target.trail:event.points||[]),
+                estimatedPoints=copy(target?.estimatedTrail?.length?target.estimatedTrail:event.estimatedPoints||[]),
+                frames=copy(target?.replayFrames?.length?target.replayFrames:event.frames||[]);
+            const sampleCount=Math.max(points.length,estimatedPoints.length,frames.length);
+            this.replay={eventId,targetId:event.targetId,kind:event.kind,points,estimatedPoints,frames,fraction:0,playing:sampleCount>1};
             return true;
         }
         preserveHistory() {
-            for(const event of this.events){const target=this.targets.find(t=>t.id===event.targetId);if(target){event.points=copy(target.trail);event.estimatedPoints=copy(target.estimatedTrail);}}
+            for(const event of this.events){
+                const target=this.targets.find(t=>t.id===event.targetId);
+                if(target){
+                    event.points=copy(target.trail);
+                    event.estimatedPoints=copy(target.estimatedTrail);
+                    event.frames=copy(target.replayFrames||[]);
+                }
+            }
         }
         clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();this.trackers.clear();}
         clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.detectedNodeIds=[];target.etaEvaluation=[];this.resetTracking(target);this.resetPrediction(target);}}
-        clearHistory(){this.events=[];this.replay=null;this.targets.forEach(t=>{t.etaEvaluation=[];});}
+        clearHistory(){this.events=[];this.replay=null;this.targets.forEach(t=>{t.etaEvaluation=[];t.replayFrames=[];});}
         leave() { this.playing=false;this.alerts=[];if(this.replay)this.replay.playing=false; }
         preset(name) {
             this.reset();
@@ -293,9 +336,23 @@
             this.playing=!['inside','missing','lost','non_drone','one','two','three'].includes(name);
         }
     }
+    function replayTimeline(replay) {
+        const candidates=[...(replay?.frames||[]).map(frame=>frame.time),...(replay?.points||[]).map(p=>p.time),...(replay?.estimatedPoints||[]).map(p=>p.time)].filter(finite);
+        if(!candidates.length)return null;
+        return {first:Math.min(...candidates),last:Math.max(...candidates)};
+    }
+    function replayTime(replay) {
+        const timeline=replayTimeline(replay);
+        return timeline?timeline.first+(timeline.last-timeline.first)*clamp(replay?.fraction??0,0,1):null;
+    }
+    function replayFrameAtTime(frames,time) {
+        if(!Array.isArray(frames)||!frames.length||!finite(time))return null;
+        let index=frames.findLastIndex(frame=>finite(frame.time)&&frame.time<=time);
+        if(index<0)index=0;
+        return frames[index]||null;
+    }
     function replayPoint(replay) {
-        const path=replay?.points||[];if(!path.length)return null;
-        const first=path[0],last=path.at(-1),time=first.time+(last.time-first.time)*clamp(replay.fraction,0,1);
+        const path=replay?.points||[],time=replayTime(replay);if(!path.length||!finite(time))return null;
         return replayPointAtTime(path,time);
     }
     function replayPointAtTime(path,time) {
@@ -364,7 +421,7 @@
         enter() {
             if(this.active)return;this.active=true;this.lastTime=Date.now();this.tryGoogle();this.render();
             this.timer=root.setInterval(()=>{const now=Date.now(),elapsed=Math.min(1,(now-this.lastTime)/1000);this.lastTime=now;
-                if(this.model.replay?.playing) {this.model.replay.fraction=Math.min(1,this.model.replay.fraction+elapsed/12*this.model.rate);if(this.model.replay.fraction>=1)this.model.replay.playing=false;this.renderMap();if(now-this.lastDetailAt>=500){this.lastDetailAt=now;this.renderReplay();}}
+                if(this.model.replay?.playing) {this.model.replay.fraction=Math.min(1,this.model.replay.fraction+elapsed/12*this.model.rate);if(this.model.replay.fraction>=1)this.model.replay.playing=false;this.renderMap();if(now-this.lastDetailAt>=500){this.lastDetailAt=now;this.renderReplay();this.renderDetail();}}
                 else if(this.model.playing){this.model.step(elapsed*this.model.rate);this.$('[data-slot="clock"]').textContent=`模擬 ${clock(this.model.time)}`;if(now-this.lastDetailAt>=500){this.lastDetailAt=now;this.renderDetail();}this.renderAlert();this.renderMap();}
                 else if(this.googleMap&&now-this.lastEffectAt>=250){this.lastEffectAt=now;this.renderGoogle();}
             },100);
@@ -441,7 +498,7 @@
                 else if(action==='apply-motion'){const t=m.selected(),speed=Number(this.field('speed').value),heading=Number(this.field('heading').value);if(!t)this.message('請先建立或選取目標。');else if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360)this.message('請確認速度與航向範圍。');else{t.speed=speed;t.heading=heading;t.waypoints=[];this.message('已套用指定運動值，原飛行路徑已清除。');}}
                 else if(action==='replay'){m.replayEvent(id);this.mode='inspect';}
                 else if(action==='replay-play'){if(m.replay){if(m.replay.fraction>=1)m.replay.fraction=0;m.replay.playing=!m.replay.playing;}}
-                else if(action==='replay-restart'){if(m.replay){m.replay.fraction=0;m.replay.playing=m.replay.points.length>1;}}
+                else if(action==='replay-restart'){if(m.replay){m.replay.fraction=0;m.replay.playing=Math.max(m.replay.points.length,m.replay.estimatedPoints.length,m.replay.frames?.length||0)>1;}}
                 else if(action==='replay-close')m.replay=null;
                 else if(action==='ack')m.acknowledge(id);
                 else if(action==='cancel-mode')this.resetEditing();
@@ -460,7 +517,7 @@
             if(el.dataset.nodeCheck){const n=this.model.nodes.find(n=>n.id===el.dataset.nodeCheck);if(n){n.reporting=el.checked;this.model.refreshEstimates(true);this.render();}}
             else if(el.dataset.field==='kind'){this.renderCreateButton();this.creatorMessage('');}
             else if(el.dataset.field==='rate'){this.model.rate=clamp(Number(el.value)||1,1,10);}
-            else if(el.dataset.field==='replay-range'&&this.model.replay){this.model.replay.fraction=clamp(Number(el.value)/100,0,1);this.model.replay.playing=false;this.renderMap();this.renderReplay();}
+            else if(el.dataset.field==='replay-range'&&this.model.replay){this.model.replay.fraction=clamp(Number(el.value)/100,0,1);this.model.replay.playing=false;this.renderMap();this.renderReplay();this.renderDetail();}
         }
         mapClick(p) {
             if(!point(p)){this.message('請在模擬地圖範圍內放置位置。');return;}
@@ -500,6 +557,30 @@
         }
         renderDetail() {
             const m=this.model,t=m.selected(),slot=this.$('[data-slot="detail"]');
+            if(m.replay){
+                const time=replayTime(m.replay),frame=replayFrameAtTime(m.replay.frames,time);
+                this.$('[data-slot="targets"]').innerHTML='<span class="slab-system-label">歷史系統快照</span>';
+                if(!frame){slot.innerHTML='<p class="slab-hint">此歷史事件沒有系統快照資料。</p>';return;}
+                const system=frame.system||{},prediction=frame.prediction||{},detected=frame.nodes?.filter(n=>n.active)||[],
+                    estimated=point(frame.estimatedPosition)?latLng(frame.estimatedPosition):null,
+                    raw=point(frame.rawEstimatedPosition)?latLng(frame.rawEstimatedPosition):null,
+                    online=(frame.nodes||[]).filter(n=>n.online).length;
+                slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${frame.kind==='drone'?'✣':'◉'}</span><div><h4>歷史回顧 · ${escape(names[frame.kind]||frame.kind)}</h4><small>${escape(frame.targetId||m.replay.targetId||'')}</small></div></div>
+                    <span class="slab-system-label">T+${Number(frame.time).toFixed(1)}s 當時系統狀態</span>
+                    <strong class="slab-target-status ${system.status==='inside'?'slab-danger':''}">${escape(statuses[system.status]||system.status||'—')}${system.trend?` · ${escape(trends[system.trend]||system.trend)}`:''}</strong>
+                    <div class="slab-metrics">
+                        <div><span>在線節點</span><b>${online} / ${frame.nodes?.length||0}</b></div>
+                        <div><span>參與偵測節點</span><b>${detected.length}</b></div>
+                        <div><span>系統估測距據點</span><b>${finite(system.distance)?Math.round(system.distance)+' m':'—'}</b></div>
+                        <div><span>預估進入警戒</span><b>${duration(prediction.display?.displayEtaSeconds??system.zoneEta??null)}</b></div>
+                        <div><span>預估抵達據點</span><b>${duration(prediction.arrivalDisplay?.displayEtaSeconds??system.arrivalEta??null)}</b></div>
+                        <div><span>預測狀態</span><b class="slab-metric-small">${escape(predictionStates[prediction.display?.state]||prediction.raw?.reason||'資料不足')}</b></div>
+                    </div>
+                    <p class="slab-hint">當時參與：${detected.map(n=>escape(n.name)).join('、')||'無'}${raw?`<br>Raw 定位：${raw.lat.toFixed(5)}, ${raw.lng.toFixed(5)}`:''}${estimated?`<br>Track 定位：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:''}</p>
+                    ${frame.kind==='drone'&&prediction?predictionDebug({sitePrediction:prediction}):''}
+                    <p class="slab-disclaimer">此區顯示的是當時已保存的節點、定位與預測快照，不會用目前節點狀態重新計算。</p>`;
+                return;
+            }
             const targetMenuKey=JSON.stringify([m.selectedId,m.targets.map(item=>[item.id,item.kind,assessSystem(item,m.site).status])]);
             if(this.targetMenuKey!==targetMenuKey){
             this.targetMenuKey=targetMenuKey;
@@ -521,11 +602,17 @@
         }
         renderReplay() {
             const replay=this.model.replay,slot=this.$('[data-slot="replay"]');
-            slot.innerHTML=replay?`<div class="slab-replay"><b>回顧 ${replay.eventId}</b><p>${replay.points.length>1?`同步回放真實路徑與 ${replay.estimatedPoints.length?'節點推估路徑':'無推估資料'}。`:replay.points.length===1?'只有一個位置點，顯示靜態位置。':'此事件沒有目標位置，無法產生軌跡動畫。'}</p><div class="slab-playbar"><button type="button" data-action="replay-play" ${replay.points.length<2?'disabled':''}>${replay.playing?'Ⅱ 暫停回顧':'▶ 播放回顧'}</button><button type="button" data-action="replay-restart" ${replay.points.length<2?'disabled':''}>重播</button><input data-field="replay-range" aria-label="模擬歷史回顧時間軸" type="range" min="0" max="100" value="${Math.round(replay.fraction*100)}" ${replay.points.length<2?'disabled':''}><span>${Math.round(replay.fraction*100)}%</span><button type="button" data-action="replay-close">返回模擬現場</button></div></div>`:'<p class="slab-hint">點選下方事件，地圖會同步播放真實路徑與節點推估路徑。</p>';
-            this.$('[data-slot="events"]').innerHTML=this.model.events.length?this.model.events.slice(0,20).map(e=>`<button class="slab-event ${replay?.eventId===e.id?'is-selected':''}" data-action="replay" data-id="${e.id}"><span>${clock(e.time)} · ${names[e.kind]}</span><small>${e.id}</small><b>動畫回顧 →</b></button>`).join(''):'<p class="slab-empty">尚無模擬事件</p>';
+            if(replay){
+                const time=replayTime(replay),frame=replayFrameAtTime(replay.frames,time),sampleCount=Math.max(replay.points.length,replay.estimatedPoints.length,replay.frames?.length||0),canPlay=sampleCount>1;
+                const snapshot=frame?`<p class="slab-hint">目前回顧 T+${frame.time.toFixed(1)}s · 在線 ${frame.nodes.filter(n=>n.online).length}/${frame.nodes.length} · 參與 ${frame.nodes.filter(n=>n.active).length} 節點 · 警戒 ETA ${duration(frame.prediction?.display?.displayEtaSeconds??null)} · 抵達 ETA ${duration(frame.prediction?.arrivalDisplay?.displayEtaSeconds??null)}</p>`:'';
+                slot.innerHTML=`<div class="slab-replay"><b>回顧 ${replay.eventId}</b><p>同步回放真實路徑、Track 路徑、當時節點狀態與 ETA/CPA 預測快照。</p>${snapshot}<div class="slab-playbar"><button type="button" data-action="replay-play" ${canPlay?'':'disabled'}>${replay.playing?'Ⅱ 暫停回顧':'▶ 播放回顧'}</button><button type="button" data-action="replay-restart" ${canPlay?'':'disabled'}>重播</button><input data-field="replay-range" aria-label="模擬歷史回顧時間軸" type="range" min="0" max="100" value="${Math.round(replay.fraction*100)}" ${canPlay?'':'disabled'}><span>${Math.round(replay.fraction*100)}%</span><button type="button" data-action="replay-close">返回模擬現場</button></div></div>`;
+            }else slot.innerHTML='<p class="slab-hint">點選下方事件，可回放當時節點狀態、定位、Track 與 ETA/CPA 預測。</p>';
+            this.$('[data-slot="events"]').innerHTML=this.model.events.length?this.model.events.slice(0,20).map(e=>`<button class="slab-event ${replay?.eventId===e.id?'is-selected':''}" data-action="replay" data-id="${e.id}"><span>${clock(e.time)} · ${names[e.kind]}</span><small>${e.id}</small><b>系統回顧 →</b></button>`).join(''):'<p class="slab-empty">尚無模擬事件</p>';
         }
         bounds() {
-            const points=[this.model.site,...this.model.nodes,...this.model.targets.filter(t=>point(t.position)).map(t=>t.position),...this.model.targets.flatMap(t=>t.waypoints),...this.model.targets.flatMap(t=>t.estimatedTrail),...(this.model.replay?.points||[]),...(this.model.replay?.estimatedPoints||[])];
+            const replayFrames=this.model.replay?.frames||[];
+            const historicalNodes=replayFrames.flatMap(frame=>frame.nodes||[]),historicalSites=replayFrames.map(frame=>frame.site).filter(point);
+            const points=[this.model.site,...this.model.nodes,...historicalSites,...historicalNodes,...this.model.targets.filter(t=>point(t.position)).map(t=>t.position),...this.model.targets.flatMap(t=>t.waypoints),...this.model.targets.flatMap(t=>t.estimatedTrail),...(this.model.replay?.points||[]),...(this.model.replay?.estimatedPoints||[])];
             let minX=-600,maxX=600,minY=-390,maxY=390;
             for(const p of points){minX=Math.min(minX,p.x-100);maxX=Math.max(maxX,p.x+100);minY=Math.min(minY,p.y-100);maxY=Math.max(maxY,p.y+100);}
             const site=this.model.site;minX=Math.min(minX,site.x-site.radius-80);maxX=Math.max(maxX,site.x+site.radius+80);minY=Math.min(minY,site.y-site.radius-80);maxY=Math.max(maxY,site.y+site.radius+80);
@@ -535,14 +622,17 @@
         project(p) {const b=this.mapBounds;return {x:400+(p.x-b.cx)*b.scale,y:260-(p.y-b.cy)*b.scale};}
         unproject(p) {const b=this.mapBounds;return {x:(p.x-400)/b.scale+b.cx,y:(260-p.y)/b.scale+b.cy};}
         renderMap(refit=false) {
-            if(refit||!this.mapBounds)this.mapBounds=this.bounds();const m=this.model,p=this.project.bind(this),site=p(m.site),geometry=m.geometry(),replay=m.replay;
-            const detected=!replay?m.reportingNodes():[];
-            const nodes=m.nodes.map(n=>{const xy=p(n),active=detected.some(item=>item.id===n.id)&&m.selected()?.kind==='drone'&&!m.selected()?.lost,range=n.detectionRadius*this.mapBounds.scale,visual=nodeVisual(n.ordinal,n.online,active);return `<circle class="slab-detection-range ${active?'is-active':''}" cx="${xy.x}" cy="${xy.y}" r="${range}"/>${active?`<circle class="slab-pulse" cx="${xy.x}" cy="${xy.y}" r="20"/>`:''}<g class="slab-node shape-${visual.shape} ${active?'is-active':''} ${n.online?'':'is-offline'}" transform="translate(${xy.x},${xy.y})"><g transform="scale(8)"><path class="slab-node-symbol" d="${visual.path}"/></g><text y="27">${escape(n.name)} · ${n.detectionRadius}m${n.online?'':' · 離線'}</text></g>`;}).join('');
-            const region=!replay&&m.selected()?.kind==='drone'&&!m.selected()?.lost&&geometry.length>=2?`<${geometry.length===2?'polyline':'polygon'} class="slab-reporting-region" points="${geometry.map(n=>{const q=p(n);return `${q.x},${q.y}`;}).join(' ')}"/>`:'';
+            if(refit||!this.mapBounds)this.mapBounds=this.bounds();
+            const m=this.model,p=this.project.bind(this),replay=m.replay,replayT=replay?replayTime(replay):null,replayFrame=replay?replayFrameAtTime(replay.frames,replayT):null,
+                siteModel=replayFrame?.site||m.site,site=p(siteModel),nodeModels=replayFrame?.nodes||m.nodes,
+                detectedIds=new Set(replayFrame?.detectedNodeIds||(!replay?m.reportingNodes().map(n=>n.id):[])),
+                geometry=replayFrame?.sourceRegion?.path||(!replay?m.geometry():[]);
+            const nodes=nodeModels.map(n=>{const xy=p(n),active=replayFrame?Boolean(n.active):detectedIds.has(n.id)&&m.selected()?.kind==='drone'&&!m.selected()?.lost,range=n.detectionRadius*this.mapBounds.scale,visual=nodeVisual(n.ordinal,n.online,active);return `<circle class="slab-detection-range ${active?'is-active':''}" cx="${xy.x}" cy="${xy.y}" r="${range}"/>${active?`<circle class="slab-pulse" cx="${xy.x}" cy="${xy.y}" r="20"/>`:''}<g class="slab-node shape-${visual.shape} ${active?'is-active':''} ${n.online?'':'is-offline'}" transform="translate(${xy.x},${xy.y})"><g transform="scale(8)"><path class="slab-node-symbol" d="${visual.path}"/></g><text y="27">${escape(n.name)} · ${n.detectionRadius}m${n.online?'':' · 離線'}</text></g>`;}).join('');
+            const region=geometry.length>=2?`<${geometry.length===2?'polyline':'polygon'} class="slab-reporting-region" points="${geometry.map(n=>{const q=p(n);return `${q.x},${q.y}`;}).join(' ')}"/>`:'';
             let targets='';
             if(replay){const current=replayPoint(replay),estimated=current?replayPointAtTime(replay.estimatedPoints,current.time):null;if(current){const q=p(current),path=replay.points.slice(0,current.index+1).concat(current);targets=`<polyline class="slab-true-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.targetSvg(q,replay.kind,'真實路徑',false,true)}`;}if(estimated){const q=p(estimated),path=replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);targets+=`<polyline class="slab-estimated-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.estimateSvg(q)}`;}}
             else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(target.waypoints.length)targets+=`<polyline class="slab-waypoints" points="${[target.position,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));}
-            this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${m.site.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
+            this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${siteModel.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
             if(this.googleMap)this.renderGoogle();
         }
         targetSvg(p,kind,label,lost,selected){return `<g class="slab-aircraft ${lost?'is-lost':''} ${selected?'is-selected':''}" transform="translate(${p.x},${p.y})"><circle class="slab-target-halo" r="24"/>${kind==='drone'?`<path d="${DRONE_PATH}"/>`:'<circle r="7"/>'}<text y="39">${escape(label)}${lost?' · 失聯':''}</text></g>`;}
@@ -591,7 +681,7 @@
         fit(){this.fitted=true;if(!this.googleMap)return;const g=root.google.maps,b=new g.LatLngBounds(),extent=this.bounds();[{x:extent.cx-400/extent.scale,y:extent.cy-260/extent.scale},{x:extent.cx+400/extent.scale,y:extent.cy+260/extent.scale}].forEach(p=>b.extend(latLng(p)));this.googleMap.fitBounds(b,30);}
     }
     let workspace=null;
-    const api={LabModel,assess,assessSystem,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,nodeVisual,LIMITS,
+    const api={LabModel,assess,assessSystem,circleEntry,hull,latLng,offset,replayPoint,replayPointAtTime,replayTime,replayFrameAtTime,nodeVisual,LIMITS,
         mount(container){if(!container)throw new Error('A simulation workspace container is required');if(workspace)workspace.destroy();workspace=new Workspace(container);return workspace;},
         enter(){workspace?.enter();},leave(){workspace?.leave();},destroy(){workspace?.destroy();workspace=null;}};
     if(typeof module==='object'&&module.exports)module.exports=api;
