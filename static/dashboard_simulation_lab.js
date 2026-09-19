@@ -54,7 +54,7 @@
     }
     function velocity(target) {
         if (target.lost || !point(target.position) || target.speed<=0) return { x:0, y:0 };
-        const next = target.waypoints[0];
+        const next = target.waypoints[target.waypointIndex??0];
         if (next) { const dx=next.x-target.position.x,dy=next.y-target.position.y,d=Math.hypot(dx,dy); return d ? { x:dx/d*target.speed,y:dy/d*target.speed } : { x:0,y:0 }; }
         const angle=target.heading*Math.PI/180;
         return { x:Math.sin(angle)*target.speed,y:Math.cos(angle)*target.speed };
@@ -120,7 +120,7 @@
             const reporters=(options.reporters || this.nodes.filter(n=>n.reporting&&n.online).map(n=>n.id)).filter(id=>this.nodes.some(n=>n.id===id&&n.online));
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
-                waypoints:[],reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
+                waypoints:[],waypointIndex:0,startPosition:point(options.position)?{x:options.position.x,y:options.position.y}:null,routeRunCount:0,reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
                 motionSegment:0,sitePrediction:null,etaEvaluation:[],replayFrames:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
@@ -177,7 +177,8 @@
             const display=stabilizers.zone.update(raw,referenceTimeMs);
             const arrivalRaw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:{...this.site,radius:this.site.arrivalRadius},uncertaintyM:trackUncertaintyM});
             const arrivalDisplay=stabilizers.arrival.update(arrivalRaw,referenceTimeMs);
-            const truthEtaSeconds=Eta.groundTruthEta(target,this.site);
+            const truthTarget={...target,waypoints:(target.waypoints||[]).slice(target.waypointIndex??0)};
+            const truthEtaSeconds=Eta.groundTruthEta(truthTarget,this.site);
             const rawErrorSeconds=raw.rawEtaSeconds===null||truthEtaSeconds===null?null:raw.rawEtaSeconds-truthEtaSeconds;
             const displayErrorSeconds=display.displayEtaSeconds===null||truthEtaSeconds===null?null:display.displayEtaSeconds-truthEtaSeconds;
             target.sitePrediction={raw,display,arrivalRaw,arrivalDisplay,truthEtaSeconds,rawErrorSeconds,displayErrorSeconds};
@@ -225,7 +226,44 @@
         }
         positionTarget(id,p) {
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
-            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
+            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
+        }
+        resetTargetToStart(target,{preserveRoute=true,recordRun=true}={}) {
+            if(!target||!point(target.startPosition))return false;
+            if(recordRun)this.preserveHistory();
+            target.position={...target.startPosition};
+            target.waypointIndex=0;
+            if(!preserveRoute)target.waypoints=[];
+            target.routeRunCount=(target.routeRunCount??0)+(recordRun?1:0);
+            target.inside=false;
+            target.lost=false;
+            target.trail=[{...target.position,time:this.time}];
+            target.estimatedTrail=[];
+            target.etaEvaluation=[];
+            target.replayFrames=[];
+            this.resetPrediction(target,true);
+            this.resetTracking(target);
+            this.updateEstimate(target,true);
+            this.inspect();
+            return true;
+        }
+        clearRoute(id) {
+            const target=this.targets.find(t=>t.id===id);
+            if(!target)return false;
+            this.preserveHistory();
+            if(point(target.startPosition))target.position={...target.startPosition};
+            target.waypoints=[];
+            target.waypointIndex=0;
+            target.trail=point(target.position)?[{...target.position,time:this.time}]:[];
+            target.estimatedTrail=[];
+            target.etaEvaluation=[];
+            target.replayFrames=[];
+            target.inside=false;
+            this.resetPrediction(target,true);
+            this.resetTracking(target);
+            if(point(target.position))this.updateEstimate(target,true);
+            this.inspect();
+            return true;
         }
         loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.resetTracking(t);this.resetPrediction(t);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
         replayFrame(target,state=null) {
@@ -277,19 +315,29 @@
         step(seconds) {
             if(!finite(seconds)||seconds<=0||seconds>60) return;
             this.time+=seconds;
+            const completed=[];
             for(const target of this.targets) {
                 if(!point(target.position)||target.lost||target.speed<=0) continue;
                 let remaining=seconds*target.speed;
                 if(target.waypoints.length) {
-                    while(remaining>0&&target.waypoints.length) {
-                        const p=target.waypoints[0],dx=p.x-target.position.x,dy=p.y-target.position.y,d=Math.hypot(dx,dy);
-                        if(d<=remaining) { target.position={...p};remaining-=d;target.waypoints.shift();if(!target.waypoints.length){target.speed=0;remaining=0;} }
-                        else {target.position.x+=dx/d*remaining;target.position.y+=dy/d*remaining;target.heading=(Math.atan2(dx,dy)*180/Math.PI+360)%360;remaining=0;}
+                    while(remaining>0&&(target.waypointIndex??0)<target.waypoints.length) {
+                        const p=target.waypoints[target.waypointIndex??0],dx=p.x-target.position.x,dy=p.y-target.position.y,d=Math.hypot(dx,dy);
+                        if(d<=remaining) {
+                            target.position={...p};remaining-=d;target.waypointIndex=(target.waypointIndex??0)+1;
+                            if(target.waypointIndex>=target.waypoints.length){remaining=0;completed.push(target);}
+                        } else {
+                            target.position.x+=dx/d*remaining;target.position.y+=dy/d*remaining;
+                            target.heading=(Math.atan2(dx,dy)*180/Math.PI+360)%360;remaining=0;
+                        }
                     }
-                } else { const v=velocity(target);target.position.x+=v.x*seconds;target.position.y+=v.y*seconds; }
+                } else {
+                    const v=velocity(target);target.position.x+=v.x*seconds;target.position.y+=v.y*seconds;
+                }
                 target.trail.push({...target.position,time:this.time});target.trail=target.trail.slice(-LIMITS.points);this.updateEstimate(target);
             }
             this.inspect();
+            for(const target of completed)this.resetTargetToStart(target,{preserveRoute:true,recordRun:true});
+            if(completed.length&&this.targets.every(target=>target.lost||!target.waypoints.length||(target.waypointIndex??0)===0))this.playing=false;
         }
         replayEvent(eventId) {
             const event=this.events.find(e=>e.id===eventId),target=this.targets.find(t=>t.id===event?.targetId);
@@ -474,6 +522,7 @@
                 else if(action==='move-node')this.setMode('move-node',id);
                 else if(action==='edit-target-start'){m.selectedId=id;this.editTarget=id;this.setMode('move-target');}
                 else if(action==='edit-target-route'){m.selectedId=id;m.replay=null;this.editTarget=id;if(!point(m.selected()?.position)||m.selected()?.lost)this.message('這台目標需要先設定有效起點。');else this.setMode('waypoint');}
+                else if(action==='clear-target-route'){m.playing=false;if(m.clearRoute(id))this.message('已清空這台目標的飛行路徑並回到起點；歷史回顧保留。');}
                 else if(action==='toggle-node'){const n=m.nodes.find(n=>n.id===id);if(n){n.online=!n.online;m.refreshEstimates(true);}}
                 else if(action==='remove-node'){m.nodes=m.nodes.filter(n=>n.id!==id);m.refreshEstimates(true);}
                 else if(action==='node-radius'){if(!m.setAllNodeDetectionRadius(this.field('node-radius').value))this.message('節點偵測半徑需為 20 到 5000 公尺。');else this.message(`已將全部節點偵測半徑更新為 ${m.nodeDetectionRadius} 公尺。`);}
@@ -492,10 +541,10 @@
                 else if(action==='play'){this.resetEditing();m.playing=!m.playing;}
                 else if(action==='step'){m.replay=null;m.playing=false;m.step(1);}
                 else if(action==='select-target'){this.resetEditing();m.selectedId=id;}
-                else if(action==='stop-target'){const t=m.selected();if(t){t.speed=0;t.waypoints=[];}else this.message('請先選擇目標。');}
+                else if(action==='stop-target'){const t=m.selected();if(t){t.speed=0;}else this.message('請先選擇目標。');}
                 else if(action==='lost')m.loseTarget(m.selectedId);
                 else if(action==='reconnect-target'){const t=m.selected();if(t){t.lost=false;m.updateEstimate(t,true);m.inspect();}}
-                else if(action==='apply-motion'){const t=m.selected(),speed=Number(this.field('speed').value),heading=Number(this.field('heading').value);if(!t)this.message('請先建立或選取目標。');else if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360)this.message('請確認速度與航向範圍。');else{t.speed=speed;t.heading=heading;t.waypoints=[];this.message('已套用指定運動值，原飛行路徑已清除。');}}
+                else if(action==='apply-motion'){const t=m.selected(),speed=Number(this.field('speed').value),heading=Number(this.field('heading').value);if(!t)this.message('請先建立或選取目標。');else if(!finite(speed)||speed<0||speed>100||!finite(heading)||heading<0||heading>=360)this.message('請確認速度與航向範圍。');else{t.speed=speed;t.heading=heading;t.waypoints=[];t.waypointIndex=0;this.message('已套用指定運動值，原飛行路徑已清除。');}}
                 else if(action==='replay'){m.replayEvent(id);this.mode='inspect';}
                 else if(action==='replay-play'){if(m.replay){if(m.replay.fraction>=1)m.replay.fraction=0;m.replay.playing=!m.replay.playing;}}
                 else if(action==='replay-restart'){if(m.replay){m.replay.fraction=0;m.replay.playing=Math.max(m.replay.points.length,m.replay.estimatedPoints.length,m.replay.frames?.length||0)>1;}}
@@ -529,7 +578,7 @@
                 else this.creatorMessage('此目標已不存在，請按「新增一架」重新建立。',true);
             }
             else if(this.mode==='site'){this.model.setSite(p);this.mode='inspect';this.message('已設定模擬據點與警戒區。');}
-            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.position)){t.waypoints.push({...p});if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；按開始模擬播放。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
+            else if(this.mode==='waypoint'){const t=this.model.targets.find(t=>t.id===this.editTarget);if(t&&point(t.startPosition||t.position)){if(!t.startPosition)t.startPosition={...t.position};t.waypoints.push({...p});t.waypointIndex=0;if(!t.speed)t.speed=clamp(Number(this.field('speed').value)||25,1,100);this.message(`已加入第 ${t.waypoints.length} 個路徑點；路徑會保留，跑完後自動回起點。`);}else{this.resetEditing();this.creatorMessage('此目標已不存在或尚未設定起點，請重新選擇。',true);}}
             this.render();
         }
         renderMode(){
@@ -553,7 +602,7 @@
         }
         renderFleet(){
             const targets=this.model.targets,slot=this.$('[data-slot="fleet"]');if(!slot)return;
-            slot.innerHTML=targets.length?`<h4>目標路徑設定 <small>${targets.length} 個 · 設好後同步開始</small></h4>${targets.map(t=>`<div class="slab-fleet-row ${t.id===this.model.selectedId?'is-selected':''}"><button type="button" data-action="select-target" data-id="${t.id}" class="slab-fleet-name">${escape(names[t.kind])} ${t.id.replace('SIM-TARGET-','#')}</button><span>起點 ${point(t.position)?'已設定':'未設定'} · 路徑 ${t.waypoints.length} 點</span><button type="button" data-action="edit-target-start" data-id="${t.id}">設起點</button><button type="button" data-action="edit-target-route" data-id="${t.id}">設路徑</button></div>`).join('')}`:'<p class="slab-hint">新增一架無人機後，這裡會顯示它的起點與路徑；可繼續逐架加入。</p>';
+            slot.innerHTML=targets.length?`<h4>目標路徑設定 <small>${targets.length} 個 · 跑完自動回起點</small></h4>${targets.map(t=>`<div class="slab-fleet-row ${t.id===this.model.selectedId?'is-selected':''}"><button type="button" data-action="select-target" data-id="${t.id}" class="slab-fleet-name">${escape(names[t.kind])} ${t.id.replace('SIM-TARGET-','#')}</button><span>起點 ${point(t.startPosition||t.position)?'已設定':'未設定'} · 路徑 ${t.waypoints.length} 點${t.routeRunCount? ` · 已完成 ${t.routeRunCount} 次`:''}</span><button type="button" data-action="edit-target-start" data-id="${t.id}">設起點</button><button type="button" data-action="edit-target-route" data-id="${t.id}">設路徑</button><button type="button" data-action="clear-target-route" data-id="${t.id}" ${t.waypoints.length?'':'disabled'}>清空路徑</button></div>`).join('')}`:'<p class="slab-hint">新增一架無人機後，這裡會顯示它的起點與路徑；可繼續逐架加入。</p>';
         }
         renderDetail() {
             const m=this.model,t=m.selected(),slot=this.$('[data-slot="detail"]');
@@ -632,7 +681,7 @@
             const region=geometry.length>=2?`<${geometry.length===2?'polyline':'polygon'} class="slab-reporting-region" points="${geometry.map(n=>{const q=p(n);return `${q.x},${q.y}`;}).join(' ')}"/>`:'';
             let targets='';
             if(replay){const current=replayPoint(replay),estimated=current?replayPointAtTime(replay.estimatedPoints,current.time):null;if(current){const q=p(current),path=replay.points.slice(0,current.index+1).concat(current);targets=`<polyline class="slab-true-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.targetSvg(q,replay.kind,'真實路徑',false,true)}`;}if(estimated){const q=p(estimated),path=replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);targets+=`<polyline class="slab-estimated-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.estimateSvg(q)}`;}}
-            else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(target.waypoints.length)targets+=`<polyline class="slab-waypoints" points="${[target.position,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));}
+            else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(target.waypoints.length&&point(target.startPosition))targets+=`<polyline class="slab-waypoints" points="${[target.startPosition,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));}
             this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${siteModel.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
             if(this.googleMap)this.renderGoogle();
         }
@@ -677,7 +726,7 @@
             } else for(const t of m.targets){
                 if(point(t.position)){trueLine(`true:${t.id}`,t.trail,t.id!==m.selectedId);trueMarker(`target:${t.id}`,t.position,t.kind,t.id,t.lost);}
                 estimateLine(`estimate:${t.id}`,t.estimatedTrail);if(point(t.estimatedPosition)&&t.id===m.selectedId)estimateMarker(`estimate-marker:${t.id}`,t.estimatedPosition);
-                if(t.waypoints.length)put(`waypoints:${t.id}`,g.Polyline,{path:[t.position,...t.waypoints].map(latLng),strokeColor:'#FBBF24',strokeWeight:2,strokeOpacity:.65,clickable:false});
+                if(t.waypoints.length&&point(t.startPosition))put(`waypoints:${t.id}`,g.Polyline,{path:[t.startPosition,...t.waypoints].map(latLng),strokeColor:'#FBBF24',strokeWeight:2,strokeOpacity:.65,clickable:false});
             }
             for(const [key,overlay] of this.googleOverlays)if(!used.has(key)){overlay.setMap(null);this.googleOverlays.delete(key);}
         }
