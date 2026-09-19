@@ -110,6 +110,27 @@
         const valid=rawEtaSeconds!==null&&(state==='LIKELY_INTERSECTS'||state==='ALREADY_INSIDE')&&(trend==='APPROACHING'||rawEtaSeconds===0);
         return {valid,referenceTimeMs,motion,rawEtaSeconds,rawEntryTimeMs,closingSpeed:geometry.closingSpeed,cpaDistance:geometry.cpaDistance,cpaTime:geometry.cpaTime,protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
     }
+    function createRawSitePredictionFromMotion(input){
+        const c={...DEFAULT_CONFIG,...input?.config},referenceTimeMs=input?.referenceTimeMs,motion=input?.motion;
+        if(!finite(referenceTimeMs)||!point(input?.site)||!finite(input.site.radius)||input.site.radius<=0)return emptyRaw(referenceTimeMs,'INVALID_SITE',motion||null);
+        if(!motion||!point(motion.position)||!finite(motion.vx)||!finite(motion.vy))return emptyRaw(referenceTimeMs,'TRACK_UNAVAILABLE',motion||null);
+        const speed=finite(motion.speed)?motion.speed:Math.hypot(motion.vx,motion.vy);
+        const normalizedMotion={valid:true,reason:'OK',position:motion.position,vx:motion.vx,vy:motion.vy,speed,heading:motion.heading??null,
+            residualRmse:finite(motion.residualRmse)?motion.residualRmse:0,sampleCount:motion.sampleCount??null,timeSpanMs:motion.timeSpanMs??null,
+            maximumGapMs:motion.maximumGapMs??null,referenceTimeMs,lastMeasurementTimeMs:motion.lastMeasurementTimeMs??referenceTimeMs,
+            source:motion.source||'tracked_motion_state'};
+        const geometry=siteGeometry(normalizedMotion.position,normalizedMotion.vx,normalizedMotion.vy,input.site,c);
+        const uncertainty=Math.max(c.minimumTrajectoryUncertaintyM,finite(input?.uncertaintyM)?Math.max(0,input.uncertaintyM):0);
+        let state=geometry.cpaDistance+uncertainty<input.site.radius?'LIKELY_INTERSECTS':geometry.cpaDistance-uncertainty>input.site.radius?'LIKELY_MISSES':'INTERSECTION_UNCERTAIN';
+        if(geometry.intersectionStatus==='ALREADY_INSIDE')state='ALREADY_INSIDE';
+        const trend=speed<c.minimumSpeedMps?'STATIONARY':geometry.closingSpeed>c.approachingClosingThreshold?'APPROACHING':geometry.closingSpeed<c.departingClosingThreshold?'DEPARTING':'UNCERTAIN';
+        const rawEtaSeconds=geometry.etaSeconds,rawEntryTimeMs=rawEtaSeconds===null?null:referenceTimeMs+rawEtaSeconds*1000;
+        let reason=geometry.intersectionStatus;
+        if(trend==='DEPARTING')reason='DEPARTING';else if(state==='INTERSECTION_UNCERTAIN')reason='INTERSECTION_UNCERTAIN';else if(trend==='UNCERTAIN'&&rawEtaSeconds!==0)reason='TREND_UNCERTAIN';
+        const valid=rawEtaSeconds!==null&&(state==='LIKELY_INTERSECTS'||state==='ALREADY_INSIDE')&&(trend==='APPROACHING'||rawEtaSeconds===0);
+        return {valid,referenceTimeMs,motion:normalizedMotion,rawEtaSeconds,rawEntryTimeMs,closingSpeed:geometry.closingSpeed,cpaDistance:geometry.cpaDistance,cpaTime:geometry.cpaTime,
+            protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
+    }
     class EtaStabilizer{
         constructor(config={}){this.config={...DEFAULT_CONFIG,...config};this.reset();}
         reset(){this.smoothedEntryTimeMs=null;this.invalidSinceMs=null;this.departingSinceMs=null;this.lastTimeMs=null;this.lastSignature=null;this.lastOutput=null;this.everStable=false;}
@@ -150,6 +171,6 @@
         for(const end of segments){const dx=end.x-position.x,dy=end.y-position.y,length=Math.hypot(dx,dy);if(!length)continue;const vx=dx/length*target.speed,vy=dy/length*target.speed,g=siteGeometry(position,vx,vy,site,c),duration=length/target.speed;if(g.etaSeconds!==null&&g.etaSeconds<=duration)return elapsed+g.etaSeconds;elapsed+=duration;position=end;}
         return null;
     }
-    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,createRawSitePrediction,EtaStabilizer,groundTruthEta};
+    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,createRawSitePrediction,createRawSitePredictionFromMotion,EtaStabilizer,groundTruthEta};
     if(typeof module==='object'&&module.exports)module.exports=api;else root.DashboardSimulationEta=api;
 })(typeof globalThis==='object'?globalThis:this);
