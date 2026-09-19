@@ -11,6 +11,10 @@
         maximumSegmentSpeedMps:150,
         minimumSpeedMps:.1,
         entryTimeEmaAlpha:.25,
+        entryTimeEmaMinAlpha:.14,
+        entryTimeEmaMaxAlpha:.46,
+        etaUncertaintyReferenceM:20,
+        etaRangeMinClosingSpeedMps:.5,
         etaHoldMs:2000,
         departingConfirmMs:1000,
         approachingClosingThreshold:.15,
@@ -93,7 +97,17 @@
         if(roots[0]>c.predictionHorizonSeconds)return {etaSeconds:null,intersectionStatus:'BEYOND_HORIZON',distance,closingSpeed,cpaTime,cpaDistance,discriminant};
         return {etaSeconds:roots[0],intersectionStatus:'INTERSECTS',distance,closingSpeed,cpaTime,cpaDistance,discriminant};
     }
-    function emptyRaw(referenceTimeMs,reason,motion=null){return {valid:false,referenceTimeMs,motion,rawEtaSeconds:null,rawEntryTimeMs:null,closingSpeed:null,cpaDistance:null,cpaTime:null,trajectoryUncertaintyM:null,rawIntersectionState:'UNAVAILABLE',reason,trend:'UNSTABLE'};}
+    function etaRange(rawEtaSeconds,closingSpeed,uncertaintyM,config={}) {
+        const c={...DEFAULT_CONFIG,...config};
+        if(!finite(rawEtaSeconds)||rawEtaSeconds<0||!finite(closingSpeed)||closingSpeed<=0||!finite(uncertaintyM))return {etaUncertaintySeconds:null,etaLowerSeconds:null,etaUpperSeconds:null};
+        const etaUncertaintySeconds=Math.max(0,uncertaintyM/Math.max(closingSpeed,c.etaRangeMinClosingSpeedMps));
+        return {
+            etaUncertaintySeconds,
+            etaLowerSeconds:Math.max(0,rawEtaSeconds-etaUncertaintySeconds),
+            etaUpperSeconds:rawEtaSeconds+etaUncertaintySeconds
+        };
+    }
+    function emptyRaw(referenceTimeMs,reason,motion=null){return {valid:false,referenceTimeMs,motion,rawEtaSeconds:null,rawEntryTimeMs:null,closingSpeed:null,cpaDistance:null,cpaTime:null,trajectoryUncertaintyM:null,etaUncertaintySeconds:null,etaLowerSeconds:null,etaUpperSeconds:null,rawIntersectionState:'UNAVAILABLE',reason,trend:'UNSTABLE'};}
     function createRawSitePrediction(input){
         const c={...DEFAULT_CONFIG,...input?.config},referenceTimeMs=input?.referenceTimeMs;
         if(!finite(referenceTimeMs)||!point(input?.site)||!finite(input.site.radius)||input.site.radius<=0)return emptyRaw(referenceTimeMs,'INVALID_SITE');
@@ -108,7 +122,8 @@
         let reason=geometry.intersectionStatus;
         if(trend==='DEPARTING')reason='DEPARTING';else if(state==='INTERSECTION_UNCERTAIN')reason='INTERSECTION_UNCERTAIN';else if(trend==='UNCERTAIN'&&rawEtaSeconds!==0)reason='TREND_UNCERTAIN';
         const valid=rawEtaSeconds!==null&&(state==='LIKELY_INTERSECTS'||state==='ALREADY_INSIDE')&&(trend==='APPROACHING'||rawEtaSeconds===0);
-        return {valid,referenceTimeMs,motion,rawEtaSeconds,rawEntryTimeMs,closingSpeed:geometry.closingSpeed,cpaDistance:geometry.cpaDistance,cpaTime:geometry.cpaTime,protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
+        const range=etaRange(rawEtaSeconds,geometry.closingSpeed,uncertainty,c);
+        return {valid,referenceTimeMs,motion,rawEtaSeconds,rawEntryTimeMs,closingSpeed:geometry.closingSpeed,cpaDistance:geometry.cpaDistance,cpaTime:geometry.cpaTime,protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,...range,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
     }
     function createRawSitePredictionFromMotion(input){
         const c={...DEFAULT_CONFIG,...input?.config},referenceTimeMs=input?.referenceTimeMs,motion=input?.motion;
@@ -118,6 +133,8 @@
         const normalizedMotion={valid:true,reason:'OK',position:motion.position,vx:motion.vx,vy:motion.vy,speed,heading:motion.heading??null,
             residualRmse:finite(motion.residualRmse)?motion.residualRmse:0,sampleCount:motion.sampleCount??null,timeSpanMs:motion.timeSpanMs??null,
             maximumGapMs:motion.maximumGapMs??null,referenceTimeMs,lastMeasurementTimeMs:motion.lastMeasurementTimeMs??referenceTimeMs,
+            uncertaintyM:finite(motion.uncertaintyM)?motion.uncertaintyM:null,qualityScore:finite(motion.qualityScore)?motion.qualityScore:null,
+            alphaUsed:finite(motion.alphaUsed)?motion.alphaUsed:null,betaUsed:finite(motion.betaUsed)?motion.betaUsed:null,
             source:motion.source||'tracked_motion_state'};
         const geometry=siteGeometry(normalizedMotion.position,normalizedMotion.vx,normalizedMotion.vy,input.site,c);
         const uncertainty=Math.max(c.minimumTrajectoryUncertaintyM,finite(input?.uncertaintyM)?Math.max(0,input.uncertaintyM):0);
@@ -128,16 +145,17 @@
         let reason=geometry.intersectionStatus;
         if(trend==='DEPARTING')reason='DEPARTING';else if(state==='INTERSECTION_UNCERTAIN')reason='INTERSECTION_UNCERTAIN';else if(trend==='UNCERTAIN'&&rawEtaSeconds!==0)reason='TREND_UNCERTAIN';
         const valid=rawEtaSeconds!==null&&(state==='LIKELY_INTERSECTS'||state==='ALREADY_INSIDE')&&(trend==='APPROACHING'||rawEtaSeconds===0);
+        const range=etaRange(rawEtaSeconds,geometry.closingSpeed,uncertainty,c);
         return {valid,referenceTimeMs,motion:normalizedMotion,rawEtaSeconds,rawEntryTimeMs,closingSpeed:geometry.closingSpeed,cpaDistance:geometry.cpaDistance,cpaTime:geometry.cpaTime,
-            protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
+            protectedRadius:input.site.radius,trajectoryUncertaintyM:uncertainty,...range,rawIntersectionState:state,mathematicalIntersection:geometry.intersectionStatus,reason,trend};
     }
     class EtaStabilizer{
         constructor(config={}){this.config={...DEFAULT_CONFIG,...config};this.reset();}
-        reset(){this.smoothedEntryTimeMs=null;this.invalidSinceMs=null;this.departingSinceMs=null;this.lastTimeMs=null;this.lastSignature=null;this.lastOutput=null;this.everStable=false;}
+        reset(){this.smoothedEntryTimeMs=null;this.smoothedEtaUncertaintySeconds=null;this.invalidSinceMs=null;this.departingSinceMs=null;this.lastTimeMs=null;this.lastSignature=null;this.lastOutput=null;this.everStable=false;}
         update(raw,currentTimeMs){
             const c=this.config;if(!finite(currentTimeMs))throw new Error('simulation time is required');
             if(this.lastTimeMs!==null&&currentTimeMs<this.lastTimeMs)this.reset();
-            const signature=JSON.stringify([raw?.valid??false,raw?.rawEntryTimeMs??null,raw?.trend||null,raw?.reason||null]);
+            const signature=JSON.stringify([raw?.valid??false,raw?.rawEntryTimeMs??null,raw?.trajectoryUncertaintyM??null,raw?.trend||null,raw?.reason||null]);
             if(this.lastTimeMs===currentTimeMs&&this.lastSignature===signature&&this.lastOutput)return {...this.lastOutput};
             this.lastTimeMs=currentTimeMs;
             this.lastSignature=signature;
@@ -145,19 +163,28 @@
             const departingConfirmed=this.departingSinceMs!==null&&currentTimeMs-this.departingSinceMs>=c.departingConfirmMs;
             if(raw?.valid&&!departingConfirmed){
                 this.invalidSinceMs=null;this.departingSinceMs=null;
-                this.smoothedEntryTimeMs=raw.rawEtaSeconds===0?currentTimeMs:this.smoothedEntryTimeMs===null?raw.rawEntryTimeMs:this.smoothedEntryTimeMs*(1-c.entryTimeEmaAlpha)+raw.rawEntryTimeMs*c.entryTimeEmaAlpha;
+                const uncertainty=finite(raw.trajectoryUncertaintyM)?Math.max(0,raw.trajectoryUncertaintyM):null;
+                const quality=uncertainty===null?null:c.etaUncertaintyReferenceM/(c.etaUncertaintyReferenceM+uncertainty);
+                const alpha=quality===null?c.entryTimeEmaAlpha:c.entryTimeEmaMinAlpha+(c.entryTimeEmaMaxAlpha-c.entryTimeEmaMinAlpha)*quality;
+                this.smoothedEntryTimeMs=raw.rawEtaSeconds===0?currentTimeMs:this.smoothedEntryTimeMs===null?raw.rawEntryTimeMs:this.smoothedEntryTimeMs*(1-alpha)+raw.rawEntryTimeMs*alpha;
+                if(finite(raw.etaUncertaintySeconds)){
+                    this.smoothedEtaUncertaintySeconds=this.smoothedEtaUncertaintySeconds===null?raw.etaUncertaintySeconds:this.smoothedEtaUncertaintySeconds*(1-alpha)+raw.etaUncertaintySeconds*alpha;
+                }
                 this.everStable=true;
-                return this.output('STABLE',raw,currentTimeMs,0);
+                return this.output('STABLE',raw,currentTimeMs,0,alpha);
             }
             if(this.invalidSinceMs===null)this.invalidSinceMs=currentTimeMs;
             const holdAgeMs=currentTimeMs-this.invalidSinceMs;
             if(this.smoothedEntryTimeMs!==null&&!departingConfirmed&&holdAgeMs<=c.etaHoldMs)return this.output('HOLDING',raw,currentTimeMs,holdAgeMs);
-            const state=this.everStable?'CLEARED':'UNSTABLE';this.smoothedEntryTimeMs=null;
+            const state=this.everStable?'CLEARED':'UNSTABLE';this.smoothedEntryTimeMs=null;this.smoothedEtaUncertaintySeconds=null;
             return this.output(state,raw,currentTimeMs,holdAgeMs);
         }
-        output(state,raw,currentTimeMs,holdAgeMs){
+        output(state,raw,currentTimeMs,holdAgeMs,emaAlphaUsed=null){
             const eta=this.smoothedEntryTimeMs===null?null:Math.max(0,(this.smoothedEntryTimeMs-currentTimeMs)/1000);
-            const result={state,displayEtaSeconds:eta,smoothedEntryTimeMs:this.smoothedEntryTimeMs,holdAgeMs,trajectoryLabel:state==='STABLE'?'穩定':state==='HOLDING'?'暫時不穩定':'無可靠預測',reason:raw?.reason||'NO_PREDICTION'};
+            const spread=this.smoothedEtaUncertaintySeconds;
+            const displayEtaLowerSeconds=eta===null||spread===null?null:Math.max(0,eta-spread);
+            const displayEtaUpperSeconds=eta===null||spread===null?null:eta+spread;
+            const result={state,displayEtaSeconds:eta,displayEtaLowerSeconds,displayEtaUpperSeconds,displayEtaUncertaintySeconds:spread,smoothedEntryTimeMs:this.smoothedEntryTimeMs,emaAlphaUsed,holdAgeMs,trajectoryLabel:state==='STABLE'?'穩定':state==='HOLDING'?'暫時不穩定':'無可靠預測',reason:raw?.reason||'NO_PREDICTION'};
             this.lastOutput=result;return {...result};
         }
     }
@@ -171,6 +198,6 @@
         for(const end of segments){const dx=end.x-position.x,dy=end.y-position.y,length=Math.hypot(dx,dy);if(!length)continue;const vx=dx/length*target.speed,vy=dy/length*target.speed,g=siteGeometry(position,vx,vy,site,c),duration=length/target.speed;if(g.etaSeconds!==null&&g.etaSeconds<=duration)return elapsed+g.etaSeconds;elapsed+=duration;position=end;}
         return null;
     }
-    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,createRawSitePrediction,createRawSitePredictionFromMotion,EtaStabilizer,groundTruthEta};
+    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,etaRange,createRawSitePrediction,createRawSitePredictionFromMotion,EtaStabilizer,groundTruthEta};
     if(typeof module==='object'&&module.exports)module.exports=api;else root.DashboardSimulationEta=api;
 })(typeof globalThis==='object'?globalThis:this);
