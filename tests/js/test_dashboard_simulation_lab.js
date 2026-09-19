@@ -14,9 +14,28 @@ model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'l
 model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
 
 const fittedIntegration=new lab.LabModel();fittedIntegration.preset('approach');for(let i=0;i<8;i++)fittedIntegration.step(1);const fittedTarget=fittedIntegration.selected();
-assert.equal(fittedTarget.sitePrediction.raw.motion.source,'fitted_estimated_trajectory','live lab ETA uses one fitted estimated trajectory');
+assert.equal(fittedTarget.sitePrediction.raw.motion.source,'simulation_alpha_beta_track','live lab ETA uses the alpha-beta tracked motion state directly');
 assert(fittedTarget.etaEvaluation.length>0,'each simulation frame records ETA evaluation data');
 assert(Object.hasOwn(fittedTarget.etaEvaluation.at(-1),'truthEtaSeconds'),'ground truth is retained only as an evaluation field');
+
+// A node-set change produces a new localization measurement, but the displayed track is corrected rather than teleported.
+const nodeTransition=new lab.LabModel();
+nodeTransition.setSite({x:0,y:0},150);
+nodeTransition.addNode({x:-300,y:-100});
+nodeTransition.addNode({x:100,y:-100});
+nodeTransition.setAllNodeDetectionRadius(500);
+const transitionTarget=nodeTransition.createEvent({kind:'drone',position:{x:-100,y:0},speed:20,heading:90});
+nodeTransition.step(1);
+const beforeTransition={...transitionTarget.estimatedPosition};
+nodeTransition.addNode({x:350,y:0});
+nodeTransition.refreshEstimates(true);
+nodeTransition.step(1);
+const rawAfter=transitionTarget.rawEstimatedPosition;
+const trackedAfter=transitionTarget.estimatedPosition;
+assert(rawAfter&&trackedAfter,'new node set should produce both a raw localization measurement and a tracked position');
+assert.notDeepEqual(trackedAfter,rawAfter,'node-set changes are corrected through the tracker instead of teleporting to the new centroid');
+assert.equal(transitionTarget.trackState.source,'simulation_alpha_beta_track');
+assert(Number.isFinite(transitionTarget.trackState.vx)&&Number.isFinite(transitionTarget.trackState.vy));
 
 const systemAlarm=new lab.LabModel();systemAlarm.setSite({x:0,y:0},20);systemAlarm.addNode({x:-200,y:0});systemAlarm.addNode({x:100,y:0});systemAlarm.setAllNodeDetectionRadius(500);
 const truthInside=systemAlarm.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'inside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'outside');assert.equal(systemAlarm.alerts.length,0,'truth path alone cannot trigger a system warning');
