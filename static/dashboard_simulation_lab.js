@@ -491,6 +491,7 @@
             <dt>樣本 / 時窗</dt><dd>${motion.sampleCount??0} / ${metric((motion.timeSpanMs??0)/1000,2)} s</dd>
             <dt>最大間隔 / RMSE</dt><dd>${metric(finite(motion.maximumGapMs)?motion.maximumGapMs/1000:null,2)} s / ${metric(motion.residualRmse)} m</dd><dt>Closing speed</dt><dd>${metric(raw.closingSpeed,2)} m/s</dd>
             <dt>CPA 距離 / 時間</dt><dd>${metric(raw.cpaDistance)} m / ${metric(raw.cpaTime)} s</dd><dt>軌跡不確定度</dt><dd>±${metric(raw.trajectoryUncertaintyM)} m</dd>
+            <dt>ETA 誤差帶</dt><dd>±${metric(display.displayEtaUncertaintySeconds,2)} s${display.displayEtaLowerSeconds!=null&&display.displayEtaUpperSeconds!=null?` · ${metric(display.displayEtaLowerSeconds,1)}–${metric(display.displayEtaUpperSeconds,1)} s`:''}</dd><dt>ETA EMA α</dt><dd>${metric(display.emaAlphaUsed,3)}</dd>
             <dt>交會判定</dt><dd>${escape(raw.rawIntersectionState||'UNAVAILABLE')} / ${escape(raw.mathematicalIntersection||'—')}</dd><dt>穩定器</dt><dd>${escape(display.state||'UNSTABLE')} · hold ${metric(display.holdAgeMs??0,0)} ms</dd>
             <dt>Reason</dt><dd>${escape(raw.reason||'NO_PREDICTION')}</dd><dt>真值 ETA（只供評估）</dt><dd>${duration(prediction?.truthEtaSeconds??null)}</dd>
             <dt>Raw / Display 誤差</dt><dd>${metric(prediction?.rawErrorSeconds)} / ${metric(prediction?.displayErrorSeconds)} s</dd><dt>資料來源</dt><dd>${escape(motion.source||'estimated trajectory only')}</dd>
