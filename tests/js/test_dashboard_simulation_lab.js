@@ -99,11 +99,16 @@ model.preset('idle');assert.equal(model.targets.length,0);assert.equal(model.nod
 
 model=new lab.LabModel();model.addNode({x:1,y:2});target=model.createEvent({position:{x:0,y:0},speed:10,heading:90});
 target.waypoints=[{x:10,y:0},{x:10,y:10}];model.step(1.5);near(target.position.x,10);near(target.position.y,5);model.step(1);
-near(target.position.x,0);near(target.position.y,0);assert.equal(target.routeReady,true,'completed route returns to its configured start and waits for replay');
+near(target.position.x,10);near(target.position.y,10);assert.equal(target.routeReady,true,'completed route stays at its endpoint until restart');
 assert.equal(target.routeRunCount,1);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'completed route keeps every configured waypoint');
-assert.equal(target.waypointIndex,0,'completed route resets its cursor without deleting the route');
-const completedEvent=model.events.find(e=>e.targetId===target.id);assert(completedEvent.points.some(p=>p.x===10&&p.y===10),'completed route is preserved in event replay before returning to start');
-target.routeReady=false;model.step(1);near(target.position.x,10);near(target.position.y,0);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'second run reuses the same route definition');
+assert.equal(target.waypointIndex,2,'completed route keeps its cursor at the route end while inspecting results');
+const completedEvent=model.events.find(e=>e.targetId===target.id);assert(completedEvent.points.some(p=>p.x===10&&p.y===10),'completed route is preserved in event replay while target remains at endpoint');
+const firstRunHistory=JSON.stringify(completedEvent.points);
+assert.equal(model.restartSimulation(),true,'restart resets routed targets for another run');
+near(target.position.x,0);near(target.position.y,0);assert.equal(target.routeReady,false);assert.equal(target.waypointIndex,0);assert.equal(model.time,0);assert.equal(model.playing,true);
+assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'restart preserves the configured route');
+assert.equal(JSON.stringify(completedEvent.points),firstRunHistory,'restart preserves the completed run for history replay');
+model.step(1);near(target.position.x,10);near(target.position.y,0);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'restarted run follows the same route');
 model.replayEvent(model.events[0].id);const saved=JSON.stringify(model.replay.points);target.trail.push({x:200,y:200,time:50});assert.equal(JSON.stringify(model.replay.points),saved,'replay owns a stable snapshot');
 assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
 model.replay=null;
