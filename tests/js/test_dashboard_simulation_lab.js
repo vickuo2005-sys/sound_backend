@@ -98,8 +98,21 @@ model.createEvent({position:{x:-500,y:0},speed:10,heading:90});assert.equal(mode
 model.preset('idle');assert.equal(model.targets.length,0);assert.equal(model.nodes.length,3);assert.equal(model.playing,false);
 
 model=new lab.LabModel();model.addNode({x:1,y:2});target=model.createEvent({position:{x:0,y:0},speed:10,heading:90});
-target.waypoints=[{x:10,y:0},{x:10,y:10}];model.step(1.5);near(target.position.x,10);near(target.position.y,5);model.step(1);near(target.position.y,10);assert.equal(target.speed,0,'stops at final path waypoint');
+target.waypoints=[{x:10,y:0},{x:10,y:10}];model.step(1.5);near(target.position.x,10);near(target.position.y,5);model.step(1);
+near(target.position.x,0);near(target.position.y,0);assert.equal(target.routeReady,true,'completed route returns to its configured start and waits for replay');
+assert.equal(target.routeRunCount,1);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'completed route keeps every configured waypoint');
+assert.equal(target.waypointIndex,0,'completed route resets its cursor without deleting the route');
+const completedEvent=model.events.find(e=>e.targetId===target.id);assert(completedEvent.points.some(p=>p.x===10&&p.y===10),'completed route is preserved in event replay before returning to start');
+target.routeReady=false;model.step(1);near(target.position.x,10);near(target.position.y,0);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'second run reuses the same route definition');
 model.replayEvent(model.events[0].id);const saved=JSON.stringify(model.replay.points);target.trail.push({x:200,y:200,time:50});assert.equal(JSON.stringify(model.replay.points),saved,'replay owns a stable snapshot');
+model.replay=null;
+const routeHistoryBeforeClear=JSON.stringify(completedEvent.points);
+assert.equal(model.clearRoute(target.id),true);
+assert.equal(target.waypoints.length,0,'clear route removes configured waypoints');
+near(target.position.x,target.startPosition.x);near(target.position.y,target.startPosition.y);
+assert.equal(JSON.stringify(completedEvent.points),routeHistoryBeforeClear,'clearRoute keeps history that was already captured');
+assert.equal(target.routeReady,false);
+
 assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
 const sharedReplay={points:[{x:0,y:0,time:0},{x:100,y:0,time:10}],fraction:.25};const trueAtQuarter=lab.replayPoint(sharedReplay);assert.equal(trueAtQuarter.time,2.5);assert.equal(lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],trueAtQuarter.time),null,'estimate waits for its real timestamp instead of starting early');
 const estimateAtSharedTime=lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],7.5);near(estimateAtSharedTime.x,30);
