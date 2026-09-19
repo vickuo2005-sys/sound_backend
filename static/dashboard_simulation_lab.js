@@ -345,9 +345,9 @@
             const event=this.events.find(e=>e.id===eventId),target=this.targets.find(t=>t.id===event?.targetId);
             if(!event) return false;
             this.playing=false;this.alerts=[];
-            const points=copy(target?.trail?.length?target.trail:event.points||[]),
-                estimatedPoints=copy(target?.estimatedTrail?.length?target.estimatedTrail:event.estimatedPoints||[]),
-                frames=copy(target?.replayFrames?.length?target.replayFrames:event.frames||[]);
+            const points=copy(event.points?.length?event.points:target?.trail||[]),
+                estimatedPoints=copy(event.estimatedPoints?.length?event.estimatedPoints:target?.estimatedTrail||[]),
+                frames=copy(event.frames?.length?event.frames:target?.replayFrames||[]);
             const sampleCount=Math.max(points.length,estimatedPoints.length,frames.length);
             this.replay={eventId,targetId:event.targetId,kind:event.kind,points,estimatedPoints,frames,fraction:0,playing:sampleCount>1};
             return true;
