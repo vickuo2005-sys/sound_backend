@@ -1,7 +1,9 @@
 (function (root) {
     'use strict';
     const Eta = root.DashboardSimulationEta || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_eta.js') : null);
+    const Tracking = root.DashboardSimulationTracker || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_tracker.js') : null);
     if(!Eta)throw new Error('DashboardSimulationEta must load before DashboardSimulationLab');
+    if(!Tracking)throw new Error('DashboardSimulationTracker must load before DashboardSimulationLab');
     // This workspace owns all of its state. It must never import live dashboard state,
     // call application APIs, or publish simulated events onto the real event bus.
     const ORIGIN = Object.freeze({ lat: 25.039, lng: 121.5752 });
@@ -86,7 +88,7 @@
         Object.assign(result,{distance:d,status:d<=site.radius?'inside':'outside',trend:closing>.1?'approaching':closing<-.1?'departing':'stationary'});
         if(prediction){
             result.zoneEta=prediction.display?.displayEtaSeconds??null;
-            result.arrivalEta=prediction.arrivalRaw?.valid?prediction.arrivalRaw.rawEtaSeconds:null;
+            result.arrivalEta=prediction.arrivalDisplay?.displayEtaSeconds??null;
             if(raw?.motion?.valid)result.trend={APPROACHING:'approaching',DEPARTING:'departing',STATIONARY:'stationary',UNCERTAIN:'stationary'}[raw.trend]||result.trend;
         }
         return result;
@@ -95,7 +97,7 @@
         constructor() { this.sequence=0; this.reset(); }
         reset() {
             this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeSequence=0;this.nodeDetectionRadius=450;
-            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;this.etaStabilizers=new Map();
+            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;this.etaStabilizers=new Map();this.trackers=new Map();
         }
         id(prefix) { return `SIM-${prefix}-${++this.sequence}`; }
         addNode(position) {
@@ -119,7 +121,7 @@
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
                 waypoints:[],reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
-                motionSegment:0,sitePrediction:null,etaEvaluation:[] };
+                motionSegment:0,sitePrediction:null,etaEvaluation:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
             const event={ id:this.id('EVENT'),targetId:target.id,kind,time:this.time,reporters:reporters.slice(),simulation:true };
@@ -136,9 +138,22 @@
         geometry(target=this.selected()) { return hull(this.reportingNodes(target)); }
         sourceRegion(target=this.selected()) { return possibleSource(this.reportingNodes(target)); }
         predictionHistory(target) { return (target?.estimatedTrail||[]).filter(p=>(p.motionSegment??0)===(target.motionSegment??0)); }
-        stabilizer(target) {
-            if(!this.etaStabilizers.has(target.id))this.etaStabilizers.set(target.id,new Eta.EtaStabilizer());
+        tracker(target) {
+            if(!this.trackers.has(target.id))this.trackers.set(target.id,new Tracking.AlphaBetaTracker());
+            return this.trackers.get(target.id);
+        }
+        stabilizers(target) {
+            if(!this.etaStabilizers.has(target.id))this.etaStabilizers.set(target.id,{zone:new Eta.EtaStabilizer(),arrival:new Eta.EtaStabilizer()});
             return this.etaStabilizers.get(target.id);
+        }
+        resetTracking(target) {
+            if(!target)return;
+            this.trackers.delete(target.id);
+            target.rawEstimatedPosition=null;
+            target.trackState=null;
+            target.trackingDiagnostics=null;
+            target.estimatedPosition=null;
+            target.estimatedTrail=[];
         }
         resetPrediction(target,incrementSegment=false) {
             if(!target)return;
@@ -148,14 +163,24 @@
         updatePrediction(target) {
             const referenceTimeMs=this.time*1000;
             if(!target||target.kind!=='drone'||target.lost){this.resetPrediction(target);return null;}
-            const history=this.predictionHistory(target);
-            const raw=Eta.createRawSitePrediction({history,referenceTimeMs,site:this.site});
-            const display=this.stabilizer(target).update(raw,referenceTimeMs);
-            const arrivalRaw=Eta.createRawSitePrediction({history,referenceTimeMs,site:{...this.site,radius:this.site.arrivalRadius}});
+            const state=target.trackState;
+            const motion=state&&point(state)?{
+                position:{x:state.x,y:state.y},
+                vx:state.vx,vy:state.vy,speed:state.speed,heading:state.heading,
+                lastMeasurementTimeMs:state.sourceTimeMs,
+                source:'simulation_alpha_beta_track'
+            }:null;
+            const innovation=Number(target.trackingDiagnostics?.innovationM)||0;
+            const trackUncertaintyM=clamp(innovation*.15,3,12);
+            const raw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:this.site,uncertaintyM:trackUncertaintyM});
+            const stabilizers=this.stabilizers(target);
+            const display=stabilizers.zone.update(raw,referenceTimeMs);
+            const arrivalRaw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:{...this.site,radius:this.site.arrivalRadius},uncertaintyM:trackUncertaintyM});
+            const arrivalDisplay=stabilizers.arrival.update(arrivalRaw,referenceTimeMs);
             const truthEtaSeconds=Eta.groundTruthEta(target,this.site);
             const rawErrorSeconds=raw.rawEtaSeconds===null||truthEtaSeconds===null?null:raw.rawEtaSeconds-truthEtaSeconds;
             const displayErrorSeconds=display.displayEtaSeconds===null||truthEtaSeconds===null?null:display.displayEtaSeconds-truthEtaSeconds;
-            target.sitePrediction={raw,display,arrivalRaw,truthEtaSeconds,rawErrorSeconds,displayErrorSeconds};
+            target.sitePrediction={raw,display,arrivalRaw,arrivalDisplay,truthEtaSeconds,rawErrorSeconds,displayErrorSeconds};
             const frame={timeMs:referenceTimeMs,truthEtaSeconds,rawEtaSeconds:raw.rawEtaSeconds,displayEtaSeconds:display.displayEtaSeconds,rawErrorSeconds,displayErrorSeconds,state:display.state,reason:raw.reason};
             const previous=target.etaEvaluation.at(-1);
             if(previous?.timeMs===referenceTimeMs)target.etaEvaluation[target.etaEvaluation.length-1]=frame;else target.etaEvaluation.push(frame);
@@ -165,18 +190,44 @@
         updateEstimate(target,force=false) {
             if(!target)return null;
             const detected=this.reportingNodes(target);target.detectedNodeIds=detected.map(n=>n.id);
-            const estimate=target.kind==='drone'&&!target.lost?estimateFromDetections(detected,target):null;
-            target.estimatedPosition=estimate;
-            if(estimate&&(force||!target.estimatedTrail.length||this.time-target.estimatedTrail.at(-1).time>=.18)){
-                target.estimatedTrail.push({...estimate,time:this.time,measurementTimeMs:this.time*1000,nodeCount:detected.length,motionSegment:target.motionSegment??0,source:'simulation_oracle_localization'});target.estimatedTrail=target.estimatedTrail.slice(-LIMITS.points);
+            const measurement=target.kind==='drone'&&!target.lost?estimateFromDetections(detected,target):null;
+            target.rawEstimatedPosition=measurement;
+            const timeMs=this.time*1000,tracker=this.tracker(target);
+            let trackingResult=null;
+            if(measurement&&(!tracker.hasState()||tracker.shouldAcceptMeasurement(timeMs))){
+                trackingResult=tracker.update(measurement,timeMs);
+                target.trackingDiagnostics={
+                    accepted:trackingResult.accepted,
+                    reason:trackingResult.reason,
+                    innovationM:trackingResult.innovationM??0,
+                    gateM:trackingResult.gateM??null,
+                    nodeCount:detected.length,
+                    measurement:{...measurement}
+                };
             }
-            return estimate;
+            const state=tracker.predict(timeMs);
+            target.trackState=state;
+            target.estimatedPosition=state?{x:state.x,y:state.y}:null;
+            if(target.estimatedPosition&&(force||!target.estimatedTrail.length||this.time-target.estimatedTrail.at(-1).time>=.18)){
+                target.estimatedTrail.push({
+                    ...target.estimatedPosition,
+                    time:this.time,
+                    measurementTimeMs:timeMs,
+                    nodeCount:detected.length,
+                    motionSegment:target.motionSegment??0,
+                    source:'simulation_alpha_beta_track',
+                    vx:state.vx,vy:state.vy,
+                    innovationM:target.trackingDiagnostics?.innovationM??0
+                });
+                target.estimatedTrail=target.estimatedTrail.slice(-LIMITS.points);
+            }
+            return target.estimatedPosition;
         }
         positionTarget(id,p) {
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
-            this.resetPrediction(t,true);t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
+            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.lost=false;t.waypoints=[];t.trail.push({...t.position,time:this.time});t.trail=t.trail.slice(-LIMITS.points);this.updateEstimate(t,true);this.inspect();return true;
         }
-        loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.updateEstimate(t,true);this.resetPrediction(t);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
+        loseTarget(id) { const t=this.targets.find(t=>t.id===id);if(t){t.lost=true;this.resetTracking(t);this.resetPrediction(t);this.alerts=this.alerts.filter(a=>a.targetId!==id);} }
         inspect() {
             for(const target of this.targets) {
                 this.updatePrediction(target);
@@ -218,8 +269,8 @@
         preserveHistory() {
             for(const event of this.events){const target=this.targets.find(t=>t.id===event.targetId);if(target){event.points=copy(target.trail);event.estimatedPoints=copy(target.estimatedTrail);}}
         }
-        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();}
-        clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.estimatedPosition=null;target.detectedNodeIds=[];target.estimatedTrail=[];target.etaEvaluation=[];this.resetPrediction(target);}}
+        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();this.trackers.clear();}
+        clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.detectedNodeIds=[];target.etaEvaluation=[];this.resetTracking(target);this.resetPrediction(target);}}
         clearHistory(){this.events=[];this.replay=null;this.targets.forEach(t=>{t.etaEvaluation=[];});}
         leave() { this.playing=false;this.alerts=[];if(this.replay)this.replay.playing=false; }
         preset(name) {
