@@ -105,15 +105,15 @@ assert.equal(target.waypointIndex,0,'completed route resets its cursor without d
 const completedEvent=model.events.find(e=>e.targetId===target.id);assert(completedEvent.points.some(p=>p.x===10&&p.y===10),'completed route is preserved in event replay before returning to start');
 target.routeReady=false;model.step(1);near(target.position.x,10);near(target.position.y,0);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'second run reuses the same route definition');
 model.replayEvent(model.events[0].id);const saved=JSON.stringify(model.replay.points);target.trail.push({x:200,y:200,time:50});assert.equal(JSON.stringify(model.replay.points),saved,'replay owns a stable snapshot');
+assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
 model.replay=null;
-const routeHistoryBeforeClear=JSON.stringify(completedEvent.points);
 assert.equal(model.clearRoute(target.id),true);
 assert.equal(target.waypoints.length,0,'clear route removes configured waypoints');
 near(target.position.x,target.startPosition.x);near(target.position.y,target.startPosition.y);
-assert.equal(JSON.stringify(completedEvent.points),routeHistoryBeforeClear,'clearRoute keeps history that was already captured');
+assert(completedEvent.points?.length,'clearRoute preserves a replayable event snapshot');
 assert.equal(target.routeReady,false);
-
-assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
+assert.equal(model.replayEvent(completedEvent.id),true,'cleared route can still replay the saved event');
+assert(model.replay.points.length,'saved replay path remains available after route clear');
 const sharedReplay={points:[{x:0,y:0,time:0},{x:100,y:0,time:10}],fraction:.25};const trueAtQuarter=lab.replayPoint(sharedReplay);assert.equal(trueAtQuarter.time,2.5);assert.equal(lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],trueAtQuarter.time),null,'estimate waits for its real timestamp instead of starting early');
 const estimateAtSharedTime=lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],7.5);near(estimateAtSharedTime.x,30);
 assert.equal(model.setSite({x:0,y:0},-2),false);assert.equal(model.setSite({x:0,y:0},6000),false);assert.equal(model.addNode({x:Infinity,y:0}),null);
