@@ -89,10 +89,10 @@ def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
     html = dashboard_html()
     assert "function nodeMarkerIcon(device, online, active=false, pulse=.5)" in html
     assert "path:google.maps.SymbolPath.CIRCLE" in html
-    assert "fillColor:online?'#f8fafc':'#475569'" in html
-    assert "strokeColor:reporting?'#f97316':online?'#111827':'#f8fafc'" in html
+    assert "fillColor:reporting?'#f97316':online?'#f8fafc':'#475569'" in html
+    assert "strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc'" in html
     assert "strokeWeight:reporting?4:3" in html
-    assert "scale:14" in html
+    assert "scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14" in html
     assert "text:`${shortNodeId(device.device_id)}${online?'':'×'}`" in html
     assert "固定節點離線後仍保留在地圖" in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
@@ -130,15 +130,14 @@ def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
     assert "activeReportingNodeIds.has(device.device_id)" in html
     assert "onPulse:updateNodeMarkerPulse" in html
 
-    # Raw event evidence is intentionally subordinate to the live sensor region,
-    # while a fresh Backend track gets an explicit UAV marker + direction arrow.
-    assert "RAW EVENT ·" in html
+    # Fresh Backend localization/track gets the V2.2 UAV marker and direction.
     assert "let trackMarkers = new Map()" in html
     assert "let trackDirectionLines = new Map()" in html
     assert "function isFreshLiveTrack(track,now=Date.now())" in html
     assert "LIVE TRACK ·" in html
     assert "FORWARD_CLOSED_ARROW" in html
-    assert "droneMapIcon('#f97316',heading??0)" in html
+    assert "function v22DroneTargetIcon(heading=0)" in html
+    assert "icon:v22DroneTargetIcon(heading??0)" in html
     assert "function liveDroneMapIcon" not in html
 
 
@@ -181,3 +180,10 @@ def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> 
     assert "fillOpacity:.08" in html
     assert "label:{text:'EST'" in html
     assert "droneMapIcon('#f97316',heading??0)" in html
+
+
+
+def test_operational_target_reuses_v2_2_uav_icon() -> None:
+    operations = (ROOT / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
+    assert "window.v22DroneTargetIcon?window.v22DroneTargetIcon(target.heading??0)" in operations
+    assert "label:{text:'UAV'" in operations
