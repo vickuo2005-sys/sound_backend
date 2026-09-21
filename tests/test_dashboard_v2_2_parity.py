@@ -105,3 +105,41 @@ def test_parity_plan_pins_the_exact_v2_2_baseline_and_exclusions() -> None:
     assert "Never restore" in plan
     assert "Live audio is not enabled" in plan
     assert "No migration" in plan
+
+
+
+def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
+    html = dashboard_html()
+    # V2.2-style immediate visualization is presentation-only: it groups fresh
+    # alerting sensor nodes while Backend fusion/TDOA is still pending.
+    assert "function liveSensorFallbackEstimate(now=Date.now())" in html
+    assert "sensor_region_fallback:true" in html
+    assert "此中心只供 V2.2 live-map parity 顯示，不送入 TDOA、Track 或 ETA。" in html
+    assert "function selectedOrLatestMapEstimate()" in html
+    assert "const liveGroups=sensorFallback?[...state.groups.values(),sensorFallback]:[...state.groups.values()]" in html
+
+    # V2.2 node shape identity and active-node animation remain visible.
+    assert "id.endsWith('A01')" in html
+    assert "id.endsWith('A02')" in html
+    assert "id.endsWith('A03')" in html
+    assert "id.endsWith('A04')" in html
+    assert "activeReportingNodeIds.has(device.device_id)" in html
+    assert "onPulse:updateNodeMarkerPulse" in html
+
+    # Raw event evidence is intentionally subordinate to the live sensor region,
+    # while a fresh Backend track gets an explicit UAV marker + direction arrow.
+    assert "RAW EVENT ·" in html
+    assert "let trackMarkers = new Map()" in html
+    assert "let trackDirectionLines = new Map()" in html
+    assert "function isFreshLiveTrack(track,now=Date.now())" in html
+    assert "LIVE TRACK ·" in html
+    assert "FORWARD_CLOSED_ARROW" in html
+    assert "liveDroneMapIcon('#38bdf8')" in html
+
+
+def test_live_map_rejected_track_points_do_not_reappear_on_map() -> None:
+    html = dashboard_html()
+    assert "point?.rejected_as_outlier" in html
+    assert "point?.is_outlier" in html
+    assert "point?.is_rejected" in html
+    assert "point?.accepted !== false" in html
