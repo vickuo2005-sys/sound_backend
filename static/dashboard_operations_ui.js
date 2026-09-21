@@ -79,7 +79,7 @@
             siteMarker=new google.maps.Marker({map,position:config,title:config.name,label:'據',zIndex:35});
             zoneCircle=new google.maps.Circle({map,center:config,radius:config.radius,strokeColor:'#ef4444',strokeOpacity:.8,strokeWeight:2,fillColor:'#ef4444',fillOpacity:.09,clickable:false});
         }
-        if(target?.position){targetMarker=new google.maps.Marker({map,position:target.position,title:`無人機估測位置 ${target.id}`,icon:droneMapIcon(target.status==='inside'?'#ef4444':'#f97316'),zIndex:40});}
+        if(target?.position){targetMarker=new google.maps.Marker({map,position:target.position,title:`無人機估測位置 ${target.id}`,icon:window.v22DroneTargetIcon?window.v22DroneTargetIcon(target.heading??0):droneMapIcon('#f97316',target.heading??0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:55});}
     }
     function render() {
         const now=Date.now();
