@@ -2299,7 +2299,7 @@
                 else estimateMarker.setOptions(estimateOptions);
                 const radius = finite(estimate.uncertainty_radius_m);
                 if (radius !== null && radius > 0) {
-                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : (estimate.sensor_region_fallback?.05:.1), strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : (estimate.sensor_region_fallback?.5:.75), strokeWeight:estimate.sensor_region_fallback?1.5:2};
+                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : (estimate.sensor_region_fallback ? .05 : .1), strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : (estimate.sensor_region_fallback ? .5 : .75), strokeWeight:estimate.sensor_region_fallback?1.5:2};
                     if (!estimateCircle) estimateCircle = new google.maps.Circle(circleOptions); else estimateCircle.setOptions(circleOptions);
                 } else if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
             } else {
