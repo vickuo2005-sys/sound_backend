@@ -32,6 +32,32 @@ existing SQLite CSV select clause; it does not change the export schema.
 
 ## Implemented scope
 
+### Live operational map parity
+
+The operational map restores the immediate V2.2 presentation behavior without
+reintroducing client-side localization into the estimator path.
+
+- A recent Drone/Aircraft report remains a small, subordinate raw-event marker.
+- While Backend fusion/localization is still pending, two or more distinct
+  online reporting nodes from the latest 15 seconds may form a display-only
+  live sensor region. Two nodes draw a segment; three or more draw a polygon.
+- The temporary sensor-region center is explicitly labeled as sensor evidence,
+  not TDOA localization. It is never written back to the Backend and is never
+  consumed by tracking, CPA, ETA, alert admission, or persistence.
+- As soon as a fresh Backend multi-node group with a usable center is available,
+  that Backend estimate takes display priority. Existing Backend multi-node
+  evidence also prevents duplicate synthetic geometry.
+- A fresh Backend Drone track renders its stored track path, current UAV marker,
+  and heading arrow. Rejected/outlier track points are excluded.
+- Node identities reuse the V2.2 A01/A02/A03/A04 marker shapes and the active
+  reporting-node pulse.
+
+This creates four visibly distinct layers: raw event evidence, temporary
+sensor-region evidence, Backend localization estimate, and Backend track. The
+temporary layer exists only to avoid the operational regression where the map
+shows a lone orange event point while asynchronous fusion/localization is still
+pending.
+
 ### Tracks and estimates
 
 The `Tracks` workspace reads the existing `/event-groups` and `/tracks`
@@ -73,7 +99,7 @@ PostgreSQL path.
 
 - No fake event generator or synthetic alert is added.
 - Live audio is not enabled by this pass.
-- No client-side localization, smoothing, prediction, or ETA is added.
+- No client-side localization, smoothing, prediction, or ETA is added to the estimator path. The live map may derive a clearly labeled display-only sensor-region center from fresh reporting-node positions while Backend fusion/localization is pending; that value is never used by tracking or ETA.
 - No REST or WebSocket contract is made mandatory; legacy payloads remain
   null-safe.
 - No migration, new table, feature flag, production deploy, or production
