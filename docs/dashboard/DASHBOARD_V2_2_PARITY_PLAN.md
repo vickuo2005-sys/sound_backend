@@ -140,3 +140,23 @@ The live map intentionally separates identity from state:
 V2.2 is used as a functional reference for immediate operator feedback, not as
 a visual source of truth. Current Dashboard semantics and icon language take
 priority.
+
+
+### Final live-map visual contract
+
+The operational overview follows the same visual semantics as Simulation Lab:
+
+- one reporting node: the node itself pulses;
+- two reporting nodes: orange 5 px line;
+- three or more reporting nodes: orange polygon with the same stroke/fill
+  hierarchy as Simulation Lab;
+- no display-only SENSE center marker is drawn;
+- raw event GPS is not plotted as a target on the overview because it is node
+  evidence, not aircraft position;
+- once Backend localization exists, the V2.2 UAV icon is the shared real-system
+  target marker;
+- once a fresh Backend track exists, that same UAV icon moves with the track,
+  while accepted track history and heading graphics remain visible.
+
+The V2.2 UAV icon is the shared real-system target marker. Simulation Lab keeps
+its own simulation-specific true/estimated markers.
