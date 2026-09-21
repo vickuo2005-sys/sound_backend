@@ -49,8 +49,9 @@ reintroducing client-side localization into the estimator path.
   evidence also prevents duplicate synthetic geometry.
 - A fresh Backend Drone track renders its stored track path, current UAV marker,
   and heading arrow. Rejected/outlier track points are excluded.
-- Node markers preserve the current Dashboard circular icon language; only the
-  active reporting-node pulse and live-map behavior are restored from V2.2.
+- Node markers preserve one circular device identity for every node. Online,
+  offline, and reporting states are expressed through fill, stroke, and the
+  external pulse only; node ID must never change marker geometry.
 
 This creates four semantically distinct layers: raw event evidence, temporary
 sensor-region evidence, Backend localization estimate, and Backend track, while
@@ -121,3 +122,21 @@ tracking data remain unchanged.
 - Location writes use PUT/DELETE plus `x-upload-token`, with no browser storage.
 - No `simulateAlert` path exists.
 - Isolated Render staging serves the exact candidate SHA before browser smoke.
+
+
+### Visual hierarchy
+
+The live map intentionally separates identity from state:
+
+- Node identity: circular marker for every A01/A02/A03/A04 slot.
+- Node state: white/gray fill and orange reporting stroke/pulse.
+- Raw event: small amber evidence point, visually subordinate.
+- Temporary live sensor region: line/polygon plus pulsing participant nodes and
+  a subtle hollow reference center; this is not a target localization.
+- Backend localization: orange circular EST marker and uncertainty area.
+- Backend live track: existing project drone icon, blue trajectory/heading
+  graphics, and accepted track points only.
+
+V2.2 is used as a functional reference for immediate operator feedback, not as
+a visual source of truth. Current Dashboard semantics and icon language take
+priority.
