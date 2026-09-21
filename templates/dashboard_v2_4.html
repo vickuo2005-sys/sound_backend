@@ -1265,11 +1265,13 @@
             return finite(point?.measurement_time_ms) ?? parseTime(point?.measurement_timestamp || point?.event_time || point?.timestamp || point?.created_at) ?? fallbackIndex;
         }
         function trackPath(track) {
-            return (Array.isArray(track?.points) ? track.points : Array.isArray(track?.recent_points) ? track.recent_points : []).map((point, index) => ({
-                lat: finite(point?.measured_lat ?? point?.filtered_lat ?? point?.estimated_lat ?? point?.latitude),
-                lng: finite(point?.measured_lng ?? point?.filtered_lng ?? point?.estimated_lng ?? point?.longitude),
-                time: trackPointTime(point, index), index
-            })).filter(point => point.lat !== null && point.lng !== null).sort((a, b) => a.time - b.time || a.index - b.index);
+            return (Array.isArray(track?.points) ? track.points : Array.isArray(track?.recent_points) ? track.recent_points : [])
+                .filter(point => !point?.rejected_as_outlier && !point?.is_outlier && !point?.is_rejected && point?.accepted !== false)
+                .map((point, index) => ({
+                    lat: finite(point?.measured_lat ?? point?.filtered_lat ?? point?.estimated_lat ?? point?.latitude),
+                    lng: finite(point?.measured_lng ?? point?.filtered_lng ?? point?.estimated_lng ?? point?.longitude),
+                    time: trackPointTime(point, index), index
+                })).filter(point => point.lat !== null && point.lng !== null).sort((a, b) => a.time - b.time || a.index - b.index);
         }
         function trackEndTime(track) {
             return parseTime(track?.last_event_time || track?.ended_at || track?.updated_at) || trackPath(track).at(-1)?.time || 0;
@@ -2137,7 +2139,7 @@
         function liveDroneSensorEvidence(now=Date.now()) {
             const byDevice=new Map(),devices=new Map(canonicalDevices().map(device=>[String(device.device_id),device]));
             for(const event of state.events){
-                if(String(classLabel(event)||'').toLowerCase()!=='drone')continue;
+                if(!['drone','aircraft'].includes(String(classLabel(event)||'').toLowerCase()))continue;
                 const time=eventTime(event),id=String(event?.device_id||'');
                 if(!id || !Number.isFinite(time) || now-time < -2000 || now-time > 15000)continue;
                 const device=devices.get(id),position=device?nodeLocation(device):null;
@@ -2150,7 +2152,7 @@
         function freshBackendMultiNodeGroup(now=Date.now()) {
             return [...state.groups.values()].some(group=>{
                 const time=groupTime(group),status=String(group?.status||'').toLowerCase();
-                return groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
+                return groupLocation(group) && groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
             });
         }
         function liveSensorFallbackEstimate(now=Date.now()) {
