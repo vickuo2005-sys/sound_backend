@@ -49,11 +49,12 @@ reintroducing client-side localization into the estimator path.
   evidence also prevents duplicate synthetic geometry.
 - A fresh Backend Drone track renders its stored track path, current UAV marker,
   and heading arrow. Rejected/outlier track points are excluded.
-- Node identities reuse the V2.2 A01/A02/A03/A04 marker shapes and the active
-  reporting-node pulse.
+- Node markers preserve the current Dashboard circular icon language; only the
+  active reporting-node pulse and live-map behavior are restored from V2.2.
 
-This creates four visibly distinct layers: raw event evidence, temporary
-sensor-region evidence, Backend localization estimate, and Backend track. The
+This creates four semantically distinct layers: raw event evidence, temporary
+sensor-region evidence, Backend localization estimate, and Backend track, while
+keeping the current Dashboard icon language rather than copying V2.2 styling. The
 temporary layer exists only to avoid the operational regression where the map
 shows a lone orange event point while asynchronous fusion/localization is still
 pending.
