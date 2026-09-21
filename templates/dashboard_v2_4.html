@@ -2051,8 +2051,14 @@
 
         function nodeMarkerIcon(device, online, active=false, pulse=.5) {
             const reporting=active&&online;
-            const common = {fillColor:reporting?'#f97316':online?'#f8fafc':'#475569',fillOpacity:online?1:.95,strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc',strokeWeight:reporting?4:3,scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14};
-            return {...common, path:google.maps.SymbolPath.CIRCLE};
+            return {
+                path:google.maps.SymbolPath.CIRCLE,
+                fillColor:online?'#f8fafc':'#475569',
+                fillOpacity:online?1:.95,
+                strokeColor:reporting?'#f97316':online?'#111827':'#f8fafc',
+                strokeWeight:reporting?4:3,
+                scale:14
+            };
         }
         window.initOperationalMap = function initOperationalMap() {
             if (!window.google?.maps || mapStarted || mapsLoadFailed) return;
@@ -2279,7 +2285,7 @@
 
             const detection = latestDetection(); const location = eventLocation(detection);
             if (location) {
-                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} 偵測回報位置 - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
+                const options = {map, position:location, opacity:simulationIsVisible() ? .18 : .62, title:`原始事件回報 · ${classLabel(detection)} · ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:.72, strokeColor:'#fff2cf', strokeWeight:1.5, scale:5}, zIndex:12};
                 if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
                 else detectionMarker.setOptions(options);
                 const radius = finite(detection.uncertainty_radius_m);
@@ -2295,7 +2301,9 @@
             const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
             if (estimate && estimateLocation) {
                 const sensorOnly=estimate.sensor_region_fallback===true;
-                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:sensorOnly?'即時感測區域中心（非 TDOA 定位）':`Fused region · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:sensorOnly ? .55 : 1, strokeColor:'#fff2cf', strokeWeight:2, scale:sensorOnly?8:9}, label:{text:sensorOnly?'SENSE':'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}};
+                const estimateOptions = sensorOnly
+                    ? {map, position:estimateLocation, opacity:simulationIsVisible() ? .18 : .7, title:'即時感測區域參考中心（非定位）', icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:.08, strokeColor:'#f97316', strokeWeight:2, scale:7}, zIndex:18}
+                    : {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:`Backend estimate · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:9}, label:{text:'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}, zIndex:35};
                 if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestMapEstimate(); if (current) showGroupInfo(current); }); }
                 else estimateMarker.setOptions(estimateOptions);
                 const radius = finite(estimate.uncertainty_radius_m);
@@ -2322,11 +2330,11 @@
                 if(live&&isDrone&&points.length){
                     const latest=points.at(-1),heading=trackHeading(track,rawPath),speed=finite(track?.last_speed_mps ?? track?.speed_mps);
                     activeTrackMarkers.add(id);
-                    const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:droneMapIcon('#f97316',heading??0),zIndex:50};
+                    const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:droneMapIcon('#f97316',heading??0),zIndex:60};
                     let marker=trackMarkers.get(id);if(!marker){marker=new google.maps.Marker(markerOptions);marker.addListener('click',()=>{const current=state.tracks.get(id);if(current){state.selectedTrackId=id;renderTracksView();}});trackMarkers.set(id,marker);}else marker.setOptions(markerOptions);
                     if(heading!==null){
                         const length=Math.max(35,Math.min(speed!==null?speed*3:55,90)),start=projectMapPoint(latest,heading+180,length*.3),end=projectMapPoint(latest,heading,length);
-                        const directionOptions={map,path:[start,end],strokeColor:'#f97316',strokeOpacity:.9,strokeWeight:3,icons:[{icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:4,strokeColor:'#f97316',fillColor:'#f97316',fillOpacity:1},offset:'100%'}],clickable:false,zIndex:45};
+                        const directionOptions={map,path:[start,end],strokeColor:'#60a5fa',strokeOpacity:.88,strokeWeight:3,icons:[{icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:4,strokeColor:'#60a5fa',fillColor:'#60a5fa',fillOpacity:1},offset:'100%'}],clickable:false,zIndex:45};
                         activeDirectionLines.add(id);let direction=trackDirectionLines.get(id);if(!direction){direction=new google.maps.Polyline(directionOptions);trackDirectionLines.set(id,direction);}else direction.setOptions(directionOptions);
                     }
                 }
