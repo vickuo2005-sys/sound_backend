@@ -1171,6 +1171,14 @@
         function droneMapIcon(color, heading = 0) {
             return {url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(droneSvg(color, heading, true)), scaledSize:new google.maps.Size(56,56), anchor:new google.maps.Point(28,28)};
         }
+        function v22DroneTargetIcon(heading=0) {
+            return {
+                url:'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(droneSvg('#f97316',heading,true)),
+                scaledSize:new google.maps.Size(76,76),
+                anchor:new google.maps.Point(38,38),
+                labelOrigin:new google.maps.Point(38,72)
+            };
+        }
         function classIcon(event) { return String(classLabel(event)).toLowerCase() === 'drone' ? droneSvg() : safe(classIcons[modelLabel(event)] || '•'); }
         function modelScore(event) { return finite(classificationOf(event)?.confidence ?? event?.model_confidence ?? event?.dashboard_presentation?.model_score); }
         function eventLocation(event) {
@@ -2053,11 +2061,11 @@
             const reporting=active&&online;
             return {
                 path:google.maps.SymbolPath.CIRCLE,
-                fillColor:online?'#f8fafc':'#475569',
+                fillColor:reporting?'#f97316':online?'#f8fafc':'#475569',
                 fillOpacity:online?1:.95,
-                strokeColor:reporting?'#f97316':online?'#111827':'#f8fafc',
+                strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc',
                 strokeWeight:reporting?4:3,
-                scale:14
+                scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14
             };
         }
         window.initOperationalMap = function initOperationalMap() {
@@ -2106,8 +2114,8 @@
             if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:`${classLabel(detection)} 回報節點`, location:detectionLocation, online:true});
             const activeTarget = window.DashboardOperationsUI?.target();
             if (activeTarget?.position) points.push({kind:'target',id:activeTarget.id,label:'無人機估測位置',location:activeTarget.position,online:true});
-            const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
-            if (estimate && estimateLocation) points.push({kind:'event', id:groupId(estimate), label:estimate.sensor_region_fallback?'Live sensor region':'Backend estimate', location:estimateLocation, online:true});
+            const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
+            if (estimate && estimateLocation) points.push({kind:'target',id:groupId(estimate),label:'UAV estimate',location:estimateLocation,online:true});
             if (!points.length) {
                 plot.innerHTML = '<div class="empty-state"><div><strong>尚無位置資料</strong>等待 node 或 event location telemetry</div></div>';
                 footer.innerHTML = '<span>0 個可定位項目</span><span>● Node　● Latest detection</span>';
@@ -2298,22 +2306,21 @@
                 if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
             }
 
-            const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
-            if (estimate && estimateLocation) {
-                const sensorOnly=estimate.sensor_region_fallback===true;
-                const estimateOptions = sensorOnly
-                    ? {map, position:estimateLocation, opacity:simulationIsVisible() ? .18 : .7, title:'即時感測區域參考中心（非定位）', icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:.08, strokeColor:'#f97316', strokeWeight:2, scale:7}, zIndex:18}
-                    : {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:`Backend estimate · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:9}, label:{text:'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}, zIndex:35};
-                if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestMapEstimate(); if (current) showGroupInfo(current); }); }
+            const estimate = selectedOrLatestGroup(),estimateLocation=groupLocation(estimate);
+            const hasFreshDroneTrack=[...state.tracks.values()].some(track=>String(track?.label||'').toLowerCase()==='drone'&&isFreshLiveTrack(track,now)&&trackPath(track).length);
+            if (estimate && estimateLocation && !hasFreshDroneTrack) {
+                const estimateOptions={map,position:estimateLocation,opacity:simulationIsVisible()?.28:1,title:`目前聲源位置 · ${groupLabel(estimate)}`,
+                    icon:v22DroneTargetIcon(0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:50};
+                if(!estimateMarker){estimateMarker=new google.maps.Marker(estimateOptions);estimateMarker.addListener('click',()=>{const current=selectedOrLatestGroup();if(current)showGroupInfo(current);});}
                 else estimateMarker.setOptions(estimateOptions);
-                const radius = finite(estimate.uncertainty_radius_m);
-                if (radius !== null && radius > 0) {
-                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : (estimate.sensor_region_fallback ? .05 : .1), strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : (estimate.sensor_region_fallback ? .5 : .75), strokeWeight:estimate.sensor_region_fallback?1.5:2};
-                    if (!estimateCircle) estimateCircle = new google.maps.Circle(circleOptions); else estimateCircle.setOptions(circleOptions);
-                } else if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
+                const radius=finite(estimate.uncertainty_radius_m);
+                if(radius!==null&&radius>0){
+                    const circleOptions={map,center:estimateLocation,radius,fillColor:'#f97316',fillOpacity:simulationIsVisible()?.02:.08,strokeColor:'#f97316',strokeOpacity:simulationIsVisible()?.18:.65,strokeWeight:2};
+                    if(!estimateCircle)estimateCircle=new google.maps.Circle(circleOptions);else estimateCircle.setOptions(circleOptions);
+                }else if(estimateCircle){estimateCircle.setMap(null);estimateCircle=null;}
             } else {
-                if (estimateMarker) { estimateMarker.setMap(null); estimateMarker = null; }
-                if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
+                if(estimateMarker){estimateMarker.setMap(null);estimateMarker=null;}
+                if(estimateCircle){estimateCircle.setMap(null);estimateCircle=null;}
             }
 
             const activeTracks = new Set(),activeTrackMarkers=new Set(),activeDirectionLines=new Set();
@@ -2330,7 +2337,7 @@
                 if(live&&isDrone&&points.length){
                     const latest=points.at(-1),heading=trackHeading(track,rawPath),speed=finite(track?.last_speed_mps ?? track?.speed_mps);
                     activeTrackMarkers.add(id);
-                    const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:droneMapIcon('#f97316',heading??0),zIndex:60};
+                    const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:v22DroneTargetIcon(heading??0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:60};
                     let marker=trackMarkers.get(id);if(!marker){marker=new google.maps.Marker(markerOptions);marker.addListener('click',()=>{const current=state.tracks.get(id);if(current){state.selectedTrackId=id;renderTracksView();}});trackMarkers.set(id,marker);}else marker.setOptions(markerOptions);
                     if(heading!==null){
                         const length=Math.max(35,Math.min(speed!==null?speed*3:55,90)),start=projectMapPoint(latest,heading+180,length*.3),end=projectMapPoint(latest,heading,length);
@@ -2348,7 +2355,7 @@
             const bounds = new google.maps.LatLngBounds(); let count = 0;
             canonicalDevices().forEach(device => { const location = nodeLocation(device); if (location) { bounds.extend(location); count++; } });
             const location = eventLocation(latestDetection()); if (location) { bounds.extend(location); count++; }
-            const estimateLocation = groupLocation(selectedOrLatestMapEstimate()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
+            const estimateLocation = groupLocation(selectedOrLatestGroup()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
             const liveTrack=[...state.tracks.values()].filter(track=>isFreshLiveTrack(track)).sort((a,b)=>liveTrackTime(b)-liveTrackTime(a))[0];
             const liveTrackPoint=trackPath(liveTrack).at(-1);if(liveTrackPoint){bounds.extend({lat:liveTrackPoint.lat,lng:liveTrackPoint.lng});count++;}
             const site=window.DashboardOperationsUI?.site(); if(site){bounds.extend({lat:site.lat,lng:site.lng});count++;}
