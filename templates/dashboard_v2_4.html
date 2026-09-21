@@ -868,6 +868,8 @@
         let bootstrapStarted = false;
         let nodeMarkers = new Map();
         let trackLines = new Map();
+        let trackMarkers = new Map();
+        let trackDirectionLines = new Map();
         let detectionMarker = null;
         let uncertaintyCircle = null;
         let estimateMarker = null;
@@ -2048,7 +2050,12 @@
         function nodeMarkerIcon(device, online, active=false, pulse=.5) {
             const reporting=active&&online;
             const common = {fillColor:reporting?'#f97316':online?'#f8fafc':'#475569',fillOpacity:online?1:.95,strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc',strokeWeight:reporting?4:3,scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14};
-            return {...common, path:google.maps.SymbolPath.CIRCLE};
+            const id=String(device?.device_id||'').toUpperCase();
+            if(id.endsWith('A01'))return {...common,path:google.maps.SymbolPath.CIRCLE};
+            if(id.endsWith('A02'))return {...common,path:'M -1 -1 L 1 -1 L 1 1 L -1 1 Z'};
+            if(id.endsWith('A03'))return {...common,path:'M 0 -1.2 L 1.15 1 L -1.15 1 Z'};
+            if(id.endsWith('A04'))return {...common,path:'M 0 -1.2 L 1.2 0 L 0 1.2 L -1.2 0 Z'};
+            return {...common,path:'M 0 -1.2 L 1.05 -0.6 L 1.05 0.6 L 0 1.2 L -1.05 0.6 L -1.05 -0.6 Z'};
         }
         window.initOperationalMap = function initOperationalMap() {
             if (!window.google?.maps || mapStarted || mapsLoadFailed) return;
@@ -2096,8 +2103,8 @@
             if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:`${classLabel(detection)} 回報節點`, location:detectionLocation, online:true});
             const activeTarget = window.DashboardOperationsUI?.target();
             if (activeTarget?.position) points.push({kind:'target',id:activeTarget.id,label:'無人機估測位置',location:activeTarget.position,online:true});
-            const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
-            if (estimate && estimateLocation) points.push({kind:'event', id:groupId(estimate), label:`Estimate ${groupLabel(estimate)}`, location:estimateLocation, online:true});
+            const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
+            if (estimate && estimateLocation) points.push({kind:'event', id:groupId(estimate), label:estimate.sensor_region_fallback?'Live sensor region':'Backend estimate', location:estimateLocation, online:true});
             if (!points.length) {
                 plot.innerHTML = '<div class="empty-state"><div><strong>尚無位置資料</strong>等待 node 或 event location telemetry</div></div>';
                 footer.innerHTML = '<span>0 個可定位項目</span><span>● Node　● Latest detection</span>';
@@ -2127,6 +2134,85 @@
             if(geometrySvg)plot.insertAdjacentHTML('afterbegin',`<svg class="node-alert-geometry" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="參與無人機偵測的節點連線或範圍">${geometrySvg}</svg>`);
             footer.innerHTML = `<span>${points.length} 個可定位項目 · Lat ${minLat.toFixed(5)}–${maxLat.toFixed(5)} · Lng ${minLng.toFixed(5)}–${maxLng.toFixed(5)}</span><span>● Node　● Latest detection</span>`;
         }
+        function liveDroneSensorEvidence(now=Date.now()) {
+            const byDevice=new Map(),devices=new Map(canonicalDevices().map(device=>[String(device.device_id),device]));
+            for(const event of state.events){
+                if(String(classLabel(event)||'').toLowerCase()!=='drone')continue;
+                const time=eventTime(event),id=String(event?.device_id||'');
+                if(!id || !Number.isFinite(time) || now-time < -2000 || now-time > 15000)continue;
+                const device=devices.get(id),position=device?nodeLocation(device):null;
+                if(!device || !deviceOnline(device) || !position)continue;
+                const previous=byDevice.get(id);
+                if(!previous || time>previous.time)byDevice.set(id,{device,event,time,position});
+            }
+            return [...byDevice.values()];
+        }
+        function freshBackendMultiNodeGroup(now=Date.now()) {
+            return [...state.groups.values()].some(group=>{
+                const time=groupTime(group),status=String(group?.status||'').toLowerCase();
+                return groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
+            });
+        }
+        function liveSensorFallbackEstimate(now=Date.now()) {
+            if(freshBackendMultiNodeGroup(now))return null;
+            const evidence=liveDroneSensorEvidence(now);
+            if(evidence.length<2)return null;
+            const center=evidence.reduce((sum,item)=>({lat:sum.lat+item.position.lat,lng:sum.lng+item.position.lng}),{lat:0,lng:0});
+            center.lat/=evidence.length;center.lng/=evidence.length;
+            const distance=(a,b)=>{
+                const rad=Math.PI/180,earth=6371008.8,dLat=(b.lat-a.lat)*rad,dLng=(b.lng-a.lng)*rad;
+                const h=Math.sin(dLat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLng/2)**2;
+                return 2*earth*Math.asin(Math.min(1,Math.sqrt(h)));
+            };
+            const uncertainty=Math.max(60,Math.min(300,Math.max(...evidence.map(item=>distance(center,item.position)))+25));
+            const ordered=evidence.slice().sort((a,b)=>Math.atan2(a.position.lat-center.lat,a.position.lng-center.lng)-Math.atan2(b.position.lat-center.lat,b.position.lng-center.lng));
+            const coords=ordered.map(item=>[item.position.lng,item.position.lat]);
+            if(coords.length>=3)coords.push(coords[0]);
+            const iso=new Date(Math.max(...evidence.map(item=>item.time))).toISOString();
+            return {
+                id:'live_sensor_fallback',group_id:'live_sensor_fallback',label:'Drone',
+                status:'live_sensor_only',region_type:evidence.length>=3?'polygon':'segment',
+                region_center_lat:center.lat,region_center_lng:center.lng,
+                region_geojson:evidence.length>=3?{type:'Polygon',coordinates:[coords]}:{type:'LineString',coordinates:coords},
+                active_device_ids:evidence.map(item=>String(item.device.device_id)),
+                reporting_device_ids:evidence.map(item=>String(item.device.device_id)),
+                events:evidence.map(item=>item.event),reporting_node_count:evidence.length,
+                uncertainty_radius_m:uncertainty,region_updated_at:iso,last_event_time:iso,
+                localization_method:'sensor_region_fallback',sensor_region_fallback:true
+            };
+        }
+        function selectedOrLatestMapEstimate() {
+            const selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
+            if(selected&&groupLocation(selected))return selected;
+            const backend=selectedOrLatestGroup();
+            return backend||liveSensorFallbackEstimate();
+        }
+        function liveTrackTime(track) {
+            return trackEndTime(track) || finite(track?.last_event_time_ms) || 0;
+        }
+        function isFreshLiveTrack(track,now=Date.now()) {
+            const status=String(track?.status||'active').toLowerCase(),time=liveTrackTime(track);
+            return !['closed','expired','ended','inactive'].includes(status)&&Number.isFinite(time)&&time>0&&now-time>=-5000&&now-time<=15000;
+        }
+        function trackHeading(track,path) {
+            const explicit=finite(track?.last_heading_deg ?? track?.heading_deg);
+            if(explicit!==null)return ((explicit%360)+360)%360;
+            if(path.length<2)return null;
+            const a=path[path.length-2],b=path[path.length-1],meanLat=(a.lat+b.lat)/2*Math.PI/180;
+            const dx=(b.lng-a.lng)*Math.cos(meanLat),dy=b.lat-a.lat;
+            if(Math.hypot(dx,dy)<1e-10)return null;
+            return (Math.atan2(dx,dy)*180/Math.PI+360)%360;
+        }
+        function projectMapPoint(point,heading,distanceM) {
+            const R=6371008.8,bearing=heading*Math.PI/180,delta=distanceM/R,lat1=point.lat*Math.PI/180,lng1=point.lng*Math.PI/180;
+            const lat2=Math.asin(Math.sin(lat1)*Math.cos(delta)+Math.cos(lat1)*Math.sin(delta)*Math.cos(bearing));
+            const lng2=lng1+Math.atan2(Math.sin(bearing)*Math.sin(delta)*Math.cos(lat1),Math.cos(delta)-Math.sin(lat1)*Math.sin(lat2));
+            return {lat:lat2*180/Math.PI,lng:lng2*180/Math.PI};
+        }
+        function liveDroneMapIcon(color='#f97316') {
+            const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="62" height="62" viewBox="0 0 76 76"><circle cx="38" cy="38" r="31" fill="${color}" fill-opacity=".15" stroke="${color}" stroke-width="3"/><circle cx="18" cy="18" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/><circle cx="58" cy="18" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/><circle cx="18" cy="58" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/><circle cx="58" cy="58" r="9" fill="#fff7ed" stroke="#111827" stroke-width="4"/><path d="M24 24 L32 32 M52 24 L44 32 M24 52 L32 44 M52 52 L44 44" stroke="#111827" stroke-width="5" stroke-linecap="round"/><rect x="27" y="30" width="22" height="16" rx="7" fill="${color}" stroke="#111827" stroke-width="4"/><circle cx="38" cy="38" r="5" fill="#fff7ed"/></svg>`;
+            return {url:`data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,scaledSize:new google.maps.Size(62,62),anchor:new google.maps.Point(31,31),labelOrigin:new google.maps.Point(31,60)};
+        }
         function selectedOrLatestGroup() {
             const selected = state.selectedGroupId ? state.groups.get(state.selectedGroupId) : null;
             if (selected && groupLocation(selected)) return selected;
@@ -2139,7 +2225,8 @@
         function showGroupInfo(group) {
             const location = groupLocation(group); if (!location || !mapInfoWindow || !map) return;
             const devices = groupDeviceIds(group); const uncertainty = finite(group.uncertainty_radius_m);
-            mapInfoWindow.setContent(`<div style="color:#0f172a;min-width:210px"><strong>Fused region · ${safe(groupLabel(group))}</strong><br>Status ${safe(group.status || group.region_type || '—')}<br>Nodes ${safe(devices.join(', ') || String(group.node_count || '—'))}<br>Center ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}<br>Uncertainty ${safe(formatMeters(uncertainty))}<br>Updated ${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}</div>`);
+            const fallback=group?.sensor_region_fallback===true;
+            mapInfoWindow.setContent(`<div style="color:#0f172a;min-width:230px"><strong>${fallback?'即時感測區域（非定位）':`Backend estimate · ${safe(groupLabel(group))}`}</strong><br>Status ${safe(group.status || group.region_type || '—')}<br>Nodes ${safe(devices.join(', ') || String(group.node_count || '—'))}<br>${fallback?'Sensor center':'Estimate'} ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}<br>Uncertainty ${safe(formatMeters(uncertainty))}<br>Method ${safe(group.localization_method || '—')}<br>Updated ${safe(formatDateTime(group.region_updated_at || group.last_event_time || group.updated_at || group.created_at))}${fallback?'<br><b>此中心只供 V2.2 live-map parity 顯示，不送入 TDOA、Track 或 ETA。</b>':''}</div>`);
             mapInfoWindow.setPosition(location); mapInfoWindow.open(map);
         }
         function focusGroupOnMap(id) {
@@ -2165,8 +2252,10 @@
         }
         function startTrackReplay(id) { return window.DashboardOperationsUI?.start(id); }
         function renderMap() {
+            const now=Date.now(),sensorFallback=liveSensorFallbackEstimate(now);
             const updateNodeMarkerPulse=(activeIds,pulse)=>nodeMarkers.forEach((marker,id)=>{const device=canonicalDevices().find(item=>item.device_id===id);if(device)marker.setIcon(nodeMarkerIcon(device,deviceOnline(device),activeIds.has(id),pulse));});
-            const nodeGeometries=nodeAlertRenderer.update({map,google:window.google,nodes:canonicalDevices(),groups:[...state.groups.values()],events:state.events,now:Date.now(),animate:!document.hidden && document.getElementById('view-dashboard').classList.contains('active'),onPulse:updateNodeMarkerPulse});
+            const liveGroups=sensorFallback?[...state.groups.values(),sensorFallback]:[...state.groups.values()];
+            const nodeGeometries=nodeAlertRenderer.update({map,google:window.google,nodes:canonicalDevices(),groups:liveGroups,events:state.events,now,animate:!document.hidden && document.getElementById('view-dashboard').classList.contains('active'),onPulse:updateNodeMarkerPulse});
             const activeReportingNodeIds=new Set(nodeGeometries.flatMap(item=>item.deviceIds));
             if (!map || !window.google?.maps) {
                 const fallback = document.getElementById('mapFallback');
@@ -2189,7 +2278,7 @@
 
             const detection = latestDetection(); const location = eventLocation(detection);
             if (location) {
-                const options = {map, position:location, opacity:simulationIsVisible() ? .28 : 1, title:`${classLabel(detection)} 偵測回報位置 - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:8}};
+                const options = {map, position:location, opacity:simulationIsVisible() ? .18 : .58, title:`RAW EVENT · ${classLabel(detection)} 回報位置 - ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:.65, strokeColor:'#fff2cf', strokeWeight:1.5, scale:5}};
                 if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
                 else detectionMarker.setOptions(options);
                 const radius = finite(detection.uncertainty_radius_m);
@@ -2202,14 +2291,15 @@
                 if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
             }
 
-            const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
+            const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
             if (estimate && estimateLocation) {
-                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:`Fused region · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:1, strokeColor:'#fff2cf', strokeWeight:2, scale:9}, label:{text:'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}};
+                const sensorOnly=estimate.sensor_region_fallback===true;
+                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:sensorOnly?'即時感測區域中心（非 TDOA 定位）':`Backend estimate · ${groupLabel(estimate)}`, icon:sensorOnly?{path:google.maps.SymbolPath.CIRCLE,fillColor:'#f97316',fillOpacity:.35,strokeColor:'#f97316',strokeWeight:3,scale:12}:liveDroneMapIcon('#f97316'), label:{text:sensorOnly?'SENSE':'UAV', color:'#111827', fontSize:sensorOnly?'9px':'10px', fontWeight:'900'}};
                 if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestGroup(); if (current) showGroupInfo(current); }); }
                 else estimateMarker.setOptions(estimateOptions);
                 const radius = finite(estimate.uncertainty_radius_m);
                 if (radius !== null && radius > 0) {
-                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : .1, strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : .75, strokeWeight:2};
+                    const circleOptions = {map, center:estimateLocation, radius, fillColor:'#f97316', fillOpacity:simulationIsVisible() ? .02 : (estimate.sensor_region_fallback?.05:.1), strokeColor:'#f97316', strokeOpacity:simulationIsVisible() ? .18 : (estimate.sensor_region_fallback?.5:.75), strokeWeight:estimate.sensor_region_fallback?1.5:2};
                     if (!estimateCircle) estimateCircle = new google.maps.Circle(circleOptions); else estimateCircle.setOptions(circleOptions);
                 } else if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
             } else {
@@ -2217,26 +2307,41 @@
                 if (estimateCircle) { estimateCircle.setMap(null); estimateCircle = null; }
             }
 
-            const activeTracks = new Set();
+            const activeTracks = new Set(),activeTrackMarkers=new Set(),activeDirectionLines=new Set();
             state.tracks.forEach((track,id) => {
-                const points = trackPath(track).slice(-200).map(point => ({lat:point.lat, lng:point.lng}));
-                if (points.length < 2) return;
-                activeTracks.add(id);
-                const selected = id === state.selectedTrackId;
-                const operationalTrackOpacity = simulationIsVisible() ? .22 : .85;
-                const options = {map, path:points, geodesic:true, strokeColor:selected ? '#f59e0b' : '#60a5fa', strokeOpacity:selected && !simulationIsVisible() ? 1 : operationalTrackOpacity, strokeWeight:selected ? 5 : 3, clickable:true};
-                let line = trackLines.get(id);
-                if (!line) { line = new google.maps.Polyline(options); trackLines.set(id,line); }
-                else line.setOptions(options);
+                const rawPath=trackPath(track).slice(-200),points=rawPath.map(point => ({lat:point.lat,lng:point.lng}));
+                const selected=id===state.selectedTrackId,live=isFreshLiveTrack(track,now),isDrone=String(track?.label||'').toLowerCase()==='drone';
+                if(!selected&&!live)return;
+                if(points.length>=2){
+                    activeTracks.add(id);
+                    const operationalTrackOpacity=simulationIsVisible()?.22:(live?.92:.55);
+                    const options={map,path:points,geodesic:true,strokeColor:selected?'#f59e0b':'#60a5fa',strokeOpacity:selected&&!simulationIsVisible()?1:operationalTrackOpacity,strokeWeight:selected?5:live?4:3,clickable:true};
+                    let line=trackLines.get(id);if(!line){line=new google.maps.Polyline(options);trackLines.set(id,line);}else line.setOptions(options);
+                }
+                if(live&&isDrone&&points.length){
+                    const latest=points.at(-1),heading=trackHeading(track,rawPath),speed=finite(track?.last_speed_mps ?? track?.speed_mps);
+                    activeTrackMarkers.add(id);
+                    const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:liveDroneMapIcon('#38bdf8'),label:{text:'TRACK',color:'#0f172a',fontSize:'9px',fontWeight:'900'},zIndex:50};
+                    let marker=trackMarkers.get(id);if(!marker){marker=new google.maps.Marker(markerOptions);marker.addListener('click',()=>{const current=state.tracks.get(id);if(current){state.selectedTrackId=id;renderTracksView();}});trackMarkers.set(id,marker);}else marker.setOptions(markerOptions);
+                    if(heading!==null){
+                        const length=Math.max(35,Math.min(speed!==null?speed*3:55,90)),start=projectMapPoint(latest,heading+180,length*.3),end=projectMapPoint(latest,heading,length);
+                        const directionOptions={map,path:[start,end],strokeColor:'#38bdf8',strokeOpacity:.95,strokeWeight:3,icons:[{icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:4,strokeColor:'#38bdf8',fillColor:'#38bdf8',fillOpacity:1},offset:'100%'}],clickable:false,zIndex:45};
+                        activeDirectionLines.add(id);let direction=trackDirectionLines.get(id);if(!direction){direction=new google.maps.Polyline(directionOptions);trackDirectionLines.set(id,direction);}else direction.setOptions(directionOptions);
+                    }
+                }
             });
-            trackLines.forEach((line,id) => { if (!activeTracks.has(id)) { line.setMap(null); trackLines.delete(id); } });
+            trackLines.forEach((line,id)=>{if(!activeTracks.has(id)){line.setMap(null);trackLines.delete(id);}});
+            trackMarkers.forEach((marker,id)=>{if(!activeTrackMarkers.has(id)){marker.setMap(null);trackMarkers.delete(id);}});
+            trackDirectionLines.forEach((line,id)=>{if(!activeDirectionLines.has(id)){line.setMap(null);trackDirectionLines.delete(id);}});
         }
         function fitMap() {
             if (!map || !window.google?.maps) { showToast('地圖尚未載入'); return; }
             const bounds = new google.maps.LatLngBounds(); let count = 0;
             canonicalDevices().forEach(device => { const location = nodeLocation(device); if (location) { bounds.extend(location); count++; } });
             const location = eventLocation(latestDetection()); if (location) { bounds.extend(location); count++; }
-            const estimateLocation = groupLocation(selectedOrLatestGroup()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
+            const estimateLocation = groupLocation(selectedOrLatestMapEstimate()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
+            const liveTrack=[...state.tracks.values()].filter(track=>isFreshLiveTrack(track)).sort((a,b)=>liveTrackTime(b)-liveTrackTime(a))[0];
+            const liveTrackPoint=trackPath(liveTrack).at(-1);if(liveTrackPoint){bounds.extend({lat:liveTrackPoint.lat,lng:liveTrackPoint.lng});count++;}
             const site=window.DashboardOperationsUI?.site(); if(site){bounds.extend({lat:site.lat,lng:site.lng});count++;}
             if (count) map.fitBounds(bounds, 70); else showToast('目前沒有可縮放的位置資料');
         }
