@@ -1179,6 +1179,7 @@
                 labelOrigin:new google.maps.Point(38,72)
             };
         }
+        window.v22DroneTargetIcon=v22DroneTargetIcon;
         function classIcon(event) { return String(classLabel(event)).toLowerCase() === 'drone' ? droneSvg() : safe(classIcons[modelLabel(event)] || '•'); }
         function modelScore(event) { return finite(classificationOf(event)?.confidence ?? event?.model_confidence ?? event?.dashboard_presentation?.model_score); }
         function eventLocation(event) {
@@ -2109,9 +2110,6 @@
                 const location = nodeLocation(device);
                 return location ? {kind:'node', id:device.device_id, label:shortNodeId(device.device_id), location, online:deviceOnline(device)} : null;
             }).filter(Boolean);
-            const detection = latestDetection();
-            const detectionLocation = eventLocation(detection);
-            if (detection && detectionLocation) points.push({kind:'event', id:detection.event_id, label:`${classLabel(detection)} 回報節點`, location:detectionLocation, online:true});
             const activeTarget = window.DashboardOperationsUI?.target();
             if (activeTarget?.position) points.push({kind:'target',id:activeTarget.id,label:'無人機估測位置',location:activeTarget.position,online:true});
             const estimate = selectedOrLatestGroup(); const estimateLocation = groupLocation(estimate);
@@ -2291,20 +2289,10 @@
             });
             nodeMarkers.forEach((marker,id) => { if (!activeNodeIds.has(id)) { marker.setMap(null); nodeMarkers.delete(id); } });
 
-            const detection = latestDetection(); const location = eventLocation(detection);
-            if (location) {
-                const options = {map, position:location, opacity:simulationIsVisible() ? .18 : .62, title:`原始事件回報 · ${classLabel(detection)} · ${formatDateTime(detection.timestamp)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f59e0b', fillOpacity:.72, strokeColor:'#fff2cf', strokeWeight:1.5, scale:5}, zIndex:12};
-                if (!detectionMarker) { detectionMarker = new google.maps.Marker(options); detectionMarker.addListener('click', () => selectEvent(latestDetection()?.event_id)); }
-                else detectionMarker.setOptions(options);
-                const radius = finite(detection.uncertainty_radius_m);
-                if (radius !== null && radius > 0) {
-                    const circleOptions = {map, center:location, radius, fillColor:'#f59e0b', fillOpacity:simulationIsVisible() ? .02 : .08, strokeColor:'#f59e0b', strokeOpacity:simulationIsVisible() ? .18 : .55, strokeWeight:1};
-                    if (!uncertaintyCircle) uncertaintyCircle = new google.maps.Circle(circleOptions); else uncertaintyCircle.setOptions(circleOptions);
-                } else if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
-            } else {
-                if (detectionMarker) { detectionMarker.setMap(null); detectionMarker = null; }
-                if (uncertaintyCircle) { uncertaintyCircle.setMap(null); uncertaintyCircle = null; }
-            }
+            // Raw event GPS is node evidence, not a target location. Keep it out of
+            // the operational overview so the map matches Simulation Lab semantics.
+            if(detectionMarker){detectionMarker.setMap(null);detectionMarker=null;}
+            if(uncertaintyCircle){uncertaintyCircle.setMap(null);uncertaintyCircle=null;}
 
             const estimate = selectedOrLatestGroup(),estimateLocation=groupLocation(estimate);
             const hasFreshDroneTrack=[...state.tracks.values()].some(track=>String(track?.label||'').toLowerCase()==='drone'&&isFreshLiveTrack(track,now)&&trackPath(track).length);
@@ -2354,7 +2342,6 @@
             if (!map || !window.google?.maps) { showToast('地圖尚未載入'); return; }
             const bounds = new google.maps.LatLngBounds(); let count = 0;
             canonicalDevices().forEach(device => { const location = nodeLocation(device); if (location) { bounds.extend(location); count++; } });
-            const location = eventLocation(latestDetection()); if (location) { bounds.extend(location); count++; }
             const estimateLocation = groupLocation(selectedOrLatestGroup()); if (estimateLocation) { bounds.extend(estimateLocation); count++; }
             const liveTrack=[...state.tracks.values()].filter(track=>isFreshLiveTrack(track)).sort((a,b)=>liveTrackTime(b)-liveTrackTime(a))[0];
             const liveTrackPoint=trackPath(liveTrack).at(-1);if(liveTrackPoint){bounds.extend({lat:liveTrackPoint.lat,lng:liveTrackPoint.lng});count++;}
