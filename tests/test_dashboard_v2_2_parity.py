@@ -121,11 +121,10 @@ def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
     assert "const liveGroups=geometryFallback?[...state.groups.values(),geometryFallback]:[...state.groups.values()]" in html
     assert "const current = selectedOrLatestMapEstimate()" in html
 
-    # V2.2 node shape identity and active-node animation remain visible.
-    assert "id.endsWith('A01')" in html
-    assert "id.endsWith('A02')" in html
-    assert "id.endsWith('A03')" in html
-    assert "id.endsWith('A04')" in html
+    # Preserve the current Dashboard icon language while restoring V2.2 behavior.
+    assert "return {...common, path:google.maps.SymbolPath.CIRCLE};" in html
+    assert "id.endsWith('A01')" not in html
+    assert "id.endsWith('A02')" not in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
     assert "onPulse:updateNodeMarkerPulse" in html
 
@@ -137,7 +136,8 @@ def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
     assert "function isFreshLiveTrack(track,now=Date.now())" in html
     assert "LIVE TRACK ·" in html
     assert "FORWARD_CLOSED_ARROW" in html
-    assert "liveDroneMapIcon('#38bdf8')" in html
+    assert "droneMapIcon('#f97316',heading??0)" in html
+    assert "function liveDroneMapIcon" not in html
 
 
 def test_live_map_rejected_track_points_do_not_reappear_on_map() -> None:
