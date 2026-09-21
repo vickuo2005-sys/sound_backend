@@ -2295,7 +2295,7 @@
             const estimate = selectedOrLatestMapEstimate(); const estimateLocation = groupLocation(estimate);
             if (estimate && estimateLocation) {
                 const sensorOnly=estimate.sensor_region_fallback===true;
-                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:sensorOnly?'即時感測區域中心（非 TDOA 定位）':`Fused region · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:sensorOnly?.55:1, strokeColor:'#fff2cf', strokeWeight:2, scale:sensorOnly?8:9}, label:{text:sensorOnly?'SENSE':'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}};
+                const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:sensorOnly?'即時感測區域中心（非 TDOA 定位）':`Fused region · ${groupLabel(estimate)}`, icon:{path:google.maps.SymbolPath.CIRCLE, fillColor:'#f97316', fillOpacity:sensorOnly ? .55 : 1, strokeColor:'#fff2cf', strokeWeight:2, scale:sensorOnly?8:9}, label:{text:sensorOnly?'SENSE':'EST', color:'#1c1002', fontSize:'9px', fontWeight:'900'}};
                 if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestMapEstimate(); if (current) showGroupInfo(current); }); }
                 else estimateMarker.setOptions(estimateOptions);
                 const radius = finite(estimate.uncertainty_radius_m);
