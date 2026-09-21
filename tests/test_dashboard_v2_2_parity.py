@@ -88,9 +88,11 @@ def test_unsafe_v2_2_fake_alert_is_not_restored() -> None:
 def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
     html = dashboard_html()
     assert "function nodeMarkerIcon(device, online, active=false, pulse=.5)" in html
-    assert "fillColor:reporting?'#f97316':online?'#f8fafc':'#475569'" in html
-    assert "fillOpacity:online?1:.95" in html
-    assert "scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14" in html
+    assert "path:google.maps.SymbolPath.CIRCLE" in html
+    assert "fillColor:online?'#f8fafc':'#475569'" in html
+    assert "strokeColor:reporting?'#f97316':online?'#111827':'#f8fafc'" in html
+    assert "strokeWeight:reporting?4:3" in html
+    assert "scale:14" in html
     assert "text:`${shortNodeId(device.device_id)}${online?'':'×'}`" in html
     assert "固定節點離線後仍保留在地圖" in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
@@ -155,3 +157,27 @@ def test_live_map_backend_handoff_avoids_duplicate_synthetic_geometry() -> None:
     assert "if(freshBackendLocatedGroup(now))return null;" in html
     assert "fallbackGeometry=!freshBackendMultiNodeEvidence(fallbackNow)?fallbackSensor:null" in html
     assert "groups:fallbackGroups" in html
+
+
+
+def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> None:
+    html = dashboard_html()
+    # Node identity is always circular; reporting state changes border/pulse only.
+    marker_start = html.index("function nodeMarkerIcon(device, online, active=false, pulse=.5)")
+    marker_end = html.index("window.initOperationalMap", marker_start)
+    marker_block = html[marker_start:marker_end]
+    assert "SymbolPath.CIRCLE" in marker_block
+    assert "scale:14" in marker_block
+    assert "id.endsWith('A01')" not in marker_block
+    assert "id.endsWith('A02')" not in marker_block
+    assert "id.endsWith('A03')" not in marker_block
+    assert "id.endsWith('A04')" not in marker_block
+
+    # Raw event is visually subordinate; sensor-only center is hollow; formal
+    # estimate keeps EST; Backend track uses the existing drone icon.
+    assert "原始事件回報 ·" in html
+    assert "fillOpacity:.72" in html
+    assert "即時感測區域參考中心（非定位）" in html
+    assert "fillOpacity:.08" in html
+    assert "label:{text:'EST'" in html
+    assert "droneMapIcon('#f97316',heading??0)" in html
