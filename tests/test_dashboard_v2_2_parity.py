@@ -116,7 +116,10 @@ def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
     assert "sensor_region_fallback:true" in html
     assert "此中心只供 V2.2 live-map parity 顯示，不送入 TDOA、Track 或 ETA。" in html
     assert "function selectedOrLatestMapEstimate()" in html
-    assert "const liveGroups=sensorFallback?[...state.groups.values(),sensorFallback]:[...state.groups.values()]" in html
+    assert "function freshBackendMultiNodeEvidence(now=Date.now())" in html
+    assert "function freshBackendLocatedGroup(now=Date.now())" in html
+    assert "const liveGroups=geometryFallback?[...state.groups.values(),geometryFallback]:[...state.groups.values()]" in html
+    assert "const current = selectedOrLatestMapEstimate()" in html
 
     # V2.2 node shape identity and active-node animation remain visible.
     assert "id.endsWith('A01')" in html
@@ -143,3 +146,12 @@ def test_live_map_rejected_track_points_do_not_reappear_on_map() -> None:
     assert "point?.is_outlier" in html
     assert "point?.is_rejected" in html
     assert "point?.accepted !== false" in html
+
+
+
+def test_live_map_backend_handoff_avoids_duplicate_synthetic_geometry() -> None:
+    html = dashboard_html()
+    assert "geometryFallback=!freshBackendMultiNodeEvidence(now)?sensorFallback:null" in html
+    assert "if(freshBackendLocatedGroup(now))return null;" in html
+    assert "fallbackGeometry=!freshBackendMultiNodeEvidence(fallbackNow)?fallbackSensor:null" in html
+    assert "groups:fallbackGroups" in html
