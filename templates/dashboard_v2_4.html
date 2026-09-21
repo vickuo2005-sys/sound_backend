@@ -2118,7 +2118,9 @@
             const minLng = Math.min(...lngs); const maxLng = Math.max(...lngs);
             const latSpan = maxLat - minLat || 0.001;
             const lngSpan = maxLng - minLng || 0.001;
-            const geometries=DashboardNodeGeometry.buildGeometries({nodes:canonicalDevices(),groups:[...state.groups.values()],events:state.events,now:Date.now()});
+            const fallbackNow=Date.now(),fallbackSensor=liveSensorFallbackEstimate(fallbackNow),fallbackGeometry=!freshBackendMultiNodeEvidence(fallbackNow)?fallbackSensor:null;
+            const fallbackGroups=fallbackGeometry?[...state.groups.values(),fallbackGeometry]:[...state.groups.values()];
+            const geometries=DashboardNodeGeometry.buildGeometries({nodes:canonicalDevices(),groups:fallbackGroups,events:state.events,now:fallbackNow});
             const activeFallbackNodeIds=new Set(geometries.flatMap(item=>item.deviceIds));
             plot.innerHTML = points.map(point => {
                 const left = 8 + ((point.location.lng - minLng) / lngSpan) * 84;
@@ -2149,14 +2151,20 @@
             }
             return [...byDevice.values()];
         }
-        function freshBackendMultiNodeGroup(now=Date.now()) {
+        function freshBackendMultiNodeEvidence(now=Date.now()) {
+            return [...state.groups.values()].some(group=>{
+                const time=groupTime(group),status=String(group?.status||'').toLowerCase();
+                return groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
+            });
+        }
+        function freshBackendLocatedGroup(now=Date.now()) {
             return [...state.groups.values()].some(group=>{
                 const time=groupTime(group),status=String(group?.status||'').toLowerCase();
                 return groupLocation(group) && groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
             });
         }
         function liveSensorFallbackEstimate(now=Date.now()) {
-            if(freshBackendMultiNodeGroup(now))return null;
+            if(freshBackendLocatedGroup(now))return null;
             const evidence=liveDroneSensorEvidence(now);
             if(evidence.length<2)return null;
             const center=evidence.reduce((sum,item)=>({lat:sum.lat+item.position.lat,lng:sum.lng+item.position.lng}),{lat:0,lng:0});
@@ -2254,9 +2262,9 @@
         }
         function startTrackReplay(id) { return window.DashboardOperationsUI?.start(id); }
         function renderMap() {
-            const now=Date.now(),sensorFallback=liveSensorFallbackEstimate(now);
+            const now=Date.now(),sensorFallback=liveSensorFallbackEstimate(now),geometryFallback=!freshBackendMultiNodeEvidence(now)?sensorFallback:null;
             const updateNodeMarkerPulse=(activeIds,pulse)=>nodeMarkers.forEach((marker,id)=>{const device=canonicalDevices().find(item=>item.device_id===id);if(device)marker.setIcon(nodeMarkerIcon(device,deviceOnline(device),activeIds.has(id),pulse));});
-            const liveGroups=sensorFallback?[...state.groups.values(),sensorFallback]:[...state.groups.values()];
+            const liveGroups=geometryFallback?[...state.groups.values(),geometryFallback]:[...state.groups.values()];
             const nodeGeometries=nodeAlertRenderer.update({map,google:window.google,nodes:canonicalDevices(),groups:liveGroups,events:state.events,now,animate:!document.hidden && document.getElementById('view-dashboard').classList.contains('active'),onPulse:updateNodeMarkerPulse});
             const activeReportingNodeIds=new Set(nodeGeometries.flatMap(item=>item.deviceIds));
             if (!map || !window.google?.maps) {
@@ -2297,7 +2305,7 @@
             if (estimate && estimateLocation) {
                 const sensorOnly=estimate.sensor_region_fallback===true;
                 const estimateOptions = {map, position:estimateLocation, opacity:simulationIsVisible() ? .28 : 1, title:sensorOnly?'即時感測區域中心（非 TDOA 定位）':`Backend estimate · ${groupLabel(estimate)}`, icon:sensorOnly?{path:google.maps.SymbolPath.CIRCLE,fillColor:'#f97316',fillOpacity:.35,strokeColor:'#f97316',strokeWeight:3,scale:12}:liveDroneMapIcon('#f97316'), label:{text:sensorOnly?'SENSE':'UAV', color:'#111827', fontSize:sensorOnly?'9px':'10px', fontWeight:'900'}};
-                if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestGroup(); if (current) showGroupInfo(current); }); }
+                if (!estimateMarker) { estimateMarker = new google.maps.Marker(estimateOptions); estimateMarker.addListener('click', () => { const current = selectedOrLatestMapEstimate(); if (current) showGroupInfo(current); }); }
                 else estimateMarker.setOptions(estimateOptions);
                 const radius = finite(estimate.uncertainty_radius_m);
                 if (radius !== null && radius > 0) {
