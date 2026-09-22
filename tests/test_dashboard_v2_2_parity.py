@@ -187,3 +187,16 @@ def test_operational_target_reuses_v2_2_uav_icon() -> None:
     operations = (ROOT / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
     assert "window.v22DroneTargetIcon?window.v22DroneTargetIcon(target.heading??0)" in operations
     assert "label:{text:'UAV'" in operations
+
+
+
+def test_live_warning_region_accepts_aircraft_backend_groups() -> None:
+    html = dashboard_html()
+    geometry_js = (ROOT / "static" / "dashboard_node_geometry.js").read_text(encoding="utf-8")
+    assert "function isLiveTargetLabel(value)" in html
+    assert "['drone','uav','aircraft','plane','airplane']" in html
+    assert "isLiveTargetGroup(group) && groupDeviceIds(group).length>=2" in html
+    assert "isLiveTargetLabel(track?.label)" in html
+    assert "function isTargetGroup(group)" in geometry_js
+    assert "source:reports.length?'event_evidence':'backend_group_membership'" in geometry_js
+    assert "Frontend event-cache completeness must not decide" in geometry_js
