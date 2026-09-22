@@ -232,3 +232,25 @@ def test_operational_site_overlay_is_persistent_and_does_not_flicker() -> None:
     assert "siteMarker.setMap(null);siteMarker=null" not in prefix
     assert "zoneCircle.setMap(null);zoneCircle=null" not in prefix
     assert "targetMarker.setMap(null);targetMarker=null" not in prefix
+
+
+
+def test_live_and_simulation_share_map_visual_algorithm() -> None:
+    html = dashboard_html()
+    renderer = (ROOT / "services" / "dashboard_v2_4.py").read_text(encoding="utf-8")
+    simulation = (ROOT / "static" / "dashboard_simulation_lab.js").read_text(encoding="utf-8")
+    geometry = (ROOT / "static" / "dashboard_node_geometry.js").read_text(encoding="utf-8")
+    shared = (ROOT / "static" / "dashboard_map_visuals.js").read_text(encoding="utf-8")
+
+    assert "__MAP_VISUALS_SCRIPT__" in (ROOT / "templates" / "dashboard_v2_4.html").read_text(encoding="utf-8")
+    assert 'static/dashboard_map_visuals.js' in renderer or 'dashboard_map_visuals.js' in renderer
+    assert "DashboardMapVisuals.nodeVisual" in html
+    assert "DashboardMapVisuals.sampleMotion" in html
+    assert "Visuals.nodeVisual" in simulation
+    assert "Visuals.pulseAt" in simulation
+    assert "Visuals.regionStyle('line')" in simulation
+    assert "Visuals.regionStyle('polygon')" in simulation
+    assert "Visuals.pulseRingStyle" in geometry
+    assert "Visuals.regionStyle('line')" in geometry
+    assert "Visuals.regionStyle('polygon')" in geometry
+    assert "const MOTION_DURATION_MS=850" in shared
