@@ -161,7 +161,6 @@ def test_live_map_backend_handoff_avoids_duplicate_synthetic_geometry() -> None:
 
 def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> None:
     html = dashboard_html()
-    # Node identity is always circular; reporting state changes border/pulse only.
     marker_start = html.index("function nodeMarkerIcon(device, online, active=false, pulse=.5)")
     marker_end = html.index("window.initOperationalMap", marker_start)
     marker_block = html[marker_start:marker_end]
@@ -172,16 +171,14 @@ def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> 
     assert "id.endsWith('A03')" not in marker_block
     assert "id.endsWith('A04')" not in marker_block
 
-    # Raw event is visually subordinate; sensor-only center is hollow; formal
-    # estimate keeps EST; Backend track uses the existing drone icon.
-    assert "原始事件回報 ·" in html
-    assert "fillOpacity:.72" in html
-    assert "即時感測區域參考中心（非定位）" in html
-    assert "fillOpacity:.08" in html
-    assert "label:{text:'EST'" in html
-    assert "droneMapIcon('#f97316',heading??0)" in html
-
-
+    # Operational overview mirrors Simulation Lab semantics:
+    # no raw event target point, no SENSE center marker, and a UAV appears only
+    # after Backend localization/track exists.
+    assert "Raw event GPS is node evidence, not a target location." in html
+    assert "即時感測區域參考中心（非定位）" not in html
+    assert "function v22DroneTargetIcon(heading=0)" in html
+    assert "scaledSize:new google.maps.Size(76,76)" in html
+    assert "icon:v22DroneTargetIcon(heading??0)" in html
 
 def test_operational_target_reuses_v2_2_uav_icon() -> None:
     operations = (ROOT / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
