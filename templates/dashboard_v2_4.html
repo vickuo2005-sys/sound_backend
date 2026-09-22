@@ -2270,7 +2270,13 @@
         function startTrackReplay(id) { return window.DashboardOperationsUI?.start(id); }
         function renderMap() {
             const now=Date.now(),sensorFallback=liveSensorFallbackEstimate(now),geometryFallback=!freshBackendMultiNodeEvidence(now)?sensorFallback:null;
-            const updateNodeMarkerPulse=(activeIds)=>nodeMarkers.forEach((marker,id)=>{const device=canonicalDevices().find(item=>item.device_id===id);if(device)marker.setIcon(nodeMarkerIcon(device,deviceOnline(device),activeIds.has(id)));});
+            const updateNodeMarkerPulse=(activeIds)=>nodeMarkers.forEach((marker,id)=>{
+                const device=canonicalDevices().find(item=>item.device_id===id);if(!device)return;
+                const online=deviceOnline(device),active=online&&activeIds.has(id),key=`${online?'1':'0'}:${active?'1':'0'}`;
+                if(marker.__dashboardAlertKey===key)return;
+                marker.setIcon(nodeMarkerIcon(device,online,active));
+                marker.__dashboardAlertKey=key;
+            });
             const liveGroups=geometryFallback?[...state.groups.values(),geometryFallback]:[...state.groups.values()];
             const nodeGeometries=nodeAlertRenderer.update({map,google:window.google,nodes:canonicalDevices(),groups:liveGroups,events:state.events,now,animate:!document.hidden && document.getElementById('view-dashboard').classList.contains('active'),onPulse:updateNodeMarkerPulse});
             const activeReportingNodeIds=new Set(nodeGeometries.flatMap(item=>item.deviceIds));
@@ -2285,11 +2291,21 @@
                 const position = nodeLocation(device); if (!position) return;
                 activeNodeIds.add(device.device_id);
                 const operationalOpacity = simulationIsVisible() ? .28 : 1;
-                const online=deviceOnline(device),reporting=online&&activeReportingNodeIds.has(device.device_id);
-                const options = {map, position, title:`節點 ${shortNodeId(device.device_id)} - ${nodeState(device).text}`,icon:nodeMarkerIcon(device,online,reporting),label:{text:`${shortNodeId(device.device_id)}${online?'':'×'}`,color:online?'#111827':'#f8fafc',fontSize:'13px',fontWeight:'800'},opacity:(online?1:.95)*operationalOpacity,zIndex:reporting?30:10};
+                const online=deviceOnline(device),reporting=online&&activeReportingNodeIds.has(device.device_id),statusText=nodeState(device).text;
+                const options = {map, position, title:`節點 ${shortNodeId(device.device_id)} - ${statusText}`,icon:nodeMarkerIcon(device,online,reporting),label:{text:`${shortNodeId(device.device_id)}${online?'':'×'}`,color:online?'#111827':'#f8fafc',fontSize:'13px',fontWeight:'800'},opacity:(online?1:.95)*operationalOpacity,zIndex:reporting?30:10};
+                const renderKey=JSON.stringify([position.lat,position.lng,online,reporting,operationalOpacity,statusText]);
                 let marker = nodeMarkers.get(device.device_id);
-                if (!marker) { marker = new google.maps.Marker(options); marker.addListener('click', () => showNodeInfo(device.device_id)); nodeMarkers.set(device.device_id, marker); }
-                else marker.setOptions(options);
+                if (!marker) {
+                    marker = new google.maps.Marker(options);
+                    marker.__dashboardRenderKey=renderKey;
+                    marker.__dashboardAlertKey=`${online?'1':'0'}:${reporting?'1':'0'}`;
+                    marker.addListener('click', () => showNodeInfo(device.device_id));
+                    nodeMarkers.set(device.device_id, marker);
+                } else if(marker.__dashboardRenderKey!==renderKey) {
+                    marker.setOptions(options);
+                    marker.__dashboardRenderKey=renderKey;
+                    marker.__dashboardAlertKey=`${online?'1':'0'}:${reporting?'1':'0'}`;
+                }
             });
             nodeMarkers.forEach((marker,id) => { if (!activeNodeIds.has(id)) { marker.setMap(null); nodeMarkers.delete(id); } });
 
