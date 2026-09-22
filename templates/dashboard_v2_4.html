@@ -1270,6 +1270,10 @@
             return [];
         }
         function groupLabel(group) { return group?.label || group?.model_label || group?.operational_class || 'Target'; }
+        function isLiveTargetLabel(value) {
+            return ['drone','uav','aircraft','plane','airplane'].includes(String(value||'').trim().toLowerCase());
+        }
+        function isLiveTargetGroup(group) { return isLiveTargetLabel(groupLabel(group)); }
         function trackPointTime(point, fallbackIndex = 0) {
             return finite(point?.measurement_time_ms) ?? parseTime(point?.measurement_timestamp || point?.event_time || point?.timestamp || point?.created_at) ?? fallbackIndex;
         }
@@ -2161,13 +2165,13 @@
         function freshBackendMultiNodeEvidence(now=Date.now()) {
             return [...state.groups.values()].some(group=>{
                 const time=groupTime(group),status=String(group?.status||'').toLowerCase();
-                return groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
+                return isLiveTargetGroup(group) && groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
             });
         }
         function freshBackendLocatedGroup(now=Date.now()) {
             return [...state.groups.values()].some(group=>{
                 const time=groupTime(group),status=String(group?.status||'').toLowerCase();
-                return groupLocation(group) && groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
+                return isLiveTargetGroup(group) && groupLocation(group) && groupDeviceIds(group).length>=2 && time>0 && now-time>=-5000 && now-time<=15000 && !['closed','expired','ended','inactive'].includes(status);
             });
         }
         function liveSensorFallbackEstimate(now=Date.now()) {
@@ -2228,11 +2232,11 @@
         }
         function selectedOrLatestGroup() {
             const selected = state.selectedGroupId ? state.groups.get(state.selectedGroupId) : null;
-            if (selected && groupLocation(selected)) return selected;
+            if (selected && isLiveTargetGroup(selected) && groupLocation(selected)) return selected;
             const now = Date.now();
             return [...state.groups.values()].filter(group => {
                 const time = groupTime(group); const status = String(group?.status || '').toLowerCase();
-                return groupLocation(group) && time > 0 && now - time >= -5000 && now - time <= 15000 && !['closed','expired'].includes(status);
+                return isLiveTargetGroup(group) && groupLocation(group) && time > 0 && now - time >= -5000 && now - time <= 15000 && !['closed','expired'].includes(status);
             }).sort((a,b) => groupTime(b) - groupTime(a))[0] || null;
         }
         function showGroupInfo(group) {
@@ -2295,7 +2299,7 @@
             if(uncertaintyCircle){uncertaintyCircle.setMap(null);uncertaintyCircle=null;}
 
             const estimate = selectedOrLatestGroup(),estimateLocation=groupLocation(estimate);
-            const hasFreshDroneTrack=[...state.tracks.values()].some(track=>String(track?.label||'').toLowerCase()==='drone'&&isFreshLiveTrack(track,now)&&trackPath(track).length);
+            const hasFreshDroneTrack=[...state.tracks.values()].some(track=>isLiveTargetLabel(track?.label)&&isFreshLiveTrack(track,now)&&trackPath(track).length);
             if (estimate && estimateLocation && !hasFreshDroneTrack) {
                 const estimateOptions={map,position:estimateLocation,opacity:simulationIsVisible()?.28:1,title:`目前聲源位置 · ${groupLabel(estimate)}`,
                     icon:v22DroneTargetIcon(0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:50};
@@ -2314,7 +2318,7 @@
             const activeTracks = new Set(),activeTrackMarkers=new Set(),activeDirectionLines=new Set();
             state.tracks.forEach((track,id) => {
                 const rawPath=trackPath(track).slice(-200),points=rawPath.map(point => ({lat:point.lat,lng:point.lng}));
-                const selected=id===state.selectedTrackId,live=isFreshLiveTrack(track,now),isDrone=String(track?.label||'').toLowerCase()==='drone';
+                const selected=id===state.selectedTrackId,live=isFreshLiveTrack(track,now),isDrone=isLiveTargetLabel(track?.label);
                 if(!selected&&!live)return;
                 if(points.length>=2){
                     activeTracks.add(id);
