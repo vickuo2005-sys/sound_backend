@@ -168,7 +168,8 @@
         const cancelFrame = options.cancelAnimationFrame || root.cancelAnimationFrame?.bind(root);
         const schedule = options.setTimeout || root.setTimeout?.bind(root);
         const unschedule = options.clearTimeout || root.clearTimeout?.bind(root);
-        let frame = null, expiryTimer = null, current = null, epoch = 0, baseNow = 0;
+        let frame = null, expiryTimer = null, current = null, epoch = 0, baseNow = 0, lastPulseAt = 0;
+        const PULSE_FRAME_MS = 100;
         function remove(entry) { entry.objects.forEach(object => object.setMap(null)); }
         function stopTimers() {
             if (frame !== null) cancelFrame?.(frame);
@@ -177,16 +178,22 @@
         }
         function activeDeviceIds() { return new Set([...overlays.values()].flatMap(entry => entry.deviceIds || [])); }
         function publishPulse(pulse) { if (typeof current?.onPulse === 'function') current.onPulse(activeDeviceIds(),pulse); }
-        function clear() { stopTimers();publishPulse(0);overlays.forEach(remove); overlays.clear(); current = null; }
+        function clear() { stopTimers();publishPulse(0);overlays.forEach(remove); overlays.clear(); current = null; lastPulseAt = 0; }
         function animate() {
             if (!current || !overlays.size) return;
-            const pulse = (Math.sin(clock()/650)+1)/2;
-            for (const entry of overlays.values()) {
-                entry.rings.forEach(ring => ring.setOptions({radius:24+28*pulse,fillOpacity:.1-.07*pulse,strokeOpacity:.9-.75*pulse}));
-                entry.shape?.setOptions(entry.kind === 'polygon' ? {fillOpacity:.12,strokeOpacity:.85} : {strokeOpacity:.95});
+            const now=clock();
+            if (now-lastPulseAt>=PULSE_FRAME_MS) {
+                lastPulseAt=now;
+                const pulse=(Math.sin(now/650)+1)/2;
+                for (const entry of overlays.values()) {
+                    entry.rings.forEach(ring=>ring.setOptions({
+                        radius:24+28*pulse,
+                        fillOpacity:.1-.07*pulse,
+                        strokeOpacity:.9-.75*pulse
+                    }));
+                }
             }
-            publishPulse(pulse);
-            frame = requestFrame?.(animate) ?? null;
+            frame=requestFrame?.(animate)??null;
         }
         function update(input={}) {
             stopTimers();
@@ -212,7 +219,7 @@
                     overlays.set(item.id,entry);
                 } else entry.deviceIds=item.deviceIds;
             }
-            publishPulse(.5);
+            publishPulse(1);
             const reduced = input.reducedMotion ?? options.reducedMotion ?? root.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
             // Static rings remain visible with reduced motion. Expiration still runs.
             if (!reduced && input.animate !== false && requestFrame && overlays.size) frame = requestFrame(animate);
