@@ -92,7 +92,7 @@ def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
     assert "fillColor:reporting?'#f97316':online?'#f8fafc':'#475569'" in html
     assert "strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc'" in html
     assert "strokeWeight:reporting?4:3" in html
-    assert "scale:reporting?14+Math.max(0,Math.min(1,pulse))*6:14" in html
+    assert "scale:14" in html
     assert "text:`${shortNodeId(device.device_id)}${online?'':'×'}`" in html
     assert "固定節點離線後仍保留在地圖" in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
@@ -200,3 +200,16 @@ def test_live_warning_region_accepts_aircraft_backend_groups() -> None:
     assert "function isTargetGroup(group)" in geometry_js
     assert "source:reports.length?'event_evidence':'backend_group_membership'" in geometry_js
     assert "Frontend event-cache completeness must not decide" in geometry_js
+
+
+
+def test_live_map_avoids_marker_redraw_flicker() -> None:
+    html = dashboard_html()
+    geometry_js = (ROOT / "static" / "dashboard_node_geometry.js").read_text(encoding="utf-8")
+    assert "const PULSE_FRAME_MS = 100" in geometry_js
+    assert "publishPulse(pulse)" not in geometry_js
+    assert "entry.shape?.setOptions" not in geometry_js
+    assert "now-lastPulseAt>=PULSE_FRAME_MS" in geometry_js
+    assert "marker.__dashboardRenderKey" in html
+    assert "marker.__dashboardAlertKey" in html
+    assert "marker.__dashboardRenderKey!==renderKey" in html
