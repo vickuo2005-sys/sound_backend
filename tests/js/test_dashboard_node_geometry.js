@@ -72,6 +72,29 @@ assert.deepEqual(geometry.buildGeometries({...input,events:input.events.map(e=>(
 assert.deepEqual(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,classification:{model_label:'Airplane',is_target:true}}))}),[]);
 assert.deepEqual(geometry.buildGeometries({...input,nodes:nodes.map(n=>({...n,marker_latitude:999}))}),[]);
 
+// Backend group membership remains visible even when the frontend event cache is incomplete.
+const backendOnly = geometry.buildGeometries({
+    ...input,
+    events:[],
+    groups:[group({
+        label:'aircraft',
+        reporting_device_ids:['node_A01','node_A02','node_A03'],
+        devices:['node_A01','node_A02','node_A03']
+    })]
+});
+assert.equal(backendOnly.length,1);
+assert.equal(backendOnly[0].kind,'polygon');
+assert.deepEqual(backendOnly[0].deviceIds.sort(),['node_A01','node_A02','node_A03']);
+assert.ok(backendOnly[0].participants.every(item=>item.source==='backend_group_membership'));
+assert.equal(geometry.isTargetGroup({label:'aircraft'}),true);
+assert.equal(geometry.isTargetGroup({label:'Drone'}),true);
+assert.equal(geometry.isTargetGroup({label:'non_aircraft'}),false);
+assert.deepEqual(geometry.buildGeometries({
+    ...input,
+    events:[],
+    groups:[group({label:'non_aircraft',reporting_device_ids:['node_A01','node_A02','node_A03']})]
+}),[],'non-target groups must never create a live warning region');
+
 const line = geometry.convexHull([{lat:25,lng:121},{lat:25.001,lng:121.001},{lat:25.002,lng:121.002},{lat:25,lng:121}]);
 assert.equal(line.length,2,'collinear participants degrade to an endpoint line');
 assert.deepEqual(geometry.convexHull([{lat:25,lng:121},{lat:25,lng:121}]),[{lat:25,lng:121}]);
