@@ -108,21 +108,10 @@
             if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}
         }
 
-        if(target?.position){
-            const heading=target.heading??0;
-            const targetKey=JSON.stringify([target.id,target.position.lat,target.position.lng,heading]);
-            const targetOptions={map:operationalVisible?map:null,position:target.position,title:`無人機估測位置 ${target.id}`,icon:window.v22DroneTargetIcon?window.v22DroneTargetIcon(heading):droneMapIcon('#f97316',heading),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:55};
-            if(!targetMarker){
-                targetMarker=new google.maps.Marker(targetOptions);
-                targetMarker.__dashboardRenderKey=targetKey;
-            }else if(targetMarker.__dashboardRenderKey!==targetKey){
-                targetMarker.setOptions(targetOptions);
-                targetMarker.__dashboardRenderKey=targetKey;
-            }else setOverlayVisible(targetMarker,operationalVisible);
-        }else if(targetMarker){
-            targetMarker.setMap(null);
-            targetMarker=null;
-        }
+        // Live UAV ownership belongs to the main operational map renderer.
+        // This module owns only the fixed site and protected radius so duplicate
+        // target markers cannot fight each other during WebSocket updates.
+        if(targetMarker){targetMarker.setMap(null);targetMarker=null;}
     }
     function render() {
         const now=Date.now();
