@@ -2,8 +2,10 @@
     'use strict';
     const Eta = root.DashboardSimulationEta || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_eta.js') : null);
     const Tracking = root.DashboardSimulationTracker || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_tracker.js') : null);
+    const Visuals = root.DashboardMapVisuals || (typeof module==='object'&&module.exports ? require('./dashboard_map_visuals.js') : null);
     if(!Eta)throw new Error('DashboardSimulationEta must load before DashboardSimulationLab');
     if(!Tracking)throw new Error('DashboardSimulationTracker must load before DashboardSimulationLab');
+    if(!Visuals)throw new Error('DashboardMapVisuals must load before DashboardSimulationLab');
     // This workspace owns all of its state. It must never import live dashboard state,
     // call application APIs, or publish simulated events onto the real event bus.
     const ORIGIN = Object.freeze({ lat: 25.039, lng: 121.5752 });
@@ -498,17 +500,9 @@
         </dl><p>以上為模擬工程參數與評估資料，尚未經實地校正；真值不會送入 ETA 估算器。</p></details>`;
     }
     const clock=seconds=>`${Math.floor(seconds/60).toString().padStart(2,'0')}:${Math.floor(seconds%60).toString().padStart(2,'0')}`;
-    const DRONE_PATH='M -9 -6 L 9 6 M -9 6 L 9 -6 M -13 -6 A 4 4 0 1 0 -5 -6 A 4 4 0 1 0 -13 -6 M 5 -6 A 4 4 0 1 0 13 -6 A 4 4 0 1 0 5 -6 M -13 6 A 4 4 0 1 0 -5 6 A 4 4 0 1 0 -13 6 M 5 6 A 4 4 0 1 0 13 6 A 4 4 0 1 0 5 6';
-    const NODE_PATH='M 0 -1 A 1 1 0 1 1 0 1 A 1 1 0 1 1 0 -1';
-    function nodeVisual(ordinal,online=true,active=false,pulse=.5) {
-        return {
-            shape:'circle',path:NODE_PATH,
-            fill:active&&online?'#F97316':online?'#F8FAFC':'#475569',
-            stroke:active&&online?'#FFB86B':online?'#111827':'#F8FAFC',
-            opacity:online?1:.95,strokeWidth:active&&online?4:3,
-            scale:active&&online?14+clamp(pulse,0,1)*6:14
-        };
-    }
+    const DRONE_PATH=Visuals.DRONE_PATH;
+    const NODE_PATH=Visuals.NODE_PATH;
+    function nodeVisual(ordinal,online=true,active=false,pulse=.5){return Visuals.nodeVisual(online,active,pulse);}
     class Workspace {
         constructor(container) {
             this.container=container;this.model=new LabModel();this.model.preset('idle');this.active=false;this.timer=null;this.mode='inspect';this.editNode=null;this.editTarget=null;
@@ -773,17 +767,17 @@
             put('site-marker',g.Marker,{position:latLng(siteModel),label:{text:'據點',color:'#0B1220',fontWeight:'700'},icon:{path:g.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
             const target=m.selected(),liveDetected=!replay&&target?.kind==='drone'&&!target.lost?m.reportingNodes(target):[],
                 detectedIds=new Set(replayFrame?.detectedNodeIds||liveDetected.map(n=>n.id));
-            const pulse=(Math.sin(Date.now()/180)+1)/2,activeNodes=[];
+            const pulse=Visuals.pulseAt(Date.now()),activeNodes=[];
             for(const n of nodeModels){
                 const active=replayFrame?Boolean(n.active):detectedIds.has(n.id),visual=nodeVisual(n.ordinal,n.online,active,pulse);
                 if(active)activeNodes.push(n);
                 put(`node-range:${n.id}`,g.Circle,{center:latLng(n),radius:n.detectionRadius,strokeColor:active?'#F97316':'#5EEAD4',strokeOpacity:active?.85:.42,strokeWeight:active?2.5:1.5,fillColor:active?'#F97316':'#5EEAD4',fillOpacity:active?.1:.045,clickable:false});
                 put(`node:${n.id}`,g.Marker,{position:latLng(n),title:`${n.name} · 偵測 ${n.detectionRadius}m${n.online?'':' · 離線'}`,label:{text:`N${String(n.ordinal).padStart(2,'0')}${n.online?'':'×'}`,color:n.online?'#111827':'#F8FAFC',fontSize:'12px',fontWeight:'800'},icon:{path:visual.path,scale:visual.scale,fillColor:visual.fill,fillOpacity:visual.opacity,strokeColor:visual.stroke,strokeWeight:visual.strokeWidth},zIndex:active&&n.online?30:10,clickable:false});
             }
-            if(activeNodes.length)for(const n of activeNodes)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),radius:24+pulse*28,strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.9-pulse*.75,fillColor:'#F97316',fillOpacity:.1-pulse*.07,clickable:false});
+            if(activeNodes.length)for(const n of activeNodes)put(`pulse:${n.id}`,g.Circle,{center:latLng(n),...Visuals.pulseRingStyle(pulse),clickable:false});
             const geometry=replayFrame?.sourceRegion?.path||(!replay?m.geometry(target):[]);
-            if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:5,strokeOpacity:.95,clickable:false});
-            else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),strokeColor:'#F97316',strokeWeight:3,strokeOpacity:.85,fillColor:'#F97316',fillOpacity:.12,clickable:false});
+            if(geometry.length===2)put('source-line',g.Polyline,{path:geometry.map(latLng),...Visuals.regionStyle('line'),clickable:false});
+            else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),...Visuals.regionStyle('polygon'),clickable:false});
             const trueLine=(key,trail,muted=false)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#C4B5FD',strokeOpacity:muted?.3:.9,strokeWeight:4,clickable:false});};
             const estimateLine=(key,trail)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#60A5FA',strokeOpacity:0,strokeWeight:2,icons:[{icon:{path:'M 0,-1 0,1',strokeColor:'#60A5FA',strokeOpacity:1,strokeWeight:3,scale:3},offset:'0',repeat:'14px'}],clickable:false});};
             const trueMarker=(key,position,kind,label,lost=false)=>put(key,g.Marker,{position:latLng(position),title:label,icon:{path:kind==='drone'?DRONE_PATH:g.SymbolPath.CIRCLE,scale:kind==='drone'?1.1:8,strokeColor:lost?'#9EACC0':'#FBBF24',strokeWeight:2,fillColor:'#142033',fillOpacity:1},clickable:false});
