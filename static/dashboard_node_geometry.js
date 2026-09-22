@@ -1,5 +1,7 @@
 (function (root) {
     'use strict';
+    const Visuals = root.DashboardMapVisuals || (typeof module==='object'&&module.exports ? require('./dashboard_map_visuals.js') : null);
+    if(!Visuals)throw new Error('DashboardMapVisuals must load before DashboardNodeGeometry');
     const FRESH_MS = 15000;
     const FUTURE_TOLERANCE_MS = 2000;
     const number = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value)) ? Number(value) : null;
@@ -169,7 +171,7 @@
         const schedule = options.setTimeout || root.setTimeout?.bind(root);
         const unschedule = options.clearTimeout || root.clearTimeout?.bind(root);
         let frame = null, expiryTimer = null, current = null, epoch = 0, baseNow = 0, lastPulseAt = 0;
-        const PULSE_FRAME_MS = 100;
+        const PULSE_FRAME_MS = Visuals.PULSE_INTERVAL_MS;
         function remove(entry) { entry.objects.forEach(object => object.setMap(null)); }
         function stopFrame() {
             if(frame!==null)cancelFrame?.(frame);
@@ -188,13 +190,9 @@
             const now=clock();
             if(now-lastPulseAt>=PULSE_FRAME_MS){
                 lastPulseAt=now;
-                const pulse=(Math.sin(now/650)+1)/2;
+                const pulse=Visuals.pulseAt(now);
                 for(const entry of overlays.values()){
-                    entry.rings.forEach(ring=>ring.setOptions({
-                        radius:24+28*pulse,
-                        fillOpacity:.1-.07*pulse,
-                        strokeOpacity:.9-.75*pulse
-                    }));
+                    entry.rings.forEach(ring=>ring.setOptions(Visuals.pulseRingStyle(pulse)));
                 }
             }
             frame=requestFrame?.(animate)??null;
@@ -213,12 +211,12 @@
                 let entry = overlays.get(item.id);
                 if (entry && (entry.signature !== signature || entry.map !== input.map || entry.api !== api)) { remove(entry); overlays.delete(item.id); entry = null; }
                 if (!entry) {
-                    const shared={map:input.map,clickable:false,strokeColor:'#f97316',fillColor:'#f97316'};
-                    const rings=item.participants.map(node=>new api.Circle({...shared,center:node.position,radius:24,strokeWeight:3,strokeOpacity:.9,fillOpacity:.1,zIndex:28}));
+                    const shared={map:input.map,clickable:false};
+                    const rings=item.participants.map(node=>new api.Circle({...shared,center:node.position,...Visuals.pulseRingStyle(0)}));
                     const shape=item.kind==='polygon'
-                        ? new api.Polygon({...shared,paths:item.path,geodesic:true,strokeWeight:3,strokeOpacity:.85,fillOpacity:.12,zIndex:18})
+                        ? new api.Polygon({...shared,paths:item.path,geodesic:true,...Visuals.regionStyle('polygon')})
                         : item.kind==='line'
-                            ? new api.Polyline({...shared,path:item.path,geodesic:true,strokeWeight:5,strokeOpacity:.95,zIndex:18})
+                            ? new api.Polyline({...shared,path:item.path,geodesic:true,...Visuals.regionStyle('line')})
                             : null;
                     entry = {signature, map:input.map, api, rings, shape, kind:item.kind, deviceIds:item.deviceIds, objects:shape ? [...rings,shape] : rings};
                     overlays.set(item.id,entry);
