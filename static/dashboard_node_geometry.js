@@ -171,21 +171,25 @@
         let frame = null, expiryTimer = null, current = null, epoch = 0, baseNow = 0, lastPulseAt = 0;
         const PULSE_FRAME_MS = 100;
         function remove(entry) { entry.objects.forEach(object => object.setMap(null)); }
-        function stopTimers() {
-            if (frame !== null) cancelFrame?.(frame);
-            if (expiryTimer !== null) unschedule?.(expiryTimer);
-            frame = null; expiryTimer = null;
+        function stopFrame() {
+            if(frame!==null)cancelFrame?.(frame);
+            frame=null;
         }
+        function stopExpiry() {
+            if(expiryTimer!==null)unschedule?.(expiryTimer);
+            expiryTimer=null;
+        }
+        function stopTimers(){stopFrame();stopExpiry();}
         function activeDeviceIds() { return new Set([...overlays.values()].flatMap(entry => entry.deviceIds || [])); }
         function publishPulse(pulse) { if (typeof current?.onPulse === 'function') current.onPulse(activeDeviceIds(),pulse); }
         function clear() { stopTimers();publishPulse(0);overlays.forEach(remove); overlays.clear(); current = null; lastPulseAt = 0; }
         function animate() {
-            if (!current || !overlays.size) return;
+            if(!current||!overlays.size){frame=null;return;}
             const now=clock();
-            if (now-lastPulseAt>=PULSE_FRAME_MS) {
+            if(now-lastPulseAt>=PULSE_FRAME_MS){
                 lastPulseAt=now;
                 const pulse=(Math.sin(now/650)+1)/2;
-                for (const entry of overlays.values()) {
+                for(const entry of overlays.values()){
                     entry.rings.forEach(ring=>ring.setOptions({
                         radius:24+28*pulse,
                         fillOpacity:.1-.07*pulse,
@@ -195,8 +199,9 @@
             }
             frame=requestFrame?.(animate)??null;
         }
+        function ensureAnimation(){if(frame===null&&requestFrame)frame=requestFrame(animate);}
         function update(input={}) {
-            stopTimers();
+            stopExpiry();
             const api = input.google?.maps || input.google || root.google?.maps;
             if (!input.map || !api || input.enabled === false) { clear(); return []; }
             current = input; epoch = clock(); baseNow = number(input.now) ?? epoch;
@@ -208,12 +213,12 @@
                 let entry = overlays.get(item.id);
                 if (entry && (entry.signature !== signature || entry.map !== input.map || entry.api !== api)) { remove(entry); overlays.delete(item.id); entry = null; }
                 if (!entry) {
-                    const shared = {map:input.map,clickable:false,strokeColor:'#f97316',fillColor:'#f97316',zIndex:4};
-                    const rings = item.participants.map(node => new api.Circle({...shared,center:node.position,radius:24,strokeWeight:3,strokeOpacity:.9,fillOpacity:.1}));
-                    const shape = item.kind === 'polygon'
-                        ? new api.Polygon({...shared,paths:item.path,geodesic:true,strokeWeight:3,strokeOpacity:.85,fillOpacity:.12})
-                        : item.kind === 'line'
-                            ? new api.Polyline({...shared,path:item.path,geodesic:true,strokeWeight:5,strokeOpacity:.95})
+                    const shared={map:input.map,clickable:false,strokeColor:'#f97316',fillColor:'#f97316'};
+                    const rings=item.participants.map(node=>new api.Circle({...shared,center:node.position,radius:24,strokeWeight:3,strokeOpacity:.9,fillOpacity:.1,zIndex:28}));
+                    const shape=item.kind==='polygon'
+                        ? new api.Polygon({...shared,paths:item.path,geodesic:true,strokeWeight:3,strokeOpacity:.85,fillOpacity:.12,zIndex:18})
+                        : item.kind==='line'
+                            ? new api.Polyline({...shared,path:item.path,geodesic:true,strokeWeight:5,strokeOpacity:.95,zIndex:18})
                             : null;
                     entry = {signature, map:input.map, api, rings, shape, kind:item.kind, deviceIds:item.deviceIds, objects:shape ? [...rings,shape] : rings};
                     overlays.set(item.id,entry);
@@ -222,7 +227,8 @@
             publishPulse(1);
             const reduced = input.reducedMotion ?? options.reducedMotion ?? root.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
             // Static rings remain visible with reduced motion. Expiration still runs.
-            if (!reduced && input.animate !== false && requestFrame && overlays.size) frame = requestFrame(animate);
+            if(!reduced&&input.animate!==false&&requestFrame&&overlays.size)ensureAnimation();
+            else stopFrame();
             if (items.length && schedule) {
                 const remaining = Math.max(1,Math.min(...items.map(item => item.expiresAt))-baseNow+1);
                 expiryTimer = schedule(() => { if (current) update({...current, now:baseNow+Math.max(0,clock()-epoch)}); }, remaining);
