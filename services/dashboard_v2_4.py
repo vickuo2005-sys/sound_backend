@@ -110,6 +110,7 @@ def render_dashboard_v2_4(
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
         .replace("__ENVIRONMENT_LABEL__", escape(os.getenv("APP_ENV", "staging").upper()))
         .replace("__OVERVIEW_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_overview.js").read_text(encoding="utf-8") + "</script>")
+        .replace("__MAP_VISUALS_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_map_visuals.js").read_text(encoding="utf-8") + "</script>")
         .replace("__NODE_GEOMETRY_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_node_geometry.js").read_text(encoding="utf-8") + "</script>")
         .replace("__DASHBOARD_REFINEMENT_STYLES__", "<style>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_apk_theme.css").read_text(encoding="utf-8") + ((TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.css").read_text(encoding="utf-8") if simulation_enabled else "") + "</style>")
         .replace("__SIMULATION_LAB_SCRIPT__", ("<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_eta.js").read_text(encoding="utf-8") + "</script><script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_tracker.js").read_text(encoding="utf-8") + "</script><script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.js").read_text(encoding="utf-8") + "</script>") if simulation_enabled else "")
