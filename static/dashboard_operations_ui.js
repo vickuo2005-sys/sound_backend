@@ -68,18 +68,61 @@
         catch(_){el('siteMessage').textContent='瀏覽器無法儲存設定，請允許此網站使用儲存空間。';}
     };
     el('clearSite').onclick=()=>{try{localStorage.removeItem('sound-dashboard-site-v1');}catch(_){}config=null;entries=new O.Entries();summarySite();siteDialog.close();render();};
+    function setOverlayVisible(overlay,visible) {
+        if(!overlay)return;
+        const currentMap=overlay.getMap?.() ?? null;
+        const desired=visible?map:null;
+        if(currentMap!==desired)overlay.setMap(desired);
+    }
     function mapObjects(target) {
         currentTarget=target;
-        if(targetMarker){targetMarker.setMap(null);targetMarker=null;}
-        if(siteMarker){siteMarker.setMap(null);siteMarker=null;}
-        if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}
-        if(simulationIsVisible())return;
-        if(!map || !window.google?.maps){renderCoordinateFallback();return;}
-        if(config){
-            siteMarker=new google.maps.Marker({map,position:config,title:config.name,label:'據',zIndex:35});
-            zoneCircle=new google.maps.Circle({map,center:config,radius:config.radius,strokeColor:'#ef4444',strokeOpacity:.8,strokeWeight:2,fillColor:'#ef4444',fillOpacity:.09,clickable:false});
+        const operationalVisible=!simulationIsVisible();
+        if(!map || !window.google?.maps){
+            if(operationalVisible)renderCoordinateFallback();
+            return;
         }
-        if(target?.position){targetMarker=new google.maps.Marker({map,position:target.position,title:`無人機估測位置 ${target.id}`,icon:window.v22DroneTargetIcon?window.v22DroneTargetIcon(target.heading??0):droneMapIcon('#f97316',target.heading??0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:55});}
+
+        if(config){
+            const position={lat:config.lat,lng:config.lng};
+            const siteKey=JSON.stringify([position.lat,position.lng,config.name]);
+            const siteOptions={map:operationalVisible?map:null,position,title:config.name,label:'據',zIndex:35};
+            if(!siteMarker){
+                siteMarker=new google.maps.Marker(siteOptions);
+                siteMarker.__dashboardRenderKey=siteKey;
+            }else if(siteMarker.__dashboardRenderKey!==siteKey){
+                siteMarker.setOptions(siteOptions);
+                siteMarker.__dashboardRenderKey=siteKey;
+            }else setOverlayVisible(siteMarker,operationalVisible);
+
+            const zoneKey=JSON.stringify([position.lat,position.lng,config.radius]);
+            const zoneOptions={map:operationalVisible?map:null,center:position,radius:config.radius,strokeColor:'#ef4444',strokeOpacity:.8,strokeWeight:2,fillColor:'#ef4444',fillOpacity:.09,clickable:false};
+            if(!zoneCircle){
+                zoneCircle=new google.maps.Circle(zoneOptions);
+                zoneCircle.__dashboardRenderKey=zoneKey;
+            }else if(zoneCircle.__dashboardRenderKey!==zoneKey){
+                zoneCircle.setOptions(zoneOptions);
+                zoneCircle.__dashboardRenderKey=zoneKey;
+            }else setOverlayVisible(zoneCircle,operationalVisible);
+        }else{
+            if(siteMarker){siteMarker.setMap(null);siteMarker=null;}
+            if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}
+        }
+
+        if(target?.position){
+            const heading=target.heading??0;
+            const targetKey=JSON.stringify([target.id,target.position.lat,target.position.lng,heading]);
+            const targetOptions={map:operationalVisible?map:null,position:target.position,title:`無人機估測位置 ${target.id}`,icon:window.v22DroneTargetIcon?window.v22DroneTargetIcon(heading):droneMapIcon('#f97316',heading),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:55};
+            if(!targetMarker){
+                targetMarker=new google.maps.Marker(targetOptions);
+                targetMarker.__dashboardRenderKey=targetKey;
+            }else if(targetMarker.__dashboardRenderKey!==targetKey){
+                targetMarker.setOptions(targetOptions);
+                targetMarker.__dashboardRenderKey=targetKey;
+            }else setOverlayVisible(targetMarker,operationalVisible);
+        }else if(targetMarker){
+            targetMarker.setMap(null);
+            targetMarker=null;
+        }
     }
     function render() {
         const now=Date.now();
