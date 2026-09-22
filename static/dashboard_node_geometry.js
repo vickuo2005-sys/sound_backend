@@ -60,6 +60,10 @@
         const label = event?.classification?.model_label ?? event?.dashboard_presentation?.model_label ?? event?.model_label ?? event?.label;
         return typeof label === 'string' && label.trim().toLowerCase() === 'drone';
     }
+    function isTargetGroup(group) {
+        const label=String(group?.label ?? group?.group_label ?? group?.model_label ?? group?.operational_class ?? '').trim().toLowerCase();
+        return ['drone','uav','aircraft','plane','airplane'].includes(label);
+    }
     function parseIds(value) {
         if (typeof value === 'string') {
             try { value = JSON.parse(value); }
@@ -126,17 +130,26 @@
         const output = [], representedEvents = new Set();
         for (const group of rows(groups)) {
             const id = groupId(group), updated = groupTime(group);
-            if (!id || ['closed','expired','ended','inactive'].includes(String(group.status || '').toLowerCase()) || !fresh(updated, now, duration)) continue;
+            if (!id || !isTargetGroup(group) || ['closed','expired','ended','inactive'].includes(String(group.status || '').toLowerCase()) || !fresh(updated, now, duration)) continue;
             const embedded = rows(group.events).filter(event => isDrone(event) && fresh(eventTime(event), now, duration));
             const evidence = [...recent, ...embedded].filter(event => belongsToGroup(event, group));
             const participants = memberIds(group).map(device_id => {
-                const reports = evidence.filter(event => String(event.device_id || '') === device_id);
                 const position = positions.get(device_id);
-                if (!position || !reports.length) return null;
-                reports.forEach(event => representedEvents.add(event.event_id || event));
-                return {device_id, position, time:Math.max(...reports.map(eventTime))};
+                if (!position) return null;
+                const reports = evidence.filter(event => String(event.device_id || '') === device_id);
+                if (reports.length) reports.forEach(event => representedEvents.add(event.event_id || event));
+                // A fresh Backend fusion group already owns the active/reporting
+                // membership. Frontend event-cache completeness must not decide
+                // whether the operator sees the live warning region.
+                const reportTimes=reports.map(eventTime).filter(Number.isFinite);
+                return {
+                    device_id,
+                    position,
+                    time:reportTimes.length?Math.max(...reportTimes):updated,
+                    source:reports.length?'event_evidence':'backend_group_membership'
+                };
             }).filter(Boolean);
-            if (participants.length) output.push(geometry(`group:${id}`, participants, Math.min(updated,...participants.map(item => item.time))+duration));
+            if (participants.length) output.push(geometry(`group:${id}`, participants, updated+duration));
         }
         const solo = new Map();
         for (const event of recent) {
@@ -212,7 +225,7 @@
         }
         return Object.freeze({update,clear});
     }
-    const api = Object.freeze({FRESH_MS,coordinate,nodePosition,mergeFixedLocations,mergeFixedNodes,memberIds,isDrone,convexHull,buildGeometries,createRenderer});
+    const api = Object.freeze({FRESH_MS,coordinate,nodePosition,mergeFixedLocations,mergeFixedNodes,memberIds,isDrone,isTargetGroup,convexHull,buildGeometries,createRenderer});
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.DashboardNodeGeometry = api;
 })(typeof window !== 'undefined' ? window : globalThis);
