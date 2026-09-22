@@ -870,6 +870,8 @@
         let trackLines = new Map();
         let trackMarkers = new Map();
         let trackDirectionLines = new Map();
+        let liveMarkerMotion = new Map();
+        let liveMarkerAnimationFrame = null;
         let detectionMarker = null;
         let uncertaintyCircle = null;
         let estimateMarker = null;
@@ -2230,6 +2232,76 @@
             const lng2=lng1+Math.atan2(Math.sin(bearing)*Math.sin(delta)*Math.cos(lat1),Math.cos(delta)-Math.sin(lat1)*Math.sin(lat2));
             return {lat:lat2*180/Math.PI,lng:lng2*180/Math.PI};
         }
+        function liveHeadingDelta(from,to){
+            const a=Number(from)||0,b=Number(to)||0;
+            return ((b-a+540)%360)-180;
+        }
+        function liveMotionSample(motion,now=performance.now()){
+            if(!motion)return null;
+            const duration=Math.max(1,motion.durationMs||1),raw=Math.max(0,Math.min(1,(now-motion.startedAt)/duration));
+            const t=raw*raw*(3-2*raw);
+            return {
+                position:{
+                    lat:motion.start.lat+(motion.target.lat-motion.start.lat)*t,
+                    lng:motion.start.lng+(motion.target.lng-motion.start.lng)*t
+                },
+                heading:(motion.startHeading+liveHeadingDelta(motion.startHeading,motion.targetHeading)*t+360)%360,
+                done:raw>=1
+            };
+        }
+        function ensureLiveMarkerAnimation(){
+            if(liveMarkerAnimationFrame!==null||!liveMarkerMotion.size)return;
+            const tick=now=>{
+                liveMarkerAnimationFrame=null;
+                if(document.hidden||simulationIsVisible()||!map){return;}
+                let moving=false;
+                for(const [key,motion] of liveMarkerMotion){
+                    const sample=liveMotionSample(motion,now);
+                    if(!sample||!motion.marker?.getMap?.()){liveMarkerMotion.delete(key);continue;}
+                    motion.marker.setPosition(sample.position);
+                    if(now-(motion.lastIconAt||0)>=100){
+                        motion.lastIconAt=now;
+                        motion.marker.setIcon(v22DroneTargetIcon(sample.heading));
+                    }
+                    motion.current=sample.position;
+                    motion.currentHeading=sample.heading;
+                    if(sample.done){
+                        motion.start={...motion.target};
+                        motion.startHeading=motion.targetHeading;
+                    }else moving=true;
+                }
+                if(moving&&liveMarkerMotion.size)liveMarkerAnimationFrame=requestAnimationFrame(tick);
+            };
+            liveMarkerAnimationFrame=requestAnimationFrame(tick);
+        }
+        function setLiveMarkerTarget(key,marker,target,heading=0){
+            if(!marker||!target)return;
+            const now=performance.now(),existing=liveMarkerMotion.get(key),normalizedHeading=((Number(heading)||0)%360+360)%360;
+            if(!existing){
+                marker.setPosition(target);marker.setIcon(v22DroneTargetIcon(normalizedHeading));
+                liveMarkerMotion.set(key,{marker,start:{...target},target:{...target},current:{...target},startHeading:normalizedHeading,targetHeading:normalizedHeading,currentHeading:normalizedHeading,startedAt:now,durationMs:1,lastIconAt:now});
+                return;
+            }
+            const sample=liveMotionSample(existing,now)||{position:existing.current||existing.target,heading:existing.currentHeading||existing.targetHeading||0};
+            const dLat=target.lat-existing.target.lat,dLng=target.lng-existing.target.lng,headingChange=Math.abs(liveHeadingDelta(existing.targetHeading,normalizedHeading));
+            if(Math.hypot(dLat,dLng)<1e-9&&headingChange<.5)return;
+            existing.marker=marker;
+            existing.start={...sample.position};
+            existing.target={...target};
+            existing.current={...sample.position};
+            existing.startHeading=sample.heading;
+            existing.targetHeading=normalizedHeading;
+            existing.currentHeading=sample.heading;
+            existing.startedAt=now;
+            existing.durationMs=850;
+            ensureLiveMarkerAnimation();
+        }
+        function clearLiveMarkerMotion(key){
+            liveMarkerMotion.delete(key);
+            if(!liveMarkerMotion.size&&liveMarkerAnimationFrame!==null){
+                cancelAnimationFrame(liveMarkerAnimationFrame);liveMarkerAnimationFrame=null;
+            }
+        }
         function selectedOrLatestGroup() {
             const selected = state.selectedGroupId ? state.groups.get(state.selectedGroupId) : null;
             if (selected && isLiveTargetGroup(selected) && groupLocation(selected)) return selected;
@@ -2319,15 +2391,22 @@
             if (estimate && estimateLocation && !hasFreshDroneTrack) {
                 const estimateOptions={map,position:estimateLocation,opacity:simulationIsVisible()?.28:1,title:`目前聲源位置 · ${groupLabel(estimate)}`,
                     icon:v22DroneTargetIcon(0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:50};
-                if(!estimateMarker){estimateMarker=new google.maps.Marker(estimateOptions);estimateMarker.addListener('click',()=>{const current=selectedOrLatestGroup();if(current)showGroupInfo(current);});}
-                else estimateMarker.setOptions(estimateOptions);
+                if(!estimateMarker){
+                    estimateMarker=new google.maps.Marker(estimateOptions);
+                    estimateMarker.addListener('click',()=>{const current=selectedOrLatestGroup();if(current)showGroupInfo(current);});
+                }else{
+                    if(estimateMarker.getMap()!==map)estimateMarker.setMap(map);
+                    estimateMarker.setTitle(estimateOptions.title);
+                    estimateMarker.setOpacity(estimateOptions.opacity);
+                }
+                setLiveMarkerTarget('estimate',estimateMarker,estimateLocation,0);
                 const radius=finite(estimate.uncertainty_radius_m);
                 if(radius!==null&&radius>0){
                     const circleOptions={map,center:estimateLocation,radius,fillColor:'#f97316',fillOpacity:simulationIsVisible()?.02:.08,strokeColor:'#f97316',strokeOpacity:simulationIsVisible()?.18:.65,strokeWeight:2};
                     if(!estimateCircle)estimateCircle=new google.maps.Circle(circleOptions);else estimateCircle.setOptions(circleOptions);
                 }else if(estimateCircle){estimateCircle.setMap(null);estimateCircle=null;}
             } else {
-                if(estimateMarker){estimateMarker.setMap(null);estimateMarker=null;}
+                if(estimateMarker){estimateMarker.setMap(null);estimateMarker=null;clearLiveMarkerMotion('estimate');}
                 if(estimateCircle){estimateCircle.setMap(null);estimateCircle=null;}
             }
 
@@ -2339,14 +2418,26 @@
                 if(points.length>=2){
                     activeTracks.add(id);
                     const operationalTrackOpacity=simulationIsVisible()?.22:(live?.92:.55);
-                    const options={map,path:points,geodesic:true,strokeColor:selected?'#f59e0b':'#60a5fa',strokeOpacity:selected&&!simulationIsVisible()?1:operationalTrackOpacity,strokeWeight:selected?5:live?4:3,clickable:true};
-                    let line=trackLines.get(id);if(!line){line=new google.maps.Polyline(options);trackLines.set(id,line);}else line.setOptions(options);
+                    const options={map,path:points,geodesic:true,strokeColor:selected?'#f59e0b':'#60a5fa',strokeOpacity:selected&&!simulationIsVisible()?1:operationalTrackOpacity,strokeWeight:selected?5:live?4:3,clickable:true,zIndex:35};
+                    const lineKey=JSON.stringify([selected,live,points.map(p=>[p.lat,p.lng])]);
+                    let line=trackLines.get(id);
+                    if(!line){line=new google.maps.Polyline(options);line.__dashboardRenderKey=lineKey;trackLines.set(id,line);}
+                    else if(line.__dashboardRenderKey!==lineKey){line.setOptions(options);line.__dashboardRenderKey=lineKey;}
                 }
                 if(live&&isDrone&&points.length){
                     const latest=points.at(-1),heading=trackHeading(track,rawPath),speed=finite(track?.last_speed_mps ?? track?.speed_mps);
                     activeTrackMarkers.add(id);
                     const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:v22DroneTargetIcon(heading??0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:60};
-                    let marker=trackMarkers.get(id);if(!marker){marker=new google.maps.Marker(markerOptions);marker.addListener('click',()=>{const current=state.tracks.get(id);if(current){state.selectedTrackId=id;renderTracksView();}});trackMarkers.set(id,marker);}else marker.setOptions(markerOptions);
+                    let marker=trackMarkers.get(id);
+                    if(!marker){
+                        marker=new google.maps.Marker(markerOptions);
+                        marker.addListener('click',()=>{const current=state.tracks.get(id);if(current){state.selectedTrackId=id;renderTracksView();}});
+                        trackMarkers.set(id,marker);
+                    }else{
+                        if(marker.getMap()!==map)marker.setMap(map);
+                        marker.setTitle(markerOptions.title);
+                    }
+                    setLiveMarkerTarget(`track:${id}`,marker,latest,heading??0);
                     if(heading!==null){
                         const length=Math.max(35,Math.min(speed!==null?speed*3:55,90)),start=projectMapPoint(latest,heading+180,length*.3),end=projectMapPoint(latest,heading,length);
                         const directionOptions={map,path:[start,end],strokeColor:'#60a5fa',strokeOpacity:.88,strokeWeight:3,icons:[{icon:{path:google.maps.SymbolPath.FORWARD_CLOSED_ARROW,scale:4,strokeColor:'#60a5fa',fillColor:'#60a5fa',fillOpacity:1},offset:'100%'}],clickable:false,zIndex:45};
@@ -2355,7 +2446,7 @@
                 }
             });
             trackLines.forEach((line,id)=>{if(!activeTracks.has(id)){line.setMap(null);trackLines.delete(id);}});
-            trackMarkers.forEach((marker,id)=>{if(!activeTrackMarkers.has(id)){marker.setMap(null);trackMarkers.delete(id);}});
+            trackMarkers.forEach((marker,id)=>{if(!activeTrackMarkers.has(id)){marker.setMap(null);trackMarkers.delete(id);clearLiveMarkerMotion(`track:${id}`);}});
             trackDirectionLines.forEach((line,id)=>{if(!activeDirectionLines.has(id)){line.setMap(null);trackDirectionLines.delete(id);}});
         }
         function fitMap() {
