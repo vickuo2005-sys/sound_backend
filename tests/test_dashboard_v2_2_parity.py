@@ -210,3 +210,25 @@ def test_live_map_avoids_marker_redraw_flicker() -> None:
     assert "marker.__dashboardRenderKey" in html
     assert "marker.__dashboardAlertKey" in html
     assert "marker.__dashboardRenderKey!==renderKey" in html
+
+
+
+def test_operational_site_overlay_is_persistent_and_does_not_flicker() -> None:
+    operations = (ROOT / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
+    start = operations.index("function mapObjects(target)")
+    end = operations.index("function render()", start)
+    block = operations[start:end]
+    assert "function setOverlayVisible(overlay,visible)" in operations
+    assert "const siteKey=JSON.stringify" in block
+    assert "const zoneKey=JSON.stringify" in block
+    assert "siteMarker.__dashboardRenderKey" in block
+    assert "zoneCircle.__dashboardRenderKey" in block
+    assert "targetMarker.__dashboardRenderKey" in block
+    assert "else setOverlayVisible(siteMarker,operationalVisible)" in block
+    assert "else setOverlayVisible(zoneCircle,operationalVisible)" in block
+    # Clearing is allowed only when the site/target is actually removed; the
+    # function must not begin by tearing down all overlays on every render.
+    prefix = block[:500]
+    assert "siteMarker.setMap(null);siteMarker=null" not in prefix
+    assert "zoneCircle.setMap(null);zoneCircle=null" not in prefix
+    assert "targetMarker.setMap(null);targetMarker=null" not in prefix
