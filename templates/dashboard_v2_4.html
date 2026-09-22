@@ -2066,14 +2066,14 @@
         }
 
         function nodeMarkerIcon(device, online, active=false, pulse=.5) {
-            const reporting=active&&online;
+            const visual=DashboardMapVisuals.nodeVisual(online,active,pulse);
             return {
                 path:google.maps.SymbolPath.CIRCLE,
-                fillColor:reporting?'#f97316':online?'#f8fafc':'#475569',
-                fillOpacity:online?1:.95,
-                strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc',
-                strokeWeight:reporting?4:3,
-                scale:14
+                fillColor:visual.fill,
+                fillOpacity:visual.opacity,
+                strokeColor:visual.stroke,
+                strokeWeight:visual.strokeWidth,
+                scale:visual.scale
             };
         }
         window.initOperationalMap = function initOperationalMap() {
@@ -2233,23 +2233,8 @@
             const lng2=lng1+Math.atan2(Math.sin(bearing)*Math.sin(delta)*Math.cos(lat1),Math.cos(delta)-Math.sin(lat1)*Math.sin(lat2));
             return {lat:lat2*180/Math.PI,lng:lng2*180/Math.PI};
         }
-        function liveHeadingDelta(from,to){
-            const a=Number(from)||0,b=Number(to)||0;
-            return ((b-a+540)%360)-180;
-        }
-        function liveMotionSample(motion,now=performance.now()){
-            if(!motion)return null;
-            const duration=Math.max(1,motion.durationMs||1),raw=Math.max(0,Math.min(1,(now-motion.startedAt)/duration));
-            const t=raw*raw*(3-2*raw);
-            return {
-                position:{
-                    lat:motion.start.lat+(motion.target.lat-motion.start.lat)*t,
-                    lng:motion.start.lng+(motion.target.lng-motion.start.lng)*t
-                },
-                heading:(motion.startHeading+liveHeadingDelta(motion.startHeading,motion.targetHeading)*t+360)%360,
-                done:raw>=1
-            };
-        }
+        function liveHeadingDelta(from,to){return DashboardMapVisuals.headingDelta(from,to);}
+        function liveMotionSample(motion,now=performance.now()){return DashboardMapVisuals.sampleMotion(motion,now);}
         function ensureLiveMarkerAnimation(){
             if(liveMarkerAnimationFrame!==null||!liveMarkerMotion.size)return;
             const tick=now=>{
@@ -2294,7 +2279,7 @@
             existing.targetHeading=normalizedHeading;
             existing.currentHeading=sample.heading;
             existing.startedAt=now;
-            existing.durationMs=850;
+            existing.durationMs=DashboardMapVisuals.MOTION_DURATION_MS;
             ensureLiveMarkerAnimation();
         }
         function clearLiveMarkerMotion(key){
