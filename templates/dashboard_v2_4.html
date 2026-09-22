@@ -856,6 +856,7 @@
             events: [], devices: new Map(), fixedLocations: new Map(), locationsVersion:0, tracks: new Map(), groups: new Map(),
             health: null, runtime: null, backendConnected: false, wsConnected: false,
             loaded: false, devicesAt: null, devicesFailed: false, eventsAt:null, eventsFailed:false, snapshotInFlight: false,
+            snapshotEventUpdates: null,
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
             selectedEventId: null, selectedNodeId: 'node_A01', selectedGroupId: null, selectedTrackId: null,
             commands: new Map(), confirmAction: null, locationEditDeviceId: null, locationBusy: false, locationClearArmed: false,
@@ -1212,6 +1213,12 @@
         function upsertEvent(event) {
             if (!event?.event_id) return;
             const normalized = normalizeEvent(event);
+            // Journal only fields received while the snapshot is in flight. Replaying
+            // the entire cached event would overwrite fields enriched by the server.
+            if (state.snapshotEventUpdates) {
+                const updates = state.snapshotEventUpdates;
+                updates.set(normalized.event_id, {...updates.get(normalized.event_id), ...normalized});
+            }
             const index = state.events.findIndex(item => item.event_id === normalized.event_id);
             if (index >= 0) state.events[index] = {...state.events[index], ...normalized};
             else state.events.push(normalized);
@@ -1356,6 +1363,8 @@
         async function refreshSnapshot(reason = 'initial') {
             if (state.snapshotInFlight || deviceSnapshotPollInFlight) return;
             state.snapshotInFlight = true;
+            const eventUpdates = new Map();
+            state.snapshotEventUpdates = eventUpdates;
             const locationsVersion = state.locationsVersion;
             const requests = [
                 fetchJson('/events?limit=100'), fetchJson('/device-status'),
@@ -1365,11 +1374,17 @@
             const [eventsResult, devicesResult, tracksResult, groupsResult, healthResult, runtimeResult, locationsResult] = await Promise.allSettled(requests);
             state.loaded = true;
             state.snapshotInFlight = false;
+            state.snapshotEventUpdates = null;
             state.devicesFailed = devicesResult.status !== 'fulfilled' || !Array.isArray(devicesResult.value?.devices);
             state.eventsFailed = eventsResult.status !== 'fulfilled' || !Array.isArray(eventsResult.value?.events);
             state.backendConnected = healthResult.status === 'fulfilled' || eventsResult.status === 'fulfilled';
             if (eventsResult.status === 'fulfilled' && Array.isArray(eventsResult.value.events)) {
-                state.events = eventsResult.value.events.map(normalizeEvent).sort((a,b) => eventTime(b)-eventTime(a)).slice(0,200);
+                const merged = new Map(eventsResult.value.events.map(normalizeEvent).filter(event => event.event_id).map(event => [event.event_id, event]));
+                const current = new Map(state.events.map(event => [event.event_id, event]));
+                // The snapshot may predate WebSocket messages received while any API
+                // was pending. Apply those messages last, once per event ID.
+                eventUpdates.forEach((update, id) => merged.set(id, {...(merged.get(id) || current.get(id)), ...update}));
+                state.events = [...merged.values()].sort((a,b) => eventTime(b)-eventTime(a)).slice(0,200);
                 state.eventsAt = Date.now();
                 state.latestDetectionOrder = state.events.length ? eventTime(state.events[0]) : -Infinity;
             }
