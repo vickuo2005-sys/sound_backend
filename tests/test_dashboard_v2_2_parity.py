@@ -89,10 +89,11 @@ def test_node_markers_reuse_v2_2_shapes_and_reporting_animation() -> None:
     html = dashboard_html()
     assert "function nodeMarkerIcon(device, online, active=false, pulse=.5)" in html
     assert "path:google.maps.SymbolPath.CIRCLE" in html
-    assert "fillColor:reporting?'#f97316':online?'#f8fafc':'#475569'" in html
-    assert "strokeColor:reporting?'#ffb86b':online?'#111827':'#f8fafc'" in html
-    assert "strokeWeight:reporting?4:3" in html
-    assert "scale:14" in html
+    assert "DashboardMapVisuals.nodeVisual" in html
+    shared = (ROOT / "static" / "dashboard_map_visuals.js").read_text(encoding="utf-8")
+    assert "fill:reporting?COLORS.active" in shared
+    assert "stroke:reporting?COLORS.activeStroke" in shared
+    assert "strokeWidth:reporting?4:3" in shared
     assert "text:`${shortNodeId(device.device_id)}${online?'':'×'}`" in html
     assert "固定節點離線後仍保留在地圖" in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
@@ -165,7 +166,7 @@ def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> 
     marker_end = html.index("window.initOperationalMap", marker_start)
     marker_block = html[marker_start:marker_end]
     assert "SymbolPath.CIRCLE" in marker_block
-    assert "scale:14" in marker_block
+    assert "DashboardMapVisuals.nodeVisual" in marker_block
     assert "id.endsWith('A01')" not in marker_block
     assert "id.endsWith('A02')" not in marker_block
     assert "id.endsWith('A03')" not in marker_block
@@ -203,7 +204,7 @@ def test_live_warning_region_accepts_aircraft_backend_groups() -> None:
 def test_live_map_avoids_marker_redraw_flicker() -> None:
     html = dashboard_html()
     geometry_js = (ROOT / "static" / "dashboard_node_geometry.js").read_text(encoding="utf-8")
-    assert "const PULSE_FRAME_MS = 100" in geometry_js
+    assert "const PULSE_FRAME_MS = Visuals.PULSE_INTERVAL_MS" in geometry_js
     assert "publishPulse(pulse)" not in geometry_js
     assert "entry.shape?.setOptions" not in geometry_js
     assert "now-lastPulseAt>=PULSE_FRAME_MS" in geometry_js
