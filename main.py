@@ -14852,6 +14852,7 @@ def dashboard_v2_4() -> HTMLResponse:
             experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
             simulation_enabled=DASHBOARD_SIMULATION_ENABLED,
             location_token_required=location_write_token_required(),
+            latency_diagnostics_enabled=latency_registry.enabled,
         )
     )
 
