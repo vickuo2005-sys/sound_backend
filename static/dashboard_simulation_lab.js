@@ -763,8 +763,8 @@
             const g=root.google.maps,m=this.model,used=new Set(),put=(key,Type,options)=>this.googleOverlay(key,Type,options,used),
                 replay=m.replay,replayT=replay?replayTime(replay):null,replayFrame=replay?replayFrameAtTime(replay.frames,replayT):null,
                 siteModel=replayFrame?.site||m.site,nodeModels=replayFrame?.nodes||m.nodes;
-            put('site-zone',g.Circle,{center:latLng(siteModel),radius:siteModel.radius,strokeColor:'#FBBF24',strokeOpacity:.8,strokeWeight:2,fillColor:'#FBBF24',fillOpacity:.1,clickable:false});
-            put('site-marker',g.Marker,{position:latLng(siteModel),label:{text:'據點',color:'#0B1220',fontWeight:'700'},icon:{path:g.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,strokeColor:'#0B1220',strokeWeight:2},clickable:false});
+            put('site-zone',g.Circle,{center:latLng(siteModel),radius:siteModel.radius,...Visuals.siteZoneStyle()});
+            put('site-marker',g.Marker,{position:latLng(siteModel),...Visuals.siteMarkerStyle(g)});
             const target=m.selected(),liveDetected=!replay&&target?.kind==='drone'&&!target.lost?m.reportingNodes(target):[],
                 detectedIds=new Set(replayFrame?.detectedNodeIds||liveDetected.map(n=>n.id));
             const pulse=Visuals.pulseAt(Date.now()),activeNodes=[];
