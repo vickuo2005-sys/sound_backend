@@ -2474,8 +2474,10 @@
                 if (reconnect) refreshSnapshot('reconnect');
             };
             socket.onmessage = message => {
+                const wsReceivedAt=performance.now();
                 let data; try { data = JSON.parse(message.data); } catch (_) { return; }
                 handleWebSocketMessage(data);
+                window.DashboardLatencyDiagnostics?.recordMessageHandled(data.type,wsReceivedAt);
             };
             socket.onerror = () => socket.close();
             socket.onclose = () => { state.wsConnected = false; renderCommandBar(); renderHealth(); scheduleReconnect(); };
@@ -2602,6 +2604,7 @@
         });
     </script>
     __OPERATIONS_UI_SCRIPT__
+    __LATENCY_DIAGNOSTICS_SCRIPT__
     __SIMULATION_LAB_SCRIPT__
     <script>if (dashboardSimulationEnabled && window.DashboardSimulationLab) DashboardSimulationLab.mount(document.getElementById("simulationLabRoot"));</script>
     __MAPS_SCRIPT_TAG__
