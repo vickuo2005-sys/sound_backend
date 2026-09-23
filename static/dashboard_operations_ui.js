@@ -86,7 +86,7 @@
         if(config){
             const position={lat:config.lat,lng:config.lng};
             const siteKey=JSON.stringify([position.lat,position.lng,config.name]);
-            const siteOptions={map:operationalVisible?map:null,position,title:config.name,label:'據',zIndex:35};
+            const siteOptions={map:operationalVisible?map:null,position,title:config.name,...DashboardMapVisuals.siteMarkerStyle(google.maps)};
             if(!siteMarker){
                 siteMarker=new google.maps.Marker(siteOptions);
                 siteMarker.__dashboardRenderKey=siteKey;
@@ -96,7 +96,7 @@
             }else setOverlayVisible(siteMarker,operationalVisible);
 
             const zoneKey=JSON.stringify([position.lat,position.lng,config.radius]);
-            const zoneOptions={map:operationalVisible?map:null,center:position,radius:config.radius,strokeColor:'#ef4444',strokeOpacity:.8,strokeWeight:2,fillColor:'#ef4444',fillOpacity:.09,clickable:false};
+            const zoneOptions={map:operationalVisible?map:null,center:position,radius:config.radius,...DashboardMapVisuals.siteZoneStyle()};
             if(!zoneCircle){
                 zoneCircle=new google.maps.Circle(zoneOptions);
                 zoneCircle.__dashboardRenderKey=zoneKey;
