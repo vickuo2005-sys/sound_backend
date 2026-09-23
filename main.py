@@ -1143,7 +1143,12 @@ def get_postgres_connection() -> PooledPostgresConnection:
     with _postgres_pool_lock:
         gate = _postgres_pool_gate if pool is _postgres_pool else None
 
-    if gate is None or not gate.acquire(timeout=POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS):
+    with latency_registry.measure("postgres_pool_wait"):
+        acquired = gate is not None and gate.acquire(
+            timeout=POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS
+        )
+    if not acquired:
+        latency_registry.failed("postgres_pool_wait")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database connection pool is temporarily busy",
@@ -1153,17 +1158,18 @@ def get_postgres_connection() -> PooledPostgresConnection:
         for _ in range(2):
             connection = None
             try:
-                connection = pool.getconn()
-                if getattr(connection, "closed", 0):
-                    pool.putconn(connection, close=True)
-                    connection = None
-                    continue
+                with latency_registry.measure("postgres_connection_check"):
+                    connection = pool.getconn()
+                    if getattr(connection, "closed", 0):
+                        pool.putconn(connection, close=True)
+                        connection = None
+                        continue
 
-                connection.rollback()
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
-                connection.rollback()
+                    connection.rollback()
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+                        cursor.fetchone()
+                    connection.rollback()
                 wrapped = PooledPostgresConnection(pool, connection, gate)
                 gate = None
                 return wrapped
