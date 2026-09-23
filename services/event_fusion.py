@@ -757,7 +757,7 @@ def update_group_rollup(
         """,
         tuple(params),
     )
-    update_group_region(cursor, group_id, is_postgres)
+    region = update_group_region(cursor, group_id, is_postgres)
     execute(
         cursor,
         is_postgres,
@@ -765,7 +765,7 @@ def update_group_rollup(
         (group_id,),
     )
     row = fetchone_dict(cursor) or {"id": group_id}
-    return group_payload(cursor, row, is_postgres)
+    return {**group_payload(cursor, row, is_postgres), "reporting_nodes": region.get("reporting_nodes", [])}
 
 
 def load_group_row(cursor: Any, group_id: str, is_postgres: bool) -> Optional[dict]:

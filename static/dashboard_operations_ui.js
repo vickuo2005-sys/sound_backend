@@ -5,6 +5,7 @@
     let config=null, seen=new Set(), entries=new O.Entries(), alerts=[], focused=null, noticeUntil=0;
     let targetMarker=null, siteMarker=null, zoneCircle=null;
     let historyMap=null, historyLine=null, historyMarker=null, replay=null, request=0, animation=null, currentTarget=null;
+    let historyOverlays=[],historyFrameKey=null;
     try { config=O.site(JSON.parse(localStorage.getItem('sound-dashboard-site-v1'))); } catch(_) {}
     const panel=document.createElement('article');panel.id='operationalTarget';panel.className='card';panel.hidden=true;
     document.querySelector('.overview-summary').prepend(panel);
@@ -146,21 +147,59 @@
         mapObjects(selected);
     }
     const history=document.createElement('article');history.className='card history-replay';
-    history.innerHTML='<div class="card-header"><h2>歷史軌跡動畫</h2></div><div class="card-body"><p id="historyReplayStatus" role="status">選擇左側事件或軌跡，自動開始回放。</p><div id="historyMap" role="application" aria-label="歷史軌跡地圖"></div><div id="historyFallback" role="img" aria-label="歷史軌跡相對座標圖"></div><div class="history-controls"><button id="historyPlay" class="action-button" disabled>播放</button><button id="historyRestart" class="action-button" disabled>重播</button><label>倍速<select id="historySpeed"><option value="1">1×</option><option value="4">4×</option><option value="8" selected>8×</option><option value="16">16×</option></select></label><input id="historySeek" type="range" min="0" max="1" step="0.001" value="0" aria-label="歷史回放時間軸" disabled></div><p id="historyTime"></p><p>僅重現已儲存定位點，連線表示觀測順序，不代表兩點之間已知的飛行路線。</p></div>';
+    history.innerHTML='<div class="card-header"><h2>歷史事件回放</h2></div><div class="card-body"><p id="historyReplayStatus" role="status">選擇左側事件或軌跡，自動開始回放。</p><div id="historyMap" role="application" aria-label="歷史軌跡地圖"></div><div id="historyFallback" role="img" aria-label="歷史軌跡相對座標圖"></div><div class="history-controls"><button id="historyPlay" class="action-button" disabled>播放</button><button id="historyRestart" class="action-button" disabled>重播</button><button id="historyPrevious" class="action-button" disabled>上一筆</button><button id="historyNext" class="action-button" disabled>下一筆</button><label>倍速<select id="historySpeed"><option value="1">1×</option><option value="4">4×</option><option value="8" selected>8×</option><option value="16">16×</option></select></label><label><input id="historySmooth" type="checkbox" checked>平滑過場（示意）</label><input id="historySeek" type="range" min="0" max="1" step="0.001" value="0" aria-label="歷史回放時間軸" disabled></div><p id="historyTime"></p><p id="historyContext" role="status"></p><p>● 參與節點　◎ 區域估測中心　◆ 目標定位估測。橘色範圍為當時快照；灰色虛線為目前位置參照，非歷史範圍。警戒圈使用目前據點設定，非當時警戒紀錄。平滑過場與點間連線僅輔助閱讀，不代表已知飛行路徑。</p></div>';
     const grid=document.querySelector('#view-tracks .intelligence-grid');
     const list=document.createElement('div');list.className='history-selection';
     while(grid.firstChild)list.append(grid.firstChild);grid.append(list,history);
     function pause(){if(replay)replay.playing=false;cancelAnimationFrame(animation);animation=null;el('historyPlay').textContent='播放';}
-    function clear(){pause();request++;replay=null;if(historyMarker)historyMarker.setMap(null);if(historyLine)historyLine.setMap(null);historyMarker=null;historyLine=null;el('historyFallback').innerHTML='';['historyPlay','historyRestart','historySeek'].forEach(id=>el(id).disabled=true);el('historySeek').value=0;el('historyTime').textContent='';el('historyReplayStatus').textContent='選擇左側事件或軌跡，自動開始回放。';}
+    function clearHistoryOverlays(){historyOverlays.forEach(o=>o.setMap(null));historyOverlays=[];historyFrameKey=null;}
+    function clear(){pause();request++;replay=null;clearHistoryOverlays();if(historyMarker)historyMarker.setMap(null);if(historyLine)historyLine.setMap(null);historyMarker=null;historyLine=null;el('historyFallback').innerHTML='';['historyPlay','historyRestart','historySeek','historyPrevious','historyNext'].forEach(id=>el(id).disabled=true);el('historySeek').value=0;el('historyTime').textContent='';el('historyContext').textContent='';el('historyReplayStatus').textContent='選擇左側事件或軌跡，自動開始回放。';}
+    function contextPath(context){
+        return context.historicalRegion?context.regionPath:DashboardNodeGeometry.convexHull(context.nodes.filter(n=>n.position).map(n=>n.position));
+    }
+    function drawHistoryContext(context,index){
+        if(historyFrameKey===index)return;
+        clearHistoryOverlays();historyFrameKey=index;
+        const api=google.maps,add=o=>historyOverlays.push(o),shape=contextPath(context);
+        context.nodes.filter(n=>n.position).forEach(n=>add(new api.Marker({map:historyMap,position:n.position,
+            label:{text:shortNodeId(n.id),color:'#fff',fontSize:'11px'},title:`${n.id} · ${n.historical?'當時參與節點':'目前位置參照（非歷史）'}`,
+            icon:{path:api.SymbolPath.CIRCLE,scale:15,fillColor:n.historical?'#f97316':'#64748b',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}})));
+        if(shape.length>=2){
+            const historical=context.historicalRegion || context.nodes.every(n=>n.historical);
+            const path=shape.length>=3?[...shape,shape[0]]:shape;
+            if(historical && shape.length>=3)add(new api.Polygon({map:historyMap,paths:shape,...DashboardMapVisuals.regionStyle('polygon')}));
+            else add(new api.Polyline({map:historyMap,path,strokeColor:historical?'#f97316':'#94a3b8',strokeWeight:3,strokeOpacity:historical?1:0,
+                ...(historical?{}:{icons:[{icon:{path:'M 0,-1 0,1',strokeOpacity:1,scale:3},offset:'0',repeat:'12px'}]})}));
+        }
+        if(replay.site){
+            add(new api.Marker({map:historyMap,position:replay.site,label:'據',title:`${replay.site.name}（目前設定）`}));
+            add(new api.Circle({map:historyMap,center:replay.site,radius:replay.site.radius,strokeColor:'#ef4444',strokeWeight:2,fillColor:'#ef4444',fillOpacity:.04}));
+        }
+    }
     function draw() {
         if(!replay)return;
-        const f=O.frame(replay.points,replay.progress);el('historySeek').value=replay.progress;
-        el('historyTime').textContent=`${f.index+1} / ${replay.points.length} 個定位點；${f.timed?new Date(f.point.time).toLocaleString('zh-TW'):'缺少完整時間，以觀測順序回放'}`;
-        if(historyMap){historyLine.setPath(f.path);historyMarker.setPosition(f.point);}
+        const f=O.frame(replay.points,replay.progress,el('historySmooth').checked),context=O.replayContext(f.point,replay.nodes);el('historySeek').value=replay.progress;
+        el('historyTime').textContent=`${f.index+1} / ${replay.points.length} 筆觀測 · ${f.timed?new Date(f.time).toLocaleString('zh-TW'):'缺少完整時間，以觀測順序回放'}${f.interpolated?' · 平滑過場（示意）':''}`;
+        el('historyContext').textContent=`${context.label} · 參與節點：${context.nodes.map(n=>shortNodeId(n.id)).join('、')||'未記錄'}。${context.nodes.some(n=>!n.historical)?'缺少當時座標，灰色節點／虛線僅參照目前設定。':''}${context.missingNodes?`${context.missingNodes} 個節點缺少座標，無法繪製。`:''}${!replay.site?'尚未設定據點，未顯示警戒圈。':''}`;
+        el('historyPrevious').disabled=f.index===0;el('historyNext').disabled=f.index>=replay.points.length-1;
+        const displayPath=f.interpolated?[...f.path,f.displayPoint]:f.path;
+        if(historyMap){
+            historyLine.setPath(displayPath);historyMarker.setPosition(f.displayPoint);
+            historyMarker.setTitle(context.label+(f.interpolated?'（過場示意）':''));
+            historyMarker.setIcon({path:context.kind==='location'?'M 0,-9 9,0 0,9 -9,0 z':google.maps.SymbolPath.CIRCLE,
+                scale:context.kind==='location'?1:9,fillColor:context.kind==='region'?'#60a5fa':'#fbbf24',fillOpacity:.9,strokeColor:'#fff',strokeWeight:2});
+            drawHistoryContext(context,f.index);
+        }
         else {
-            const all=replay.points,lats=all.map(p=>p.lat),lngs=all.map(p=>p.lng),loLat=Math.min(...lats),loLng=Math.min(...lngs),spanLat=Math.max(...lats)-loLat||.001,spanLng=Math.max(...lngs)-loLng||.001;
-            const xy=p=>[30+(p.lng-loLng)/spanLng*540,290-(p.lat-loLat)/spanLat*260];const pos=xy(f.point);
-            el('historyFallback').innerHTML=`<p>相對座標圖（非地理底圖）</p><svg viewBox="0 0 600 320" aria-label="歷史觀測軌跡"><polyline points="${f.path.map(p=>xy(p).join(',')).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="3"/><g transform="translate(${pos[0]-15} ${pos[1]-15}) scale(0.394737)">${droneSvg().replace(/<svg[^>]*>|<\/svg>/g,'')}</g></svg>`;
+            const all=replay.extent,lats=all.map(p=>p.lat),lngs=all.map(p=>p.lng),loLat=Math.min(...lats),loLng=Math.min(...lngs),spanLat=Math.max(...lats)-loLat||.001,spanLng=Math.max(...lngs)-loLng||.001;
+            const xy=p=>[45+(p.lng-loLng)/spanLng*510,275-(p.lat-loLat)/spanLat*230],pos=xy(f.displayPoint),shape=contextPath(context);
+            const historical=context.historicalRegion || context.nodes.every(n=>n.historical);
+            const region=shape.length>=2?`<polyline points="${(shape.length>=3?[...shape,shape[0]]:shape).map(p=>xy(p).join(',')).join(' ')}" fill="none" stroke="${historical?'#f97316':'#94a3b8'}" stroke-width="3" ${historical?'':'stroke-dasharray="6 5"'}/>`:'';
+            const nodes=context.nodes.filter(n=>n.position).map(n=>{const p=xy(n.position);return `<circle cx="${p[0]}" cy="${p[1]}" r="7" fill="${n.historical?'#f97316':'#64748b'}"/><text x="${p[0]+9}" y="${p[1]-9}" fill="currentColor">${safe(shortNodeId(n.id))}</text>`;}).join('');
+            const s=replay.site,sitePos=s?xy(s):null;
+            const siteSvg=s?`<ellipse cx="${sitePos[0]}" cy="${sitePos[1]}" rx="${s.radius/(111320*Math.max(.01,Math.cos(s.lat*Math.PI/180)))/spanLng*510}" ry="${s.radius/111320/spanLat*230}" fill="none" stroke="#ef4444"/><text x="${sitePos[0]}" y="${sitePos[1]}" fill="currentColor">據（目前）</text>`:'';
+            const marker=context.kind==='location'?`<path d="M ${pos[0]},${pos[1]-9} l 9,9 -9,9 -9,-9 z" fill="#fbbf24"/>`:`<circle cx="${pos[0]}" cy="${pos[1]}" r="9" fill="${context.kind==='region'?'#60a5fa':'#fbbf24'}"/>`;
+            el('historyFallback').innerHTML=`<p>相對座標圖（非地理底圖）</p><svg viewBox="0 0 600 320" aria-label="歷史事件回放">${siteSvg}${region}${nodes}<polyline points="${displayPath.map(p=>xy(p).join(',')).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="3"/>${marker}</svg>`;
         }
     }
     function play(){if(!replay)return;if(replay.progress>=1)replay.progress=0;pause();replay.playing=true;el('historyPlay').textContent='暫停';let last=performance.now();
@@ -173,16 +212,19 @@
             if(token!==request)return;
             if(!Array.isArray(payload.points))throw new Error('missing points');
             const path=O.points({points:payload.points});
-            if(path.length<2){el('historyReplayStatus').textContent='此事件尚無足夠定位點，無法產生歷史軌跡動畫。';return;}
-            replay={points:path,progress:0,duration:path.every(p=>p.time!==null)&&path.at(-1).time>path[0].time?path.at(-1).time-path[0].time:Math.max(4000,path.length*1000),playing:false};
+            if(!path.length){el('historyReplayStatus').textContent='此軌跡沒有可顯示的有效觀測。';return;}
+            const nodes=canonicalDevices().map(n=>({device_id:n.device_id,...nodeLocation(n)}));
+            const extent=path.flatMap(p=>{const c=O.replayContext(p,nodes);return [p,...c.nodes.filter(n=>n.position).map(n=>n.position),...c.regionPath];});
+            if(config)extent.push(config);
+            replay={points:path,nodes,extent,site:config?{...config}:null,progress:0,duration:path.every(p=>p.time!==null)&&path.at(-1).time>path[0].time?path.at(-1).time-path[0].time:Math.max(4000,path.length*1000),playing:false};
             if(window.google?.maps && !mapsLoadFailed){
                 if(!historyMap)historyMap=new google.maps.Map(el('historyMap'),{center:path[0],zoom:16,mapTypeControl:false,streetViewControl:false});
                 el('historyMap').hidden=false;el('historyFallback').hidden=true;
-                const bounds=new google.maps.LatLngBounds();path.forEach(p=>bounds.extend(p));google.maps.event.trigger(historyMap,'resize');historyMap.fitBounds(bounds,40);
-                historyLine=new google.maps.Polyline({map:historyMap,path:[],strokeColor:'#f59e0b',strokeWeight:4});historyMarker=new google.maps.Marker({map:historyMap,position:path[0],icon:droneMapIcon('#f59e0b'),title:'歷史無人機定位點'});
+                const bounds=new google.maps.LatLngBounds();extent.forEach(p=>bounds.extend(p));google.maps.event.trigger(historyMap,'resize');historyMap.fitBounds(bounds,40);
+                historyLine=new google.maps.Polyline({map:historyMap,path:[],strokeColor:'#f59e0b',strokeWeight:4});historyMarker=new google.maps.Marker({map:historyMap,position:path[0],title:'歷史觀測點'});
             }else{historyMap=null;el('historyMap').hidden=true;el('historyFallback').hidden=false;}
-            el('historyReplayStatus').textContent=`軌跡 ${id}；${payload.points.length>=500?'最多顯示前 500 點，可能未含完整軌跡。':'已載入儲存的定位點。'}`;
-            ['historyPlay','historyRestart','historySeek'].forEach(key=>el(key).disabled=false);draw();play();
+            el('historyReplayStatus').textContent=`軌跡 ${id}；${payload.points.length>=500?'最多顯示前 500 點，可能未含完整軌跡。':path.length===1?'僅一筆觀測，顯示事件背景。':'已載入事件背景與觀測時間軸。'}`;
+            ['historyPlay','historyRestart','historySeek'].forEach(key=>el(key).disabled=path.length<2);draw();if(path.length>1)play();
         }catch(_){if(token===request)el('historyReplayStatus').textContent='讀取軌跡失敗，請重新選取重試。';}
     }
     async function group(id){
@@ -198,6 +240,11 @@
     }
     el('historyPlay').onclick=()=>replay?.playing?pause():play();el('historyRestart').onclick=()=>{if(replay){replay.progress=0;play();}};
     el('historySeek').oninput=e=>{pause();if(replay){replay.progress=Number(e.target.value);draw();}};
+    function step(direction){
+        if(!replay)return;pause();const f=O.frame(replay.points,replay.progress),i=Math.max(0,Math.min(replay.points.length-1,f.index+direction));
+        replay.progress=f.timed?(replay.points[i].time-replay.points[0].time)/(replay.points.at(-1).time-replay.points[0].time):i/Math.max(1,replay.points.length-1);draw();
+    }
+    el('historyPrevious').onclick=()=>step(-1);el('historyNext').onclick=()=>step(1);el('historySmooth').onchange=draw;
     document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
     window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},site:()=>config,target:()=>currentTarget};
 })();

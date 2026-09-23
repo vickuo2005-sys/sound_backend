@@ -4314,6 +4314,8 @@ def process_tracking_for_event_group_region(
         or "multi_node_region",
         "reporting_node_count": node_count,
         "reporting_device_ids": event_group.get("reporting_device_ids"),
+        "reporting_nodes": event_group.get("reporting_nodes"),
+        "region_geojson": event_group.get("region_geojson"),
     }
     if post_ingest_reorder:
         return process_post_ingest_tracking_measurement(measurement)
@@ -4420,6 +4422,7 @@ def build_active_alert_region_measurement(
         or "multi_node_region",
         "reporting_node_count": node_count,
         "reporting_device_ids": region.get("reporting_device_ids"),
+        "reporting_nodes": region.get("reporting_nodes"),
         "region_geojson": region.get("region_geojson"),
     }
 
@@ -4454,6 +4457,8 @@ def tracking_point_diagnostics(measurement: dict) -> dict:
         "localization_method": measurement.get("localization_method"),
         "reporting_node_count": measurement.get("reporting_node_count"),
         "reporting_device_ids": measurement.get("reporting_device_ids"),
+        "reporting_nodes": measurement.get("reporting_nodes"),
+        "region_geojson": measurement.get("region_geojson"),
         "tracking_discard_reason": measurement.get("tracking_discard_reason"),
         "observation_id": measurement.get("observation_id"),
         "sequence": measurement.get("sequence"),
