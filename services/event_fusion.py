@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from services.device_location_service import location_map, resolve_effective_location
 from services.region_localization import REGION_METHOD, estimate_region
+from services.latency_diagnostics import registry as latency_registry
 
 
 ACTIVE_STATUS = "ACTIVE"
@@ -306,10 +307,11 @@ def open_cursor(connection: Any):
 def lock_fusion_label(cursor: Any, label: str, is_postgres: bool) -> None:
     if not is_postgres:
         return
-    cursor.execute(
-        "SELECT pg_advisory_xact_lock(hashtext(%s))",
-        (f"event_fusion:{label}",),
-    )
+    with latency_registry.measure("fusion_db_lock_wait"):
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (f"event_fusion:{label}",),
+        )
 
 
 def close_stale_groups(
