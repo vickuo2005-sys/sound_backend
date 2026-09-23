@@ -64,15 +64,42 @@
             return status==='inside' && old?.status!=='inside';
         }
     }
-    function frame(path,fraction) {
+    function replayContext(point,referenceNodes=[]) {
+        let d=point?.diagnostics_json || {};
+        if(typeof d==='string'){try{d=JSON.parse(d);}catch(_){d={};}}
+        d=d && typeof d==='object'?d:{};
+        const region=['event_group_region','active_alert_region'].includes(d.source) || d.localization_method==='multi_node_region';
+        const located=d.source==='localization_result' && ['tdoa','gcc_phat','timestamp_tdoa','hybrid_tdoa','gcc_phat_tdoa'].includes(d.localization_method);
+        const saved=Array.isArray(d.reporting_nodes)?d.reporting_nodes:[];
+        const ids=[...new Set((Array.isArray(d.reporting_device_ids)?d.reporting_device_ids:saved.map(n=>n.device_id)).filter(Boolean).map(String))];
+        const nodes=ids.map(id=>{
+            const historical=saved.find(n=>String(n.device_id)===id);
+            const position=coordinate(historical?.lat,historical?.lng);
+            const reference=referenceNodes.find(n=>String(n.device_id)===id);
+            const fallback=coordinate(reference?.lat,reference?.lng);
+            return {id,position:position || fallback,historical:Boolean(position)};
+        });
+        const geometry=d.region_geojson;
+        const coords=geometry?.type==='Polygon'?geometry.coordinates?.[0]:geometry?.type==='LineString'?geometry.coordinates:[];
+        const regionPath=Array.isArray(coords)?coords.map(c=>Array.isArray(c)?coordinate(c[1],c[0]):null).filter(Boolean):[];
+        return {kind:region?'region':located?'location':'observation',
+            label:region?'區域估測中心':located?'目標定位估測':'歷史觀測點',nodes,regionPath,
+            historicalRegion:regionPath.length>=2,missingNodes:nodes.filter(n=>!n.position).length};
+    }
+    function frame(path,fraction,interpolate=false) {
         if(!path.length) return {index:0,path:[],point:null};
         const f=Math.max(0,Math.min(1,fraction)),first=path[0].time,last=path.at(-1).time;
         const timed=path.every(p=>p.time!==null) && last>first;
         const t=timed ? first+(last-first)*f : null;
         let i=timed ? path.findLastIndex(p=>p.time<=t) : Math.floor(f*(path.length-1));
         i=Math.max(0,i);
-        return {index:i,path:path.slice(0,i+1),point:path[i],time:t,timed};
+        const point=path[i],next=path[i+1];
+        const blend=timed && next && next.time>point.time ? (t-point.time)/(next.time-point.time) : 0;
+        const moving=Boolean(interpolate && blend>0 && blend<1);
+        const displayPoint=moving?{lat:point.lat+(next.lat-point.lat)*blend,
+            lng:((point.lng+((next.lng-point.lng+540)%360-180)*blend+540)%360)-180}:point;
+        return {index:i,path:path.slice(0,i+1),point,displayPoint,interpolated:moving,time:t,timed};
     }
-    const api={points,site,coordinate,assess,entry,Entries,frame,time};
+    const api={points,site,coordinate,assess,entry,Entries,frame,time,replayContext};
     if(typeof module==='object' && module.exports) module.exports=api;else root.DashboardOperations=api;
 })(typeof globalThis==='object'?globalThis:this);
