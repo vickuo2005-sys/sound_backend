@@ -44,6 +44,24 @@
             zIndex:28
         };
     }
+    // One source of truth for the fixed-site marker and protected radius
+    // across Simulation Lab and the live operational Google map.
+    function siteMarkerStyle(maps){
+        if(!maps?.SymbolPath?.CIRCLE)throw new Error('Google Maps SymbolPath.CIRCLE is required');
+        return {
+            label:{text:'據點',color:'#0B1220',fontWeight:'700'},
+            icon:{path:maps.SymbolPath.CIRCLE,scale:16,fillColor:'#5EEAD4',fillOpacity:1,
+                strokeColor:'#0B1220',strokeWeight:2},
+            clickable:false,
+            zIndex:35
+        };
+    }
+    function siteZoneStyle(){
+        return {
+            strokeColor:'#FBBF24',strokeOpacity:.8,strokeWeight:2,
+            fillColor:'#FBBF24',fillOpacity:.1,clickable:false
+        };
+    }
     function regionStyle(kind){
         if(kind==='line')return {
             strokeColor:COLORS.active,
@@ -89,7 +107,7 @@
 
     const api=Object.freeze({
         DRONE_PATH,NODE_PATH,COLORS,MOTION_DURATION_MS,PULSE_INTERVAL_MS,
-        pulseAt,nodeVisual,pulseRingStyle,regionStyle,smoothStep,headingDelta,sampleMotion
+        pulseAt,nodeVisual,pulseRingStyle,regionStyle,siteMarkerStyle,siteZoneStyle,smoothStep,headingDelta,sampleMotion
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
     else root.DashboardMapVisuals=api;
