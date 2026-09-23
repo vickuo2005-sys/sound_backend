@@ -50,6 +50,7 @@ from services.dashboard_payloads import (
     serialize_track_for_dashboard,
 )
 from services.dashboard_v2_4 import render_dashboard_v2_4
+from services.latency_diagnostics import registry as latency_registry
 from services.device_location_service import (
     DeviceLocationValidationError,
     location_map,
@@ -430,8 +431,19 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
             latency_trace = dict(message.get("latency_trace") or {})
             latency_trace["ws_sent_at"] = utc_wall_time_ms()
             message["latency_trace"] = latency_trace
-        await dashboard_manager.broadcast(message)
+        stage = {
+            "event_group": "ws_event_group",
+            "track_update": "ws_track_update",
+            "localization_result": "ws_localization_result",
+        }.get(message.get("type"))
+        if stage:
+            with latency_registry.measure(stage):
+                await dashboard_manager.broadcast(message)
+        else:
+            await dashboard_manager.broadcast(message)
     except Exception:
+        if message.get("type") in ("event_group", "track_update", "localization_result"):
+            latency_registry.failed("ws_" + str(message["type"]))
         logger.exception(
             "Dashboard broadcast failed context=%s type=%s",
             context,
@@ -3860,32 +3872,36 @@ def process_event_group_localization(
 ) -> Optional[dict]:
     if not LOCALIZATION_ENABLED:
         return None
-    group = get_event_fusion_group(group_id)
+    with latency_registry.measure("localization_group_load"):
+        group = get_event_fusion_group(group_id)
     if not group:
         return None
     observations = group.get("observations") or []
     if not observations:
         return None
 
-    result = localize_observations(
-        observations,
-        clip_loader=load_tdoa_clip_bytes_for_observation if GCC_PHAT_ENABLED else None,
-        gcc_enabled=GCC_PHAT_ENABLED,
-        sound_speed_mps=SOUND_SPEED_MPS,
-        max_rtt_ms=TDOA_MAX_RTT_MS,
-        max_sync_age_ms=TDOA_MAX_SYNC_AGE_SECONDS * 1000.0,
-        min_correlation_score=GCC_MIN_CORRELATION_SCORE,
-    )
-    result["label"] = group.get("label") or group.get("group_label")
-    saved = save_localization_result(group, result)
-    track = (
-        process_tracking_for_localization(
-            saved,
-            post_ingest_reorder=post_ingest_reorder,
+    with latency_registry.measure("localization_compute"):
+        result = localize_observations(
+            observations,
+            clip_loader=load_tdoa_clip_bytes_for_observation if GCC_PHAT_ENABLED else None,
+            gcc_enabled=GCC_PHAT_ENABLED,
+            sound_speed_mps=SOUND_SPEED_MPS,
+            max_rtt_ms=TDOA_MAX_RTT_MS,
+            max_sync_age_ms=TDOA_MAX_SYNC_AGE_SECONDS * 1000.0,
+            min_correlation_score=GCC_MIN_CORRELATION_SCORE,
         )
-        if TRACKING_ENABLED
-        else None
-    )
+    result["label"] = group.get("label") or group.get("group_label")
+    with latency_registry.measure("localization_save"):
+        saved = save_localization_result(group, result)
+    with latency_registry.measure("localization_tracking"):
+        track = (
+            process_tracking_for_localization(
+                saved,
+                post_ingest_reorder=post_ingest_reorder,
+            )
+            if TRACKING_ENABLED
+            else None
+        )
     return {"localization": saved, "track": track}
 
 
@@ -9335,18 +9351,22 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     localization_package = None
 
     try:
-        event_group = process_event_fusion_for_event(event_id)
+        with latency_registry.measure("fusion"):
+            event_group = process_event_fusion_for_event(event_id)
     except Exception:
+        latency_registry.failed("fusion")
         logger.exception("Event fusion failed for event_id=%s", event_id)
 
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
         try:
-            region_track = process_tracking_for_event_group_region(
-                event_group,
-                post_ingest_reorder=True,
-            )
+            with latency_registry.measure("region_tracking"):
+                region_track = process_tracking_for_event_group_region(
+                    event_group,
+                    post_ingest_reorder=True,
+                )
         except Exception:
+            latency_registry.failed("region_tracking")
             logger.exception(
                 "Region tracking failed for event_group=%s",
                 event_group.get("id"),
@@ -9354,20 +9374,24 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 
     if is_alert and not is_existing_event and region_track is None:
         try:
-            active_alert_track = process_tracking_for_active_alert_region(
-                event_id,
-                post_ingest_reorder=True,
-            )
+            with latency_registry.measure("active_alert_tracking"):
+                active_alert_track = process_tracking_for_active_alert_region(
+                    event_id,
+                    post_ingest_reorder=True,
+                )
         except Exception:
+            latency_registry.failed("active_alert_tracking")
             logger.exception("Active alert region tracking failed for event_id=%s", event_id)
 
     if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
         try:
-            localization_package = process_event_group_localization(
-                event_group["id"],
-                post_ingest_reorder=True,
-            )
+            with latency_registry.measure("localization_total"):
+                localization_package = process_event_group_localization(
+                    event_group["id"],
+                    post_ingest_reorder=True,
+                )
         except Exception:
+            latency_registry.failed("localization_total")
             logger.exception(
                 "Localization failed for event_group=%s",
                 event_group.get("id"),
@@ -9384,6 +9408,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 
 
 async def broadcast_event_post_ingest_result(result: dict) -> None:
+    broadcast_started = monotonic()
     event_group = result.get("event_group")
     region_track = result.get("region_track")
     active_alert_track = result.get("active_alert_track")
@@ -9431,6 +9456,10 @@ async def broadcast_event_post_ingest_result(result: dict) -> None:
                 },
                 "localization_track",
             )
+    latency_registry.record("broadcast_total", (monotonic() - broadcast_started) * 1000.0)
+    queued_at = result.get("_latency_queued_at")
+    if queued_at is not None:
+        latency_registry.record("queued_to_broadcast", (monotonic() - queued_at) * 1000.0)
 
 
 async def broadcast_device_status_update(row: Optional[dict]) -> None:
@@ -9490,13 +9519,23 @@ def run_event_post_ingest_worker(
     event_id: str,
     label: Optional[str],
     is_existing_event: bool,
+    queued_at: Optional[float] = None,
 ) -> None:
+    if queued_at is not None:
+        latency_registry.started(queued_at)
     try:
-        result = process_event_post_ingest(event_id, label, is_existing_event)
+        with latency_registry.measure("post_ingest_total"):
+            result = process_event_post_ingest(event_id, label, is_existing_event)
     except Exception:
+        latency_registry.failed("post_ingest_total")
         logger.exception("Event post-ingest failed for event_id=%s", event_id)
         return
+    finally:
+        if queued_at is not None:
+            latency_registry.finished()
 
+    if queued_at is not None:
+        result["_latency_queued_at"] = queued_at
     try:
         loop.call_soon_threadsafe(
             lambda: asyncio.create_task(broadcast_event_post_ingest_result(result))
@@ -9513,6 +9552,7 @@ def schedule_event_post_ingest(
     global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
     tracking_reorder_event_loop = loop
+    queued_at = latency_registry.enqueued()
     try:
         post_ingest_executor.submit(
             run_event_post_ingest_worker,
@@ -9520,8 +9560,10 @@ def schedule_event_post_ingest(
             event_id,
             label,
             is_existing_event,
+            queued_at,
         )
     except Exception:
+        latency_registry.cancelled()
         logger.exception("Failed to schedule event post-ingest for event_id=%s", event_id)
 
 
@@ -9596,6 +9638,7 @@ async def runtime_status():
             if node.get("device_id") and not is_diagnostic_device_id(node.get("device_id"))
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
+        "latency_diagnostics_enabled": latency_registry.enabled,
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
@@ -9644,6 +9687,15 @@ async def runtime_status():
         "upload_token_configured": bool(os.getenv("UPLOAD_TOKEN")),
         "diagnostic_device_filter": DIAGNOSTIC_DEVICE_ID_PATTERN.pattern,
     }
+
+
+@app.get("/diagnostics/latency")
+def latency_diagnostics_endpoint(response: Response):
+    """Staging-only, flag-gated aggregate timings; never includes per-event data."""
+    if not latency_registry.enabled:
+        raise HTTPException(status_code=404, detail="Latency diagnostics disabled")
+    response.headers["Cache-Control"] = "no-store"
+    return {"status": "success", **latency_registry.snapshot()}
 
 
 @app.get("/database-status")
@@ -10100,6 +10152,9 @@ async def create_event(
     ingest_duration_ms = (monotonic() - request_started_monotonic) * 1000.0
     db_duration_ms = float(result.get("db_duration_ms") or 0.0)
     fixed_location_duration_ms = float(result.get("fixed_location_duration_ms") or 0.0)
+    latency_registry.record("ingest_total", ingest_duration_ms)
+    latency_registry.record("event_db", db_duration_ms)
+    latency_registry.record("fixed_location", fixed_location_duration_ms)
     server_non_db_duration_ms = max(0.0, ingest_duration_ms - db_duration_ms)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
         response.headers["Server-Timing"] = (
