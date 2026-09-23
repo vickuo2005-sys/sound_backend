@@ -3,6 +3,8 @@ import json
 import math
 from typing import Any, Optional
 
+from services.latency_diagnostics import registry as latency_registry
+
 from .geo import (
     convex_hull_area_m2,
     haversine_m,
@@ -323,15 +325,16 @@ def estimate_timestamp_tdoa(
             [max_x, max_y, min_emission_s / 2.0],
             [min_x, max_y, min_emission_s / 2.0],
         ]
-        candidates = [
-            least_squares(
-                residuals,
-                start,
-                bounds=([min_x, min_y, min_emission_s], [max_x, max_y, 0.0]),
-                loss="soft_l1",
-            )
-            for start in starts
-        ]
+        with latency_registry.measure("tdoa_solver"):
+            candidates = [
+                least_squares(
+                    residuals,
+                    start,
+                    bounds=([min_x, min_y, min_emission_s], [max_x, max_y, 0.0]),
+                    loss="soft_l1",
+                )
+                for start in starts
+            ]
         result = min(candidates, key=lambda item: float(getattr(item, "cost", float("inf"))))
     except Exception as exc:
         return fallback_result(
