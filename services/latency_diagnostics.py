@@ -18,6 +18,7 @@ from typing import Iterator
 
 STAGES = (
     "ingest_total", "event_db", "fixed_location",
+    "postgres_pool_wait", "postgres_connection_check", "fusion_db_lock_wait",
     "queue_wait", "fusion", "region_tracking", "active_alert_tracking",
     "localization_group_load", "localization_compute", "tdoa_solver",
     "localization_save", "localization_tracking", "localization_total",
