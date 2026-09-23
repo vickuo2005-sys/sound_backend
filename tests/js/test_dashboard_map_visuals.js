@@ -41,3 +41,16 @@ assert(mid.heading<15||mid.heading>345,'heading should interpolate through 0 deg
 assert.equal(V.sampleMotion(motion,1000).done,true);
 
 console.log('shared dashboard map visuals passed');
+
+
+const maps={SymbolPath:{CIRCLE:'circle'}};
+const siteMarker=V.siteMarkerStyle(maps);
+const siteZone=V.siteZoneStyle();
+assert.equal(siteMarker.icon.path,'circle');
+assert.equal(siteMarker.icon.scale,16);
+assert.equal(siteMarker.icon.fillColor,'#5EEAD4');
+assert.equal(siteMarker.icon.strokeColor,'#0B1220');
+assert.equal(siteMarker.label.text,'據點');
+assert.equal(siteZone.strokeColor,'#FBBF24');
+assert.equal(siteZone.fillColor,'#FBBF24');
+assert.equal(siteZone.fillOpacity,.1);
