@@ -28,6 +28,7 @@ def render_dashboard_v2_4(
     experimental_motion_enabled: bool,
     simulation_enabled: bool = False,
     location_token_required: bool = True,
+    latency_diagnostics_enabled: bool = False,
 ) -> str:
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
     maps_script_tag = ""
@@ -116,6 +117,7 @@ def render_dashboard_v2_4(
         .replace("__SIMULATION_LAB_SCRIPT__", ("<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_eta.js").read_text(encoding="utf-8") + "</script><script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_tracker.js").read_text(encoding="utf-8") + "</script><script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.js").read_text(encoding="utf-8") + "</script>") if simulation_enabled else "")
         .replace("__OPERATIONS_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations.js").read_text(encoding="utf-8") + "</script>")
         .replace("__OPERATIONS_UI_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations_ui.js").read_text(encoding="utf-8") + "</script>")
+        .replace("__LATENCY_DIAGNOSTICS_SCRIPT__", ("<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_latency_diagnostics.js").read_text(encoding="utf-8") + "</script>") if latency_diagnostics_enabled else "")
         .replace("__AUDIO_EVIDENCE_SCRIPT__", "<script>" + AUDIO_EVIDENCE_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__EVENT_CONTEXT_SCRIPT__", "<script>" + EVENT_CONTEXT_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__LOCATION_TOKEN_REQUIRED__", "true" if location_token_required else "false")
