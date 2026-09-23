@@ -33,6 +33,10 @@ services:
         value: "true"
       - key: POST_INFERENCE_LATENCY_TRACING_ENABLED
         value: "true"
+      - key: LATENCY_DIAGNOSTICS_ENABLED
+        value: "true"
+      - key: LATENCY_DIAGNOSTICS_CAPACITY
+        value: "512"
       - key: DASHBOARD_EVENT_ORDER_GUARD_ENABLED
         value: "true"
       - key: DASHBOARD_SIMULATION_ENABLED
