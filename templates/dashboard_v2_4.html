@@ -783,6 +783,7 @@
         <section id="view-system" class="view" aria-labelledby="systemTitle"><div class="page-heading"><div><h1 id="systemTitle" class="page-title">系統狀態</h1><p class="page-description">連線、裝置與進階診斷</p></div></div><div class="system-grid"><article class="card metric-card"><div class="metric-top"><span>AI 狀態</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">尚無回報</div></article><article class="card metric-card"><div class="metric-top"><span>上傳佇列</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">節點未回報佇列數量</div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">節點摘要</h2><span id="nodeCountBadge" class="badge legacy">0 台已回報</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">服務與資料來源</h2></div><div class="card-body"><div id="healthList" class="health-list"></div></div></article>
+            <article class="card rail-card"><div class="card-header"><div><h2 class="card-title">Latency Diagnostics</h2><p class="muted" style="font-size:11px;margin-top:4px">最近 rolling samples；部署或重啟後歸零</p></div><span class="badge legacy">P50 / P95 / P99</span></div><div class="card-body"><div id="latencyDiagnosticsList" class="health-list"><div class="muted">尚無樣本</div></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">功能驗證範圍</h2></div><div class="card-body muted" style="font-size:11px">Classification：真機 transport 已驗證<br>Queue：僅顯示 node-reported 狀態<br>Motion：未完成多節點實地驗證<br>Prediction / ETA：僅模擬，未完成實地驗證</div></article>
         </div></section>
         </main>
@@ -859,7 +860,8 @@
             wsEverConnected: false, lastUpdate: null, latestDetectionOrder: -Infinity,
             selectedEventId: null, selectedNodeId: 'node_A01', selectedGroupId: null, selectedTrackId: null,
             commands: new Map(), confirmAction: null, locationEditDeviceId: null, locationBusy: false, locationClearArmed: false,
-            targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all'
+            targetFilter: 'all', classFilter: 'all', nodeFilter: 'all', timeFilter: 'all',
+            browserMessageLatencySamples: []
         };
         const nodeAlertRenderer = DashboardNodeGeometry.createRenderer();
         let map = null;
@@ -2020,12 +2022,55 @@
         }
 
         function healthRow(label, stateText, kind) { return `<div class="health-row"><span>${safe(label)}</span><span class="health-state"><span class="status-symbol ${kind}">${kind === 'ok' ? '●' : (kind === 'error' ? '!' : '○')}</span>${safe(stateText)}</span></div>`; }
+        function browserLatencyPercentile(percentile=.95) {
+            const values=state.browserMessageLatencySamples.slice().sort((a,b)=>a-b);
+            if(!values.length)return null;
+            const index=Math.min(values.length-1,Math.max(0,Math.ceil(values.length*percentile)-1));
+            return values[index];
+        }
+        function recordBrowserMessageLatency(value) {
+            if(!Number.isFinite(value)||value<0)return;
+            state.browserMessageLatencySamples.push(value);
+            if(state.browserMessageLatencySamples.length>256)state.browserMessageLatencySamples.splice(0,state.browserMessageLatencySamples.length-256);
+        }
+        function latencyStage(name) { return state.runtime?.latency_diagnostics?.stages?.[name] || null; }
+        function latencySummaryText(stage) {
+            if(!stage)return '尚無樣本';
+            return `P50 ${stage.p50_ms.toFixed(0)} · P95 ${stage.p95_ms.toFixed(0)} · P99 ${stage.p99_ms.toFixed(0)} ms · n=${stage.count}`;
+        }
+        function latencyKind(stage, warnMs=500, errorMs=1500) {
+            if(!stage)return 'info';
+            return stage.p95_ms>=errorMs?'error':stage.p95_ms>=warnMs?'warn':'ok';
+        }
+        function renderLatencyDiagnostics() {
+            const target=document.getElementById('latencyDiagnosticsList'); if(!target)return;
+            const diagnostics=state.runtime?.latency_diagnostics;
+            const browserP95=browserLatencyPercentile(.95);
+            const pending=diagnostics?.pending_jobs || {};
+            const rows=[
+                ['Event DB write','event_db_write',150,500],
+                ['Post-ingest queue','post_ingest_queue_wait',250,1000],
+                ['Event Fusion','event_fusion',250,1000],
+                ['TDOA solver','tdoa_solver',100,500],
+                ['Localization total','localization_pipeline',350,1200],
+                ['Localization → Track','localization_tracking',200,800],
+                ['Post-ingest total','post_ingest_pipeline',500,1500],
+                ['WebSocket broadcast','websocket_broadcast',100,500]
+            ].map(([label,key,warn,error])=> {
+                const stage=latencyStage(key);
+                return healthRow(label,latencySummaryText(stage),latencyKind(stage,warn,error));
+            });
+            rows.push(healthRow('Worker queue',`post-ingest ${pending.post_ingest||0} · device-status ${pending.device_status||0}`,(pending.post_ingest||0)>2?'warn':'info'));
+            rows.push(healthRow('Browser message/render',browserP95===null?'尚無樣本':`P95 ${browserP95.toFixed(1)} ms · n=${state.browserMessageLatencySamples.length}`,browserP95!==null&&browserP95>50?'warn':'info'));
+            target.innerHTML=rows.join('');
+        }
         function renderHealth() {
             const devices = canonicalDevices();
             const aiAvailable = devices.some(device => deviceOnline(device) && device.ai_status);
             const gpsAvailable = devices.some(device => nodeLocation(device));
             const databaseError = state.runtime?.database_init_error || state.health?.database_init_error;
             const databaseKnown = !!state.runtime?.database;
+            renderLatencyDiagnostics();
             document.getElementById('healthList').innerHTML = [
                 healthRow('Backend API', state.backendConnected ? 'Healthy' : 'Disconnected', state.backendConnected ? 'ok' : 'error'),
                 healthRow('Database', databaseError ? 'Error' : (databaseKnown ? 'Healthy' : '尚無回報'), databaseError ? 'error' : (databaseKnown ? 'ok' : 'info')),
@@ -2475,7 +2520,10 @@
             };
             socket.onmessage = message => {
                 let data; try { data = JSON.parse(message.data); } catch (_) { return; }
+                const browserStarted=performance.now();
                 handleWebSocketMessage(data);
+                recordBrowserMessageLatency(performance.now()-browserStarted);
+                renderLatencyDiagnostics();
             };
             socket.onerror = () => socket.close();
             socket.onclose = () => { state.wsConnected = false; renderCommandBar(); renderHealth(); scheduleReconnect(); };
