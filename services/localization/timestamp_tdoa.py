@@ -1,7 +1,10 @@
 import hashlib
 import json
 import math
+from time import monotonic
 from typing import Any, Optional
+
+from services.latency_diagnostics import latency_diagnostics
 
 from .geo import (
     convex_hull_area_m2,
@@ -314,6 +317,7 @@ def estimate_timestamp_tdoa(
     max_spread_m = max_pair_distance_m(eligible) + search_margin_m
     min_emission_s = -(max_spread_m / sound_speed_mps) - 1.0
 
+    solver_started = monotonic()
     try:
         starts = [
             [initial_x, initial_y, -0.05],
@@ -339,6 +343,11 @@ def estimate_timestamp_tdoa(
             "solver_failed",
             version,
             diagnostics={**diagnostics, "solver_error": str(exc)},
+        )
+    finally:
+        latency_diagnostics.record(
+            "tdoa_solver",
+            (monotonic() - solver_started) * 1000.0,
         )
 
     residual_values = residuals(result.x)
