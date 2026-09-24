@@ -80,6 +80,7 @@ from services.tracking.tracking_service import (
 )
 from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
+from services.latency_diagnostics import latency_diagnostics
 
 
 app = FastAPI()
@@ -421,6 +422,7 @@ observation_shadow_executor = ThreadPoolExecutor(
 
 
 async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
+    broadcast_started = monotonic()
     try:
         if (
             POST_INFERENCE_LATENCY_TRACING_ENABLED
@@ -437,6 +439,10 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
             context,
             message.get("type"),
         )
+    finally:
+        duration_ms = (monotonic() - broadcast_started) * 1000.0
+        latency_diagnostics.record("websocket_broadcast", duration_ms)
+        latency_diagnostics.record(f"websocket_broadcast_{context}", duration_ms)
 
 
 def schedule_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
@@ -3860,13 +3866,21 @@ def process_event_group_localization(
 ) -> Optional[dict]:
     if not LOCALIZATION_ENABLED:
         return None
+
+    pipeline_started = monotonic()
+    group_load_started = monotonic()
     group = get_event_fusion_group(group_id)
+    latency_diagnostics.record(
+        "localization_group_load",
+        (monotonic() - group_load_started) * 1000.0,
+    )
     if not group:
         return None
     observations = group.get("observations") or []
     if not observations:
         return None
 
+    compute_started = monotonic()
     result = localize_observations(
         observations,
         clip_loader=load_tdoa_clip_bytes_for_observation if GCC_PHAT_ENABLED else None,
@@ -3876,15 +3890,34 @@ def process_event_group_localization(
         max_sync_age_ms=TDOA_MAX_SYNC_AGE_SECONDS * 1000.0,
         min_correlation_score=GCC_MIN_CORRELATION_SCORE,
     )
+    latency_diagnostics.record(
+        "localization_compute",
+        (monotonic() - compute_started) * 1000.0,
+    )
     result["label"] = group.get("label") or group.get("group_label")
+
+    save_started = monotonic()
     saved = save_localization_result(group, result)
-    track = (
-        process_tracking_for_localization(
+    latency_diagnostics.record(
+        "localization_db_save",
+        (monotonic() - save_started) * 1000.0,
+    )
+
+    track = None
+    if TRACKING_ENABLED:
+        tracking_started = monotonic()
+        track = process_tracking_for_localization(
             saved,
             post_ingest_reorder=post_ingest_reorder,
         )
-        if TRACKING_ENABLED
-        else None
+        latency_diagnostics.record(
+            "localization_tracking",
+            (monotonic() - tracking_started) * 1000.0,
+        )
+
+    latency_diagnostics.record(
+        "localization_pipeline",
+        (monotonic() - pipeline_started) * 1000.0,
     )
     return {"localization": saved, "track": track}
 
@@ -9301,6 +9334,8 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         list_device_fixed_locations_for_ingest()
     )
     fixed_location_duration_ms = (monotonic() - fixed_location_started_monotonic) * 1000.0
+    latency_diagnostics.record("event_db_write", db_duration_ms)
+    latency_diagnostics.record("fixed_location_lookup", fixed_location_duration_ms)
     fixed_locations = location_map(fixed_location_rows)
     saved_event = enrich_event_location_row(
         fast_saved_event_payload(event, db_id, created_at),
@@ -9329,18 +9364,26 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
 
 
 def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_event: bool) -> dict:
+    post_ingest_started = monotonic()
     event_group = None
     region_track = None
     active_alert_track = None
     localization_package = None
 
+    fusion_started = monotonic()
     try:
         event_group = process_event_fusion_for_event(event_id)
     except Exception:
         logger.exception("Event fusion failed for event_id=%s", event_id)
+    finally:
+        latency_diagnostics.record(
+            "event_fusion",
+            (monotonic() - fusion_started) * 1000.0,
+        )
 
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
+        region_tracking_started = monotonic()
         try:
             region_track = process_tracking_for_event_group_region(
                 event_group,
@@ -9351,8 +9394,14 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 "Region tracking failed for event_group=%s",
                 event_group.get("id"),
             )
+        finally:
+            latency_diagnostics.record(
+                "region_tracking",
+                (monotonic() - region_tracking_started) * 1000.0,
+            )
 
     if is_alert and not is_existing_event and region_track is None:
+        active_tracking_started = monotonic()
         try:
             active_alert_track = process_tracking_for_active_alert_region(
                 event_id,
@@ -9360,8 +9409,14 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
             )
         except Exception:
             logger.exception("Active alert region tracking failed for event_id=%s", event_id)
+        finally:
+            latency_diagnostics.record(
+                "active_alert_tracking",
+                (monotonic() - active_tracking_started) * 1000.0,
+            )
 
     if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
+        localization_started = monotonic()
         try:
             localization_package = process_event_group_localization(
                 event_group["id"],
@@ -9372,8 +9427,17 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 "Localization failed for event_group=%s",
                 event_group.get("id"),
             )
+        finally:
+            latency_diagnostics.record(
+                "post_ingest_localization",
+                (monotonic() - localization_started) * 1000.0,
+            )
 
     event_group = with_realtime_alert_timing(event_group)
+    latency_diagnostics.record(
+        "post_ingest_pipeline",
+        (monotonic() - post_ingest_started) * 1000.0,
+    )
 
     return {
         "event_group": event_group,
@@ -9449,7 +9513,13 @@ async def broadcast_device_status_update(row: Optional[dict]) -> None:
 def run_device_event_status_worker(
     loop: asyncio.AbstractEventLoop,
     event: SoundEvent,
+    enqueued_at_monotonic: float,
 ) -> None:
+    worker_started = monotonic()
+    latency_diagnostics.job_started(
+        "device_status",
+        (worker_started - enqueued_at_monotonic) * 1000.0,
+    )
     try:
         device_row = upsert_device_event_status(event)
         enriched_device_row = (
@@ -9472,12 +9542,24 @@ def run_device_event_status_worker(
         )
     except RuntimeError:
         logger.warning("Event loop closed before device status broadcast for %s", event.event_id)
+    finally:
+        latency_diagnostics.job_finished(
+            "device_status",
+            (monotonic() - worker_started) * 1000.0,
+        )
 
 
 def schedule_device_event_status_update(event: SoundEvent) -> None:
     loop = asyncio.get_running_loop()
+    enqueued_at_monotonic = monotonic()
+    latency_diagnostics.job_enqueued("device_status")
     try:
-        post_ingest_executor.submit(run_device_event_status_worker, loop, event)
+        post_ingest_executor.submit(
+            run_device_event_status_worker,
+            loop,
+            event,
+            enqueued_at_monotonic,
+        )
     except Exception:
         logger.exception(
             "Failed to schedule device event status update for event_id=%s",
@@ -9490,7 +9572,13 @@ def run_event_post_ingest_worker(
     event_id: str,
     label: Optional[str],
     is_existing_event: bool,
+    enqueued_at_monotonic: float,
 ) -> None:
+    worker_started = monotonic()
+    latency_diagnostics.job_started(
+        "post_ingest",
+        (worker_started - enqueued_at_monotonic) * 1000.0,
+    )
     try:
         result = process_event_post_ingest(event_id, label, is_existing_event)
     except Exception:
@@ -9503,6 +9591,11 @@ def run_event_post_ingest_worker(
         )
     except RuntimeError:
         logger.warning("Event loop closed before post-ingest broadcast for %s", event_id)
+    finally:
+        latency_diagnostics.job_finished(
+            "post_ingest",
+            (monotonic() - worker_started) * 1000.0,
+        )
 
 
 def schedule_event_post_ingest(
@@ -9513,6 +9606,8 @@ def schedule_event_post_ingest(
     global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
     tracking_reorder_event_loop = loop
+    enqueued_at_monotonic = monotonic()
+    latency_diagnostics.job_enqueued("post_ingest")
     try:
         post_ingest_executor.submit(
             run_event_post_ingest_worker,
@@ -9520,6 +9615,7 @@ def schedule_event_post_ingest(
             event_id,
             label,
             is_existing_event,
+            enqueued_at_monotonic,
         )
     except Exception:
         logger.exception("Failed to schedule event post-ingest for event_id=%s", event_id)
@@ -9596,6 +9692,7 @@ async def runtime_status():
             if node.get("device_id") and not is_diagnostic_device_id(node.get("device_id"))
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
+        "latency_diagnostics": latency_diagnostics.snapshot(),
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
@@ -9980,6 +10077,10 @@ async def create_event(
             detail="db_event_write_error",
         ) from exc
 
+    latency_diagnostics.record(
+        "event_initial_submission",
+        (monotonic() - request_started_monotonic) * 1000.0,
+    )
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
