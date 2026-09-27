@@ -3,6 +3,8 @@
     const O=DashboardOperations;
     const el=id=>document.getElementById(id);
     let config=null, seen=new Set(), entries=new O.Entries(), alerts=[], focused=null, noticeUntil=0;
+    const estimator=new DashboardLivePrediction.LiveEstimator();
+    let assessmentsById=new Map();
     let targetMarker=null, siteMarker=null, zoneCircle=null;
     let historyMap=null, historyLine=null, historyMarker=null, replay=null, request=0, animation=null, currentTarget=null;
     let historyOverlays=[],historyFrameKey=null;
@@ -12,7 +14,7 @@
     const banner=document.createElement('button');banner.id='targetNotice';banner.className='target-notice';banner.hidden=true;
     banner.setAttribute('aria-live','polite');banner.onclick=()=>{banner.hidden=true;noticeUntil=0;switchView('dashboard');};document.body.append(banner);
     const dialog=document.createElement('dialog');dialog.id='zoneAlert';dialog.setAttribute('aria-labelledby','zoneAlertTitle');
-    dialog.innerHTML='<h2 id="zoneAlertTitle">無人機進入警戒區</h2><div id="zoneAlertBody"></div><p>此警告依目標定位估測產生。</p><button id="ackZoneAlert" class="action-button primary">確認警告</button>';
+    dialog.innerHTML='<h2 id="zoneAlertTitle">目標估測進入警戒區</h2><div id="zoneAlertBody"></div><p>此警告依目標定位估測與不確定範圍產生。</p><button id="ackZoneAlert" class="action-button primary">確認警告</button>';
     document.body.append(dialog);
     function showAlert() {
         if(document.getElementById('view-simulation')?.classList.contains('active'))return;
@@ -118,20 +120,22 @@
         const now=Date.now();
         const inLab=document.getElementById('view-simulation')?.classList.contains('active');
         if(!inLab && alerts.length)showAlert();
-        const detections=state.events.filter(e=>String(classLabel(e)).toLowerCase()==='drone' && now-eventTime(e)>=-2000 && now-eventTime(e)<120000);
-        const tracks=[...state.tracks.values()].filter(t=>String(t.label).toLowerCase()==='drone');
-        const assessments=tracks.map(t=>O.assess(t,config,now,state.runtime?.localization_enabled===true,experimentalMotionEnabled));
+        const detections=state.events.filter(e=>isLiveTargetLabel(classLabel(e)) && now-eventTime(e)>=-2000 && now-eventTime(e)<120000);
+        const tracks=[...state.tracks.values()].filter(t=>isLiveTargetLabel(t.label));
+        estimator.prune(new Set(tracks.map(t=>String(t.id??t.track_id))));
+        const assessments=tracks.map(t=>estimator.assess(t,config,now,state.runtime?.localization_enabled===true,experimentalMotionEnabled));
+        assessmentsById=new Map(assessments.map(a=>[a.id,a]));
         const valid=assessments.filter(a=>a.position).sort((a,b)=>(b.status==='inside')-(a.status==='inside') || b.time-a.time);
         const newest=detections[0];
         for(const d of detections.filter(e=>now-eventTime(e)<15000)) {
-            if(!seen.has(d.event_id)){seen.add(d.event_id);banner.textContent='偵測到無人機，點此查看即時資訊';banner.hidden=false;noticeUntil=now+8000;}
+            if(!seen.has(d.event_id)){seen.add(d.event_id);banner.textContent='偵測到目標聲音，點此查看即時資訊';banner.hidden=false;noticeUntil=now+8000;}
         }
         // Keep memory bounded without re-announcing records still in the active window.
         if(seen.size>1000)seen=new Set(detections.map(d=>d.event_id));
         if(now>noticeUntil || inLab)banner.hidden=true;
         for(const a of valid)if(entries.update(a.id,a.status,a.time)){
             alerts.push({id:a.id,time:a.time,site:config.name});focused=a.id;
-            banner.textContent='無人機進入警戒區，點此查看目標';banner.hidden=!!inLab;showAlert();
+            banner.textContent='目標估測進入警戒區，點此查看目標';banner.hidden=!!inLab;showAlert();
         }
         const selected=valid.find(a=>a.id===focused) || valid[0];
         const active=selected || newest;
@@ -139,10 +143,13 @@
         el('monitorStatus').hidden=false;
         if(!active){banner.hidden=true;mapObjects(null);return;}
         const lost=!selected && now-eventTime(newest)>15000;
-        const title=lost?'目標失去更新':selected?.status==='inside'?'無人機進入警戒區':'偵測到無人機';
+        const title=lost?'目標失去更新':selected?.status==='inside'?'目標估測進入警戒區':'偵測到目標聲音';
         const eta=value=>value===null||value===undefined?'資料不足或路徑未相交':value===0?'已進入':`約 ${Math.ceil(value)} 秒`;
         const names={inside:'位於警戒區內',outside:'位於警戒區外',boundary:'定位誤差跨越警戒邊界',located:'尚未設定據點'};
-        panel.innerHTML=`<div class="card-header"><h2>${safe(title)}</h2></div><div class="card-body"><p>${safe(selected?`目標 ${selected.id}`:`回報節點 ${newest.device_id}`)}</p><p>${safe(selected?names[selected.status]:lost?'顯示最後偵測資訊；停止抵達估算。':'已辨識無人機聲音，目標尚未定位。')}</p><p>更新時間：${safe(new Date(selected?.time??eventTime(newest)).toLocaleTimeString('zh-TW'))}</p>${selected?'':`<p>模型分數：${formatPercent(modelScore(newest))}</p>`}<div class="detail-grid"><div class="detail-item"><span>與據點距離</span><strong>${selected?.distance!=null?`${selected.distance.toFixed(0)} m`:'—'}</strong></div><div class="detail-item"><span>移動狀態</span><strong>${safe({approaching:'往據點靠近',departing:'遠離據點',stationary:'接近分量不足'}[selected?.trend]||'資料不足')}</strong></div><div class="detail-item"><span>預估進入警戒區</span><strong>${eta(selected?.zoneEta)}</strong></div><div class="detail-item"><span>預估抵達據點範圍</span><strong>${eta(selected?.arrivalEta)}</strong></div></div><p>抵達範圍：${config?`${config.arrivalRadius} m`:'尚未設定'}。時間依最後定位與固定速度估算，尚待實地驗證。</p>${valid.length>1?`<label>其他目標<select id="operationalTargetSelect">${valid.map(a=>`<option value="${safe(a.id)}" ${a.id===selected?.id?'selected':''}>${safe(a.id)}</option>`).join('')}</select></label>`:''}</div>`;
+        const quality=selected?.prediction?.display;
+        const reason=!config?'尚未設定據點':state.runtime?.localization_enabled!==true?'定位未啟用；目前僅呈現聲音回報與區域估測':!selected?'尚無新鮮且有效的目標定位':!experimentalMotionEnabled?'移動估算未啟用':quality?({STABLE:'ETA 穩定',HOLDING:'ETA 暫時保留',CLEARED:'ETA 已清除',UNSTABLE:'ETA 資料不足'}[quality.state]):'尚無可靠 ETA';
+        const markup=`<div class="card-header"><h2>${safe(title)}</h2></div><div class="card-body"><p>${safe(selected?`目標 ${selected.id}`:`回報節點 ${newest.device_id}`)}</p><p>${safe(selected?names[selected.status]:lost?'顯示最後偵測資訊；停止抵達估算。':'已收到目標聲音，尚無有效定位。')}</p><p>更新時間：${safe(new Date(selected?.time??eventTime(newest)).toLocaleTimeString('zh-TW'))}</p>${selected?'':`<p>模型分數：${formatPercent(modelScore(newest))}</p>`}<div class="detail-grid"><div class="detail-item"><span>與據點距離</span><strong>${selected?.distance!=null?`${selected.distance.toFixed(0)} m`:'—'}</strong></div><div class="detail-item"><span>移動狀態</span><strong>${safe({approaching:'往據點靠近',departing:'遠離據點',stationary:'接近分量不足'}[selected?.trend]||'資料不足')}</strong></div><div class="detail-item"><span>預估進入警戒區</span><strong>${eta(selected?.zoneEta)}</strong></div><div class="detail-item"><span>預估抵達據點範圍</span><strong>${eta(selected?.arrivalEta)}</strong></div></div><p>${safe(reason)}${quality?.displayEtaLowerSeconds!=null?` · 約 ${Math.floor(quality.displayEtaLowerSeconds)}–${Math.ceil(quality.displayEtaUpperSeconds)} 秒`:''}</p><p>抵達範圍：${config?`${config.arrivalRadius} m`:'尚未設定'}。使用與模擬工作區相同的追蹤與 ETA 穩定化核心，實測精度仍待驗證。</p>${valid.length>1?`<label>其他目標<select id="operationalTargetSelect">${valid.map(a=>`<option value="${safe(a.id)}" ${a.id===selected?.id?'selected':''}>${safe(a.id)}</option>`).join('')}</select></label>`:''}</div>`;
+        if(panel.innerHTML!==markup && !panel.contains(document.activeElement))panel.innerHTML=markup;
         if(el('operationalTargetSelect'))el('operationalTargetSelect').onchange=e=>{focused=e.target.value;render();};
         mapObjects(selected);
     }
@@ -246,5 +253,6 @@
     }
     el('historyPrevious').onclick=()=>step(-1);el('historyNext').onclick=()=>step(1);el('historySmooth').onchange=draw;
     document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
-    window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},site:()=>config,target:()=>currentTarget};
+    window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},site:()=>config,target:()=>currentTarget,assessment:id=>assessmentsById.get(String(id))};
+    setInterval(()=>{if(!document.hidden){render();}},250);
 })();

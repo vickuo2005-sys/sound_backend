@@ -1,6 +1,6 @@
 (function(root){
     'use strict';
-    // Simulation engineering defaults. None of these thresholds are field validated.
+    // Shared live/lab engineering defaults. Thresholds still require field validation.
     const DEFAULT_CONFIG=Object.freeze({
         motionWindowSize:20,
         motionWindowMs:6000,
@@ -188,6 +188,18 @@
             this.lastOutput=result;return {...result};
         }
     }
+    function predictSite(motion,site,referenceTimeMs,stabilizers,uncertaintyM){
+        const raw=createRawSitePredictionFromMotion({motion,site,referenceTimeMs,uncertaintyM});
+        const arrivalRaw=createRawSitePredictionFromMotion({motion,site:site?{...site,radius:site.arrivalRadius}:null,referenceTimeMs,uncertaintyM});
+        return {raw,display:stabilizers.zone.update(raw,referenceTimeMs),arrivalRaw,arrivalDisplay:stabilizers.arrival.update(arrivalRaw,referenceTimeMs)};
+    }
+    function zoneState(distance,radius,uncertainty=0){
+        return distance+uncertainty<=radius?'inside':distance-uncertainty>radius?'outside':'boundary';
+    }
+    function zoneTransition(previous,status){
+        const inside=status==='inside'?true:status==='outside'?false:Boolean(previous);
+        return {inside,entered:inside&&!previous};
+    }
     function groundTruthEta(target,site,config={}){
         const c={...DEFAULT_CONFIG,...config};if(!target||target.kind!=='drone'||target.lost||!point(target.position)||!point(site)||!finite(target.speed))return null;
         if(Math.hypot(target.position.x-site.x,target.position.y-site.y)<=site.radius)return 0;
@@ -198,6 +210,6 @@
         for(const end of segments){const dx=end.x-position.x,dy=end.y-position.y,length=Math.hypot(dx,dy);if(!length)continue;const vx=dx/length*target.speed,vy=dy/length*target.speed,g=siteGeometry(position,vx,vy,site,c),duration=length/target.speed;if(g.etaSeconds!==null&&g.etaSeconds<=duration)return elapsed+g.etaSeconds;elapsed+=duration;position=end;}
         return null;
     }
-    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,etaRange,createRawSitePrediction,createRawSitePredictionFromMotion,EtaStabilizer,groundTruthEta};
+    const api={DEFAULT_CONFIG,normalizedHistory,estimateMotion,siteGeometry,etaRange,createRawSitePrediction,createRawSitePredictionFromMotion,EtaStabilizer,predictSite,zoneState,zoneTransition,groundTruthEta};
     if(typeof module==='object'&&module.exports)module.exports=api;else root.DashboardSimulationEta=api;
 })(typeof globalThis==='object'?globalThis:this);

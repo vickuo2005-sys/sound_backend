@@ -1,7 +1,7 @@
 (function(root){
     'use strict';
 
-    // Mirrors the backend alpha-beta tracker structure for Simulation Lab only.
+    // Shared adaptive alpha-beta filter for measured live positions and lab estimates.
     // These are engineering defaults, not field-validated tuning values.
     const DEFAULT_CONFIG = Object.freeze({
         alpha: 0.70,

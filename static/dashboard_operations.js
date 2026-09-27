@@ -1,5 +1,6 @@
 (function(root) {
     'use strict';
+    const Eta=root.DashboardSimulationEta || (typeof module==='object'&&module.exports?require('./dashboard_simulation_eta'):null);
     const number = x => typeof x === 'number' && Number.isFinite(x) ? x : null;
     const time = x => number(x) ?? (typeof x === 'string' && Number.isFinite(Date.parse(x)) ? Date.parse(x) : null);
     const coordinate = (lat,lng) => number(lat) !== null && number(lng) !== null && Math.abs(lat)<=90 && Math.abs(lng)<=180 ? {lat,lng} : null;
@@ -39,7 +40,7 @@
         const x=delta*rad*earth*Math.cos(config.lat*rad),y=(p.lat-config.lat)*rad*earth;
         const distance=Math.hypot(x,y),u=p.uncertainty_radius_m;
         result.distance=distance;
-        result.status=distance+u<=config.radius ? 'inside' : distance-u>config.radius ? 'outside' : 'boundary';
+        result.status=Eta.zoneState(distance,config.radius,u);
         result.uncertainty=u;
         const motion=track.approach_motion;
         const vx=number(motion?.vx_mps),vy=number(motion?.vy_mps);
@@ -61,7 +62,7 @@
             if(!Number.isFinite(timestamp) || (old && timestamp<=old.time)) return false;
             if(!['inside','outside'].includes(status)) return false;
             this.states.set(id,{status,time:timestamp});
-            return status==='inside' && old?.status!=='inside';
+            return Eta.zoneTransition(old?.status==='inside',status).entered;
         }
     }
     function replayContext(point,referenceNodes=[]) {

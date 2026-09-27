@@ -37,7 +37,8 @@ function extract(name) {
     const match=template.match(new RegExp(`        (?:async )?function ${name}\\([^]*?\\n        }`));
     assert(match,`Missing production function ${name}`);return match[0];
 }
-const icons=vm.createContext({google:{maps:{SymbolPath:{CIRCLE:'CIRCLE'}}}});
+const visuals=require('../../static/dashboard_map_visuals');
+const icons=vm.createContext({DashboardMapVisuals:visuals,google:{maps:{SymbolPath:{CIRCLE:'CIRCLE'}}}});
 vm.runInContext(extract('nodeMarkerIcon')+extract('nodeShapeText'),icons);
 for(const id of ['node_A01','node_A02','node_A03','node_A04','arbitrary']) {
     assert.equal(icons.nodeMarkerIcon({device_id:id},true).path,'CIRCLE');
