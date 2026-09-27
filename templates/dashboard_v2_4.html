@@ -2411,7 +2411,8 @@
                     else if(line.__dashboardRenderKey!==lineKey){line.setOptions(options);line.__dashboardRenderKey=lineKey;}
                 }
                 if(live&&isDrone&&points.length){
-                    const latest=points.at(-1),heading=trackHeading(track,rawPath),speed=finite(track?.last_speed_mps ?? track?.speed_mps);
+                    const assessment=window.DashboardOperationsUI?.assessment?.(id);
+                    const latest=assessment?.position||points.at(-1),heading=assessment?.motion?.heading??trackHeading(track,rawPath),speed=assessment?.motion?.speed??finite(track?.last_speed_mps ?? track?.speed_mps);
                     activeTrackMarkers.add(id);
                     const markerOptions={map,position:latest,title:`LIVE TRACK · ${id}`,icon:v22DroneTargetIcon(heading??0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:60};
                     let marker=trackMarkers.get(id);
@@ -2503,9 +2504,9 @@
             } else if (data.type === 'device_status_deleted') {
                 if (data.device_id) state.devices.delete(data.device_id); renderAll();
             } else if (data.type === 'event_group') {
-                const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderTracksView(); renderMap(); renderCommandBar();
+                const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderOverview(); renderTracksView(); renderMap(); renderCommandBar();
             } else if (data.type === 'track_update') {
-                const track = data.track || data; const id = trackId(track); if (id) state.tracks.set(id, track); state.lastUpdate = new Date(); renderMotion(); renderTracksView(); renderMap(); renderCommandBar();
+                const track = data.track || data; const id = trackId(track); if (id) state.tracks.set(id, track); state.lastUpdate = new Date(); renderOverview(); renderMotion(); renderTracksView(); renderMap(); renderCommandBar();
             } else if (data.type === 'device_command_created') {
                 const current = commandState(data.device_id);
                 if (current.phase === 'sending' && (!current.command || current.command === data.command)) updateCommandState(data.device_id, {command:data.command || current.command, commandId:Number(data.command_id), delivery:data.delivery || current.delivery, phase:data.status === 'sent' ? 'delivered' : 'pending'});

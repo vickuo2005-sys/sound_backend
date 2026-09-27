@@ -264,7 +264,7 @@ def test_real_websocket_and_node_controls_remain_in_page() -> None:
 def test_operational_overlays_are_dimmed_not_removed_during_simulation() -> None:
     html = simulation_html()
     assert "simulationIsVisible() ? .28 : 1" in html
-    assert "simulationIsVisible() ? .22 : .85" in html
+    assert "simulationIsVisible()?.22:(live?.92:.55)" in html
     assert "nodeMarkers" in html and "trackLines" in html and "detectionMarker" in html
 
 

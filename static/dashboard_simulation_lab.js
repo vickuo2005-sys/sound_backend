@@ -109,7 +109,7 @@
         const current=motion?.valid&&point(motion.position)?motion.position:target.estimatedPosition;
         const x=current.x-site.x,y=current.y-site.y,d=Math.hypot(x,y),v=motion?.valid?{x:motion.vx,y:motion.vy}:estimatedVelocity(target);
         const closing=d?-(x*v.x+y*v.y)/d:0;
-        Object.assign(result,{distance:d,status:d<=site.radius?'inside':'outside',trend:closing>.1?'approaching':closing<-.1?'departing':'stationary'});
+        Object.assign(result,{distance:d,status:Eta.zoneState(d,site.radius),trend:closing>.1?'approaching':closing<-.1?'departing':'stationary'});
         if(prediction){
             result.zoneEta=prediction.display?.displayEtaSeconds??null;
             result.arrivalEta=prediction.arrivalDisplay?.displayEtaSeconds??null;
@@ -203,11 +203,8 @@
                 3,
                 120
             );
-            const raw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:this.site,uncertaintyM:trackUncertaintyM});
             const stabilizers=this.stabilizers(target);
-            const display=stabilizers.zone.update(raw,referenceTimeMs);
-            const arrivalRaw=Eta.createRawSitePredictionFromMotion({motion,referenceTimeMs,site:{...this.site,radius:this.site.arrivalRadius},uncertaintyM:trackUncertaintyM});
-            const arrivalDisplay=stabilizers.arrival.update(arrivalRaw,referenceTimeMs);
+            const {raw,display,arrivalRaw,arrivalDisplay}=Eta.predictSite(motion,this.site,referenceTimeMs,stabilizers,trackUncertaintyM);
             const truthTarget={...target,waypoints:(target.waypoints||[]).slice(target.waypointIndex??0)};
             const truthEtaSeconds=Eta.groundTruthEta(truthTarget,this.site);
             const rawErrorSeconds=raw.rawEtaSeconds===null||truthEtaSeconds===null?null:raw.rawEtaSeconds-truthEtaSeconds;
@@ -366,11 +363,12 @@
             for(const target of this.targets) {
                 this.updatePrediction(target);
                 const state=assessSystem(target,this.site);
-                if(state.status==='inside'&&!target.inside) {
+                const episode=Eta.zoneTransition(target.inside,state.status);
+                if(episode.entered) {
                     this.alerts.push({id:this.id('ALERT'),targetId:target.id,time:this.time,simulation:true});
                     this.selectedId=target.id;
                 }
-                target.inside=state.status==='inside';
+                target.inside=episode.inside;
                 this.recordReplayFrame(target,state);
             }
             this.alerts=this.alerts.slice(-LIMITS.targets);
