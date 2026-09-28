@@ -9324,6 +9324,7 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         latency_trace["db_start"] = db_started_at
     db_id, inserted = save_event_with_inserted(event, created_at)
     db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
+    latency_diagnostics.record("event_db_write", db_duration_ms)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
         db_committed_at = utc_wall_time_ms()
         latency_trace["db_committed_at"] = db_committed_at
@@ -9334,7 +9335,6 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         list_device_fixed_locations_for_ingest()
     )
     fixed_location_duration_ms = (monotonic() - fixed_location_started_monotonic) * 1000.0
-    latency_diagnostics.record("event_db_write", db_duration_ms)
     latency_diagnostics.record("fixed_location_lookup", fixed_location_duration_ms)
     fixed_locations = location_map(fixed_location_rows)
     saved_event = enrich_event_location_row(
@@ -9513,13 +9513,15 @@ async def broadcast_device_status_update(row: Optional[dict]) -> None:
 def run_device_event_status_worker(
     loop: asyncio.AbstractEventLoop,
     event: SoundEvent,
-    enqueued_at_monotonic: float,
+    enqueued_at_monotonic: Optional[float] = None,
 ) -> None:
     worker_started = monotonic()
-    latency_diagnostics.job_started(
-        "device_status",
-        (worker_started - enqueued_at_monotonic) * 1000.0,
-    )
+    # Direct callers did not enqueue a job and must not consume someone else's pending count.
+    if enqueued_at_monotonic is not None:
+        latency_diagnostics.job_started(
+            "device_status",
+            (worker_started - enqueued_at_monotonic) * 1000.0,
+        )
     try:
         device_row = upsert_device_event_status(event)
         enriched_device_row = (
@@ -9558,11 +9560,15 @@ def schedule_device_event_status_update(event: SoundEvent) -> None:
     enqueued_at_monotonic = monotonic()
     latency_diagnostics.job_enqueued("device_status")
     try:
-        post_ingest_executor.submit(
+        future = post_ingest_executor.submit(
             run_device_event_status_worker,
             loop,
             event,
             enqueued_at_monotonic,
+        )
+        future.add_done_callback(
+            lambda job: latency_diagnostics.job_cancelled("device_status")
+            if job.cancelled() else None
         )
     except Exception:
         latency_diagnostics.job_cancelled("device_status")
@@ -9618,13 +9624,17 @@ def schedule_event_post_ingest(
     enqueued_at_monotonic = monotonic()
     latency_diagnostics.job_enqueued("post_ingest")
     try:
-        post_ingest_executor.submit(
+        future = post_ingest_executor.submit(
             run_event_post_ingest_worker,
             loop,
             event_id,
             label,
             is_existing_event,
             enqueued_at_monotonic,
+        )
+        future.add_done_callback(
+            lambda job: latency_diagnostics.job_cancelled("post_ingest")
+            if job.cancelled() else None
         )
     except Exception:
         latency_diagnostics.job_cancelled("post_ingest")

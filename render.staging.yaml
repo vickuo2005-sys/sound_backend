@@ -2,7 +2,7 @@ services:
   - type: web
     name: sound-backend-staging
     runtime: python
-    branch: feat/v2-4-dashboard-simulation
+    branch: feat/latency-diagnostics-staging
     autoDeployTrigger: off
     region: singapore
     plan: starter
@@ -13,6 +13,8 @@ services:
     envVars:
       - key: APP_ENV
         value: staging
+      - key: DASHBOARD_V2_ENABLED
+        value: "true"
       - key: POSTGRES_SCHEMA_AUTO_INIT
         value: "false"
       - key: NODE_WEBSOCKET_ENABLED

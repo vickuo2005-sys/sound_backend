@@ -1363,7 +1363,13 @@
         }
 
         async function refreshSnapshot(reason = 'initial') {
-            if (state.snapshotInFlight || deviceSnapshotPollInFlight) return;
+            if (state.snapshotInFlight) return;
+            // The 5-second device poll starts before the 30-second snapshot tick.
+            // Defer one full refresh instead of dropping every coincident tick.
+            if (deviceSnapshotPollInFlight) {
+                if (reason === 'periodic') state.pendingSnapshotReason = reason;
+                return;
+            }
             state.snapshotInFlight = true;
             const eventUpdates = new Map();
             state.snapshotEventUpdates = eventUpdates;
@@ -1434,6 +1440,11 @@
                 // snapshot retries without leaving a permanent loading state.
             } finally {
                 deviceSnapshotPollInFlight = false;
+                if (state.pendingSnapshotReason) {
+                    const reason = state.pendingSnapshotReason;
+                    state.pendingSnapshotReason = null;
+                    await refreshSnapshot(reason);
+                }
             }
         }
 
@@ -2048,13 +2059,18 @@
             state.browserMessageLatencySamples.push(value);
             if(state.browserMessageLatencySamples.length>256)state.browserMessageLatencySamples.splice(0,state.browserMessageLatencySamples.length-256);
         }
-        function latencyStage(name) { return state.runtime?.latency_diagnostics?.stages?.[name] || null; }
+        function validLatencyStage(stage) {
+            return stage && Number.isSafeInteger(stage.count) && stage.count > 0 &&
+                ['p50_ms','p95_ms','p99_ms'].every(key=>Number.isFinite(stage[key]) && stage[key]>=0) &&
+                stage.p50_ms<=stage.p95_ms && stage.p95_ms<=stage.p99_ms;
+        }
+        function latencyStage(name) { const stage=state.runtime?.latency_diagnostics?.stages?.[name]; return validLatencyStage(stage)?stage:null; }
         function latencySummaryText(stage) {
-            if(!stage)return '尚無樣本';
+            if(!validLatencyStage(stage))return '尚無樣本';
             return `P50 ${stage.p50_ms.toFixed(0)} · P95 ${stage.p95_ms.toFixed(0)} · P99 ${stage.p99_ms.toFixed(0)} ms · n=${stage.count}`;
         }
         function latencyKind(stage, warnMs=500, errorMs=1500) {
-            if(!stage)return 'info';
+            if(!validLatencyStage(stage))return 'info';
             return stage.p95_ms>=errorMs?'error':stage.p95_ms>=warnMs?'warn':'ok';
         }
         function renderLatencyDiagnostics() {
@@ -2062,6 +2078,7 @@
             const diagnostics=state.runtime?.latency_diagnostics;
             const browserP95=browserLatencyPercentile(.95);
             const pending=diagnostics?.pending_jobs || {};
+            const pendingCount=key=>Number.isSafeInteger(pending[key]) && pending[key]>=0?pending[key]:0;
             const rows=[
                 ['Event DB write','event_db_write',150,500],
                 ['Post-ingest queue','post_ingest_queue_wait',250,1000],
@@ -2075,7 +2092,7 @@
                 const stage=latencyStage(key);
                 return healthRow(label,latencySummaryText(stage),latencyKind(stage,warn,error));
             });
-            rows.push(healthRow('Worker queue',`post-ingest ${pending.post_ingest||0} · device-status ${pending.device_status||0}`,(pending.post_ingest||0)>2?'warn':'info'));
+            rows.push(healthRow('Worker queue',`post-ingest ${pendingCount('post_ingest')} · device-status ${pendingCount('device_status')}`,Math.max(pendingCount('post_ingest'),pendingCount('device_status'))>2?'warn':'info'));
             rows.push(healthRow('Browser message handler',browserP95===null?'尚無樣本':`P95 ${browserP95.toFixed(1)} ms · n=${state.browserMessageLatencySamples.length}`,browserP95!==null&&browserP95>50?'warn':'info'));
             target.innerHTML=rows.join('');
         }

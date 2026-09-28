@@ -56,20 +56,29 @@ assert.equal(normal[0].position,undefined,'participation must never manufacture 
 assert.ok(normal[0].label.includes('非無人機定位'));
 assert.deepEqual(geometry.buildGeometries({...input,enabled:false}),[]);
 
-assert.equal(geometry.buildGeometries({...input,events:input.events.slice(0,2)})[0].kind,'line');
-assert.equal(geometry.buildGeometries({...input,events:input.events.slice(0,1)})[0].kind,'point');
+const partialInput = count => ({...input,events:input.events.slice(0,count),groups:[group({reporting_device_ids:nodes.slice(0,count).map(n=>n.device_id)})]});
+assert.equal(geometry.buildGeometries(partialInput(2))[0].kind,'line');
+assert.equal(geometry.buildGeometries(partialInput(1))[0].kind,'point');
 assert.equal(geometry.buildGeometries({...input,groups:[]}).length,4,'unassociated events stay separate; no implied shared target');
 assert.ok(geometry.buildGeometries({...input,groups:[group({last_event_time:iso(now-16000)})]}).every(g=>g.kind==='point'),'stale groups do not keep a polygon');
 assert.ok(geometry.buildGeometries({...input,groups:[group({status:'CLOSED'})]}).every(g=>g.kind==='point'));
 assert.ok(geometry.buildGeometries({...input,groups:[group({active_device_ids:[]})]}).every(g=>g.kind==='point'));
-assert.ok(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,group_id:'other'}))}).every(g=>g.kind==='point'),'explicitly different groups cannot be mixed');
-assert.ok(geometry.buildGeometries({...input,groups:[group({first_event_time:iso(now-4000),last_event_time:iso(now-2000)})]}).every(g=>g.kind==='point'),'later events cannot light up an older group');
-assert.ok(geometry.buildGeometries({...input,groups:[group({first_event_time:null,created_at:null})]}).every(g=>g.kind==='point'),'unlinked events without temporal association stay separate');
+for (const unlinked of [
+    {...input,events:input.events.map(e=>({...e,group_id:'other'}))},
+    {...input,groups:[group({first_event_time:iso(now-4000),last_event_time:iso(now-2000)})]},
+    {...input,groups:[group({first_event_time:null,created_at:null})]}
+]) {
+    const result=geometry.buildGeometries(unlinked);
+    assert.equal(result.filter(g=>g.kind==='point').length,4,'unassociated event evidence stays separate');
+    const backend=result.find(g=>g.id==='group:g1');
+    assert.equal(backend.kind,'polygon');
+    assert(backend.participants.every(p=>p.source==='backend_group_membership'),'unlinked events cannot become group evidence');
+}
 assert.equal(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,group_id:'g1'})),groups:[group({first_event_time:null})]})[0].kind,'polygon');
 assert.equal(geometry.buildGeometries({...input,events:[],groups:[group({events:input.events})]})[0].kind,'polygon','typed events nested in an explicit group are supported');
-assert.deepEqual(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,timestamp:iso(now-16000),created_at:iso(now)}))}),[],'server update time cannot refresh an old capture');
-assert.deepEqual(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,timestamp:iso(now+3000)}))}),[]);
-assert.deepEqual(geometry.buildGeometries({...input,events:input.events.map(e=>({...e,classification:{model_label:'Airplane',is_target:true}}))}),[]);
+assert.deepEqual(geometry.buildGeometries({...input,groups:[],events:input.events.map(e=>({...e,timestamp:iso(now-16000),created_at:iso(now)}))}),[],'server update time cannot refresh an old capture');
+assert.deepEqual(geometry.buildGeometries({...input,groups:[],events:input.events.map(e=>({...e,timestamp:iso(now+3000)}))}),[]);
+assert.deepEqual(geometry.buildGeometries({...input,groups:[],events:input.events.map(e=>({...e,classification:{model_label:'Airplane',is_target:true}}))}),[]);
 assert.deepEqual(geometry.buildGeometries({...input,nodes:nodes.map(n=>({...n,marker_latitude:999}))}),[]);
 
 // Backend group membership remains visible even when the frontend event cache is incomplete.
@@ -113,16 +122,16 @@ class Polyline extends Overlay {}
 const maps={Circle,Polygon,Polyline};
 let wall=now, timerId=0, rafId=0;
 const timers=new Map(), frames=new Map();
-let pulseNodeIds=[];
+let pulseNodeIds=[], pulseCalls=0;
 const renderer=geometry.createRenderer({clock:()=>wall,
     setTimeout:(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;},clearTimeout:id=>timers.delete(id),
     requestAnimationFrame:callback=>{frames.set(++rafId,callback);return rafId;},cancelAnimationFrame:id=>frames.delete(id)});
 const map={};
-renderer.update({...input,map,google:{maps},onPulse:ids=>{pulseNodeIds=[...ids].sort();}});
+renderer.update({...input,map,google:{maps},onPulse:ids=>{pulseCalls++;pulseNodeIds=[...ids].sort();}});
 assert.equal(made.filter(o=>o instanceof Polygon && o.map===map).length,1);
 assert.equal(made.filter(o=>o instanceof Circle && o.map===map).length,4);
 const livePolygon=made.find(o=>o instanceof Polygon && o.map===map);
-assert.equal(livePolygon.options.strokeColor,'#f97316');
+assert.equal(livePolygon.options.strokeColor.toLowerCase(),'#f97316');
 assert.equal(livePolygon.options.strokeWeight,3);
 assert.equal(livePolygon.options.strokeOpacity,.85);
 assert.equal(livePolygon.options.fillOpacity,.12,'live polygon mirrors Simulation Lab styling');
@@ -133,9 +142,12 @@ assert.deepEqual(pulseNodeIds,nodes.map(n=>n.device_id).sort(),'the V2.2 marker 
 assert.equal(frames.size,1);
 assert.equal(timers.size,1);
 const pulsePublishCountBeforeFrame=pulseNodeIds.length;
+const callsBeforeFrame=pulseCalls;
 const scheduledFrame=[...frames.values()][0];
+frames.delete([...frames.keys()][0]); // Browsers consume a RAF callback before invoking it.
 scheduledFrame();
 assert.equal(pulseNodeIds.length,pulsePublishCountBeforeFrame,'pulse animation must not republish node-marker icons every frame');
+assert.equal(pulseCalls,callsBeforeFrame,'animation must not call the marker publisher');
 renderer.update({...input,map,google:{maps},reducedMotion:true});
 assert.equal(frames.size,0,'reduced motion shows static overlays');
 assert.equal(timers.size,1,'reduced motion still expires old evidence');
@@ -144,10 +156,10 @@ wall=now+16000;
 assert.equal(made.filter(o=>o.map===map).length,0,'stale evidence clears without another network refresh');
 
 wall=now;
-renderer.update({...input,map,google:{maps},events:input.events.slice(0,2)});
+renderer.update({...partialInput(2),map,google:{maps}});
 assert.equal(made.filter(o=>o instanceof Polyline && o.map===map).length,1);
 const liveLine=made.find(o=>o instanceof Polyline && o.map===map);
-assert.equal(liveLine.options.strokeColor,'#f97316');
+assert.equal(liveLine.options.strokeColor.toLowerCase(),'#f97316');
 assert.equal(liveLine.options.strokeWeight,5);
 assert.equal(liveLine.options.strokeOpacity,.95,'two-node source line mirrors Simulation Lab styling');
 renderer.update({...input,map,google:{maps},enabled:false});

@@ -63,3 +63,41 @@ span durations in a later tracing iteration.
   detailed event payload trace; it is not required to collect aggregate
   `Latency Diagnostics` samples.
 - No worker, DB, CPU, or retry setting was changed in this first phase.
+
+## Measurement audit and interpretation
+
+All server durations use `time.monotonic()` differences multiplied by 1000;
+browser handler durations use `performance.now()` (already milliseconds).
+UTC wall timestamps in the optional event trace are correlation metadata, not
+the clock used by these aggregate durations. Server quantiles use linear
+interpolation at `(n - 1) * q`; the browser uses nearest rank `ceil(n*q)-1`.
+
+| Stage | Sample population / exceptional path |
+| --- | --- |
+| `event_db_write` | Completed initial save calls, including deduplicated events. Recorded immediately after save; a later location lookup failure cannot discard it. Failed saves are excluded. |
+| `event_initial_submission` | Successful initial submissions, measured from entry into the route (after framework body parsing), including validation and thread-pool wait; excludes response serialization and post-ingest completion. |
+| `post_ingest_queue_wait`, `device_status_queue_wait` | Accepted jobs that actually start; milliseconds from enqueue timestamp to worker entry. Cancelled or rejected submissions have no wait sample. |
+| `event_fusion` | All attempted fusion calls, including exceptions (`finally`). |
+| `localization_group_load` | Completed group reloads, including empty results. Exceptions excluded. |
+| `localization_compute` | Completed localization calls, including returned fallback results; may include GCC audio I/O. Exceptions excluded. |
+| `tdoa_solver` | Only geometry eligible for the multi-start least-squares block; includes solver exceptions via `finally`, but excludes input preparation and post-solve quality checks. |
+| `localization_db_save` | Completed result saves; exceptions excluded. |
+| `localization_tracking` | Completed tracking calls when enabled; exceptions excluded. |
+| `post_ingest_pipeline` | Completed post-ingest orchestration, including caught fusion/tracking/localization failures; excludes executor wait and deferred WebSocket delivery. An unexpected error outside those catches has no pipeline sample, but the worker records its duration. |
+| `websocket_broadcast` | Attempted server broadcast, including exceptions and cancellation via `finally`. Awaited sends can include slow clients; no browser receipt or paint acknowledgement. |
+
+Pending means **waiting to start**, not running jobs. Submission failure and
+pre-start Future cancellation remove pending; worker entry removes it exactly
+once. Worker failure or a closed event loop does not leave pending behind.
+Direct legacy device-worker calls have no queue sample and do not decrement
+another job's pending count. Peak pending is process lifetime since reset.
+
+Samples and counters are protected by an RLock. Snapshot copies are atomic;
+sorting occurs after releasing the lock. The diagnostics code performs no DB,
+filesystem or network I/O and introduces no waits on executors from the event
+loop. Snapshot serialization remains bounded synchronous CPU work per stage;
+this is not a production load measurement. Reset is intended for quiescent
+tests/restarts, not for splitting a live queue across measurement epochs.
+
+See [the staging and field runbook](LATENCY_FIELD_RUNBOOK.md) for deployment
+gates, collection commands and interpretation limits.

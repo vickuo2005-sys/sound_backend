@@ -62,7 +62,7 @@ class LatencyDiagnostics:
     def record(self, stage: str, duration_ms: float | int | None) -> None:
         try:
             value = float(duration_ms) if duration_ms is not None else None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return
         if value is None or not math.isfinite(value) or value < 0:
             return
@@ -84,8 +84,8 @@ class LatencyDiagnostics:
 
     def job_started(self, kind: str, queue_wait_ms: float) -> None:
         key = str(kind or "unknown")
-        self.record(f"{key}_queue_wait", queue_wait_ms)
         with self._lock:
+            self.record(f"{key}_queue_wait", queue_wait_ms)
             self._pending[key] = max(0, self._pending.get(key, 0) - 1)
 
     def job_cancelled(self, kind: str) -> None:
@@ -100,7 +100,7 @@ class LatencyDiagnostics:
     def _summary(self, values: list[float]) -> StageSummary:
         return StageSummary(
             count=len(values),
-            mean_ms=sum(values) / len(values),
+            mean_ms=math.fsum(value / len(values) for value in values),
             p50_ms=self._percentile(values, 0.50),
             p95_ms=self._percentile(values, 0.95),
             p99_ms=self._percentile(values, 0.99),
@@ -110,18 +110,20 @@ class LatencyDiagnostics:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
-            stages = {
-                key: self._summary(list(values)).as_dict()
-                for key, values in sorted(self._samples.items())
-                if values
-            }
-            return {
-                "sample_window": self.max_samples_per_stage,
-                "stages": stages,
-                "pending_jobs": dict(self._pending),
-                "peak_pending_jobs": dict(self._peak_pending),
-                "note": "Process-local rolling samples; reset on deploy/restart.",
-            }
+            samples = {key: list(values) for key, values in self._samples.items() if values}
+            pending = dict(self._pending)
+            peak_pending = dict(self._peak_pending)
+        # Copy under the lock; percentile sorting must not hold up worker writers.
+        return {
+            "sample_window": self.max_samples_per_stage,
+            "stages": {
+                key: self._summary(values).as_dict()
+                for key, values in sorted(samples.items())
+            },
+            "pending_jobs": pending,
+            "peak_pending_jobs": peak_pending,
+            "note": "Process-local rolling samples; reset on deploy/restart.",
+        }
 
     def reset(self) -> None:
         with self._lock:
