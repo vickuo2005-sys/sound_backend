@@ -101,8 +101,8 @@ compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判�
 
 ## 未完成與交付
 
-- Render staging：未部署，版本／API smoke／Render logs／CPU／記憶體／DB connections 均未驗證。
-- Android：目前無實體節點存取，30–50 次真實多節點測試未執行，沒有實測效能結論。
+- Render staging：已從其他對話找到並做唯讀 smoke check：`https://sound-backend-staging.onrender.com`，service `sound-backend-staging`，service ID `srv-da6kdn61egvs7392r92g`。`/health` 回 healthy，`/runtime-status` 回 success，且與 production `sound-backend` 的 service ID `srv-d8f572eq1p3s73dimgig` 不同；這證明服務 identity 分離，但公開 API 沒有暴露 DB project／host／role，仍不能單靠此確認資料庫隔離。當前 staging SHA 是 `e7eb351e4ffe9c66c59c7392d39440f98c074885`、branch `feat/v2-4-dashboard-simulation`，不是本 PR `3bcbc00e4eefd2be66899f802ab59ea8580b5ba7`。目前 `latency_diagnostics` 為空／未提供，4 個註冊節點 A01–A04 全 offline、WebSocket 0；因此沒有對 PR #5 做 staging deployment、PR smoke 或 Render logs／CPU／記憶體／DB connection 驗證。工作目錄沒有 Render CLI、Render API token 或 deploy hook，不能安全觸發部署。
+- Android：已找到 `C:\Users\vicku\sound_detector_clean`、staging config 與 `app-staging-release.apk`（186,369,035 bytes，2026-09-04 建置）；config validator 確認 host 是 `sound-backend-staging.onrender.com`、upload/device token 已設定（值未輸出）。Flutter 3.38.5 `flutter test` 為 **93 passed**。本機沒有 `adb`，沒有連線 Android 裝置；30–50 次真實多節點測試未執行，沒有實測效能結論。
 - `LATENCY_FIELD_RUNBOOK.md` 提供可執行 staging 步驟、40 episode 計畫、收集格式、
   版本／隔離門檻與分析限制。`tools/collect_latency_diagnostics.py` 只做 GET，
   檢查 full SHA 與 schema、拒絕 redirect、保護既有輸出；CPU／記憶體／DB connection 另由
