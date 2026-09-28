@@ -1,9 +1,10 @@
 import json
+from time import monotonic
 import re
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from services.device_location_service import location_map, resolve_effective_location
 from services.region_localization import REGION_METHOD, estimate_region
@@ -1485,7 +1486,12 @@ def process_event(
     event_record: dict,
     is_postgres: bool,
     window_seconds: float = 3.0,
+    latency_recorder: Optional[Callable[[str, float], None]] = None,
 ) -> Optional[dict]:
+    def measure(stage: str, started: float) -> None:
+        if latency_recorder is not None:
+            latency_recorder(stage, (monotonic() - started) * 1000.0)
+
     event_id = event_record.get("event_id")
     if not event_id:
         return None
@@ -1497,13 +1503,23 @@ def process_event(
     episode_hold_seconds = max(DEFAULT_EPISODE_HOLD_SECONDS, late_attach_seconds)
 
     with open_cursor(connection) as cursor:
+        started = monotonic()
         lock_fusion_label(cursor, label, is_postgres)
+        measure("fusion_lock_wait", started)
 
+        started = monotonic()
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
+        measure("fusion_observation_load", started)
         if existing_group:
+            started = monotonic()
             update_existing_observation_snapshot(cursor, event_record, is_postgres)
-            return update_group_rollup(cursor, existing_group["id"], is_postgres)
+            measure("fusion_observation_save", started)
+            started = monotonic()
+            result = update_group_rollup(cursor, existing_group["id"], is_postgres)
+            measure("fusion_group_save", started)
+            return result
 
+        started = monotonic()
         group = find_candidate_group(
             cursor,
             label,
@@ -1512,7 +1528,9 @@ def process_event(
             is_postgres,
             late_attach_seconds=late_attach_seconds,
         )
+        measure("fusion_group_lookup", started)
         if not group:
+            started = monotonic()
             close_stale_groups(
                 cursor,
                 label,
@@ -1521,7 +1539,9 @@ def process_event(
                 is_postgres,
             )
             group = create_group(cursor, label, event_time, is_postgres)
+            measure("fusion_group_save", started)
 
+        started = monotonic()
         inserted = insert_observation(
             cursor=cursor,
             group_id=group["id"],
@@ -1530,29 +1550,40 @@ def process_event(
             event_time=event_time,
             is_postgres=is_postgres,
         )
+        measure("fusion_observation_save", started)
         if not inserted:
-            return observation_group_for_event(cursor, event_id, is_postgres)
+            started = monotonic()
+            result = observation_group_for_event(cursor, event_id, is_postgres)
+            measure("fusion_observation_load", started)
+            return result
 
+        started = monotonic()
         updated_group = update_group_rollup(
             cursor,
             group["id"],
             is_postgres,
             mark_active=True,
         )
+        measure("fusion_group_save", started)
+        started = monotonic()
         merged_group_ids = merge_nearby_groups(
             cursor=cursor,
             group_id=group["id"],
             label=label,
             is_postgres=is_postgres,
         )
+        measure("fusion_compute", started)
         if merged_group_ids:
+            started = monotonic()
             updated_group = update_group_rollup(
                 cursor,
                 group["id"],
                 is_postgres,
                 mark_active=True,
             )
+            measure("fusion_group_save", started)
             updated_group["merged_group_ids"] = merged_group_ids
+        started = monotonic()
         close_stale_groups(
             cursor,
             label,
@@ -1561,6 +1592,7 @@ def process_event(
             is_postgres,
             exclude_group_id=group["id"],
         )
+        measure("fusion_group_cleanup", started)
         return updated_group
 
 

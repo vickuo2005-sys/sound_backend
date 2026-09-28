@@ -783,7 +783,7 @@
         <section id="view-system" class="view" aria-labelledby="systemTitle"><div class="page-heading"><div><h1 id="systemTitle" class="page-title">系統狀態</h1><p class="page-description">連線、裝置與進階診斷</p></div></div><div class="system-grid"><article class="card metric-card"><div class="metric-top"><span>AI 狀態</span><span class="metric-icon">AI</span></div><div id="aiMetric" class="metric-value">—</div><div id="aiDetail" class="metric-detail">尚無回報</div></article><article class="card metric-card"><div class="metric-top"><span>上傳佇列</span><span class="metric-icon">⇅</span></div><div id="queueMetric" class="metric-value">—</div><div id="queueDetail" class="metric-detail">節點未回報佇列數量</div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">節點摘要</h2><span id="nodeCountBadge" class="badge legacy">0 台已回報</span></div><div class="card-body"><div id="nodeStatusList" class="node-list"></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">服務與資料來源</h2></div><div class="card-body"><div id="healthList" class="health-list"></div></div></article>
-            <article class="card rail-card"><div class="card-header"><div><h2 class="card-title">Latency Diagnostics</h2><p class="muted" style="font-size:11px;margin-top:4px">最近 rolling samples；部署或重啟後歸零</p></div><span class="badge legacy">P50 / P95 / P99</span></div><div class="card-body"><div id="latencyDiagnosticsList" class="health-list"><div class="muted">尚無樣本</div></div></div></article>
+            <article class="card rail-card"><div class="card-header"><div><h2 class="card-title">Latency Diagnostics</h2><p class="muted" style="font-size:11px;margin-top:4px">最近 rolling samples；部署或重啟後歸零</p></div><span class="badge legacy">P50 / P95 / P99</span></div><div class="card-body"><div id="latencyDiagnosticsList" class="health-list"><div class="muted">尚無樣本</div></div><h3 style="font-size:12px;margin:16px 0 8px">Fusion / Tracking Breakdown</h3><div id="latencyDiagnosticsBreakdown" class="health-list"><div class="muted">尚無樣本</div></div></div></article>
             <article class="card rail-card"><div class="card-header"><h2 class="card-title">功能驗證範圍</h2></div><div class="card-body muted" style="font-size:11px">Classification：真機 transport 已驗證<br>Queue：僅顯示 node-reported 狀態<br>Motion：未完成多節點實地驗證<br>Prediction / ETA：僅模擬，未完成實地驗證</div></article>
         </div></section>
         </main>
@@ -2073,6 +2073,25 @@
             if(!validLatencyStage(stage))return 'info';
             return stage.p95_ms>=errorMs?'error':stage.p95_ms>=warnMs?'warn':'ok';
         }
+        function renderLatencyBreakdown() {
+            const target=document.getElementById('latencyDiagnosticsBreakdown'); if(!target)return;
+            const rows=[
+                ['Fusion · Lock wait','fusion_lock_wait'],
+                ['Fusion · DB load','fusion_observation_load'],
+                ['Fusion · Compute','fusion_compute'],
+                ['Fusion · DB save','fusion_group_save'],
+                ['Tracking · Source load','active_tracking_source_load'],
+                ['Tracking · Track lookup','active_tracking_track_lookup'],
+                ['Tracking · Association','active_tracking_association'],
+                ['Tracking · DB save','active_tracking_db_save'],
+                ['Event · Initial DB write','event_db_write'],
+                ['Device · Status DB operation','device_status_db_upsert']
+            ].map(([label,key]) => {
+                const stage=latencyStage(key);
+                return healthRow(label,latencySummaryText(stage),latencyKind(stage,500,2000));
+            });
+            target.innerHTML=rows.join('');
+        }
         function renderLatencyDiagnostics() {
             const target=document.getElementById('latencyDiagnosticsList'); if(!target)return;
             const diagnostics=state.runtime?.latency_diagnostics;
@@ -2095,6 +2114,7 @@
             rows.push(healthRow('Worker queue',`post-ingest ${pendingCount('post_ingest')} · device-status ${pendingCount('device_status')}`,Math.max(pendingCount('post_ingest'),pendingCount('device_status'))>2?'warn':'info'));
             rows.push(healthRow('Browser message handler',browserP95===null?'尚無樣本':`P95 ${browserP95.toFixed(1)} ms · n=${state.browserMessageLatencySamples.length}`,browserP95!==null&&browserP95>50?'warn':'info'));
             target.innerHTML=rows.join('');
+            renderLatencyBreakdown();
         }
         function renderHealth() {
             const devices = canonicalDevices();

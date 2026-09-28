@@ -2,11 +2,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const html = fs.readFileSync(require('node:path').join(__dirname, '../../templates/dashboard_v2_4.html'), 'utf8');
-let writes = 0, content = '', now = 2000, socket, handled = [], fail = false;
+let writes = 0, content = '', breakdownContent = '', now = 2000, socket, handled = [], fail = false;
 const target = {set innerHTML(value) { writes++; content = value; }};
+const breakdownTarget = {set innerHTML(value) { breakdownContent = value; }};
 const context = vm.createContext({
     state: {browserMessageLatencySamples: [], runtime: null},
-    document: {getElementById: () => target}, window: {},
+    document: {getElementById: id => id === 'latencyDiagnosticsBreakdown' ? breakdownTarget : target}, window: {},
     safe: value => String(value).replaceAll('<', '&lt;'),
     performance: {now: () => now}, location: {protocol: 'http:', host: 'localhost'},
     WebSocket: function () { socket = this; },
@@ -17,6 +18,7 @@ vm.runInContext(html.slice(html.indexOf('        function healthRow('), html.ind
 vm.runInContext(html.slice(html.indexOf('        function connectWebSocket()'), html.indexOf('        function scheduleReconnect()')), context);
 context.renderLatencyDiagnostics();
 assert.match(content, /尚無樣本/);
+assert.match(breakdownContent, /Fusion · Lock wait/);
 const good = {count: 10, p50_ms: 1, p95_ms: 2, p99_ms: 3};
 for (const bad of [null, {}, {count: 1}, {...good, p95_ms: '2'}, {...good, p95_ms: NaN},
     {...good, p99_ms: Infinity}, {...good, p50_ms: -1}, {...good, count: '<img>'}, {...good, p50_ms: 4}]) {

@@ -2924,9 +2924,15 @@ def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> t
         )
         for column in update_columns
     )
+    connection_started = monotonic()
     connection = get_postgres_connection()
+    latency_diagnostics.record(
+        "event_db_connection_acquisition",
+        (monotonic() - connection_started) * 1000.0,
+    )
     try:
         with connection:
+            query_started = monotonic()
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
@@ -2939,12 +2945,22 @@ def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> t
                     event_values(event, created_at),
                 )
                 row = cursor.fetchone()
-                inserted_value = row.get("inserted")
-                if isinstance(inserted_value, bool):
-                    inserted = inserted_value
-                else:
-                    inserted = str(inserted_value).lower() in {"1", "t", "true", "yes"}
-                return int(row["id"]), inserted
+            latency_diagnostics.record(
+                "event_db_insert_returning",
+                (monotonic() - query_started) * 1000.0,
+            )
+            commit_started = monotonic()
+        latency_diagnostics.record(
+            "event_db_commit",
+            (monotonic() - commit_started) * 1000.0,
+        )
+        inserted_value = row.get("inserted")
+        if isinstance(inserted_value, bool):
+            inserted = inserted_value
+        else:
+            inserted = str(inserted_value).lower() in {"1", "t", "true", "yes"}
+        result = (int(row["id"]), inserted)
+        return result
     finally:
         connection.close()
 
@@ -2973,7 +2989,13 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
         for column in update_columns
     )
     values = event_values(event, created_at)
+    started = monotonic()
     with get_sqlite_connection() as connection:
+        latency_diagnostics.record(
+            "event_db_connection_acquisition",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
         existing = connection.execute(
             "SELECT id FROM events WHERE event_id = ? LIMIT 1",
             (event.event_id,),
@@ -3006,7 +3028,16 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
             db_id = int(cursor.lastrowid)
             inserted = True
 
+        latency_diagnostics.record(
+            "event_db_insert_returning",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
         connection.commit()
+        latency_diagnostics.record(
+            "event_db_commit",
+            (monotonic() - started) * 1000.0,
+        )
         return db_id, inserted
 
 
@@ -3278,6 +3309,7 @@ def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
                     event_record=event_record,
                     is_postgres=True,
                     window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                    latency_recorder=latency_diagnostics.record,
                 )
         finally:
             connection.close()
@@ -3288,6 +3320,7 @@ def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
             event_record=event_record,
             is_postgres=False,
             window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+            latency_recorder=latency_diagnostics.record,
         )
 
 
@@ -4001,10 +4034,16 @@ def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
 
 
 def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
+    started = monotonic()
     group_track = find_active_track_for_group(measurement.get("group_id"))
+    latency_diagnostics.record(
+        "active_tracking_track_lookup",
+        (monotonic() - started) * 1000.0,
+    )
     if group_track:
         return group_track
 
+    started = monotonic()
     best: Optional[tuple[float, dict]] = None
     for track in active_tracks_for_label(str(measurement.get("label") or "")):
         ok, details = can_associate_track(
@@ -4019,6 +4058,10 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
         score = float(details.get("distance_m") or 0.0)
         if best is None or score < best[0]:
             best = (score, track)
+    latency_diagnostics.record(
+        "active_tracking_association",
+        (monotonic() - started) * 1000.0,
+    )
     return best[1] if best else None
 
 
@@ -4041,7 +4084,12 @@ def process_tracking_measurement(
 ) -> Optional[dict]:
     with tracking_update_lock:
         if close_stale:
+            started = monotonic()
             close_stale_tracks()
+            latency_diagnostics.record(
+                "active_tracking_source_load",
+                (monotonic() - started) * 1000.0,
+            )
         lat_lng = tracking_lat_lng(
             measurement.get("estimated_lat"),
             measurement.get("estimated_lng"),
@@ -4092,7 +4140,13 @@ def process_tracking_measurement(
                         {**measurement, "tracking_discard_reason": metric},
                         state,
                     )
-                return enrich_track_with_points(track)
+                started = monotonic()
+                enriched_track = enrich_track_with_points(track)
+                latency_diagnostics.record(
+                    "active_tracking_point_load",
+                    (monotonic() - started) * 1000.0,
+                )
+                return enriched_track
         state = update_track_from_measurement(
             track,
             measurement,
@@ -4110,9 +4164,28 @@ def process_tracking_measurement(
             )
             if MOTION_FIELD_TELEMETRY_ENABLED and track is not None:
                 save_rejected_track_point(track, measurement, state)
-            return enrich_track_with_points(track) if track else None
+            if not track:
+                return None
+            started = monotonic()
+            enriched_track = enrich_track_with_points(track)
+            latency_diagnostics.record(
+                "active_tracking_point_load",
+                (monotonic() - started) * 1000.0,
+            )
+            return enriched_track
+        started = monotonic()
         saved_track = save_track_point(track, measurement, state)
-    return enrich_track_with_points(saved_track)
+        latency_diagnostics.record(
+            "active_tracking_db_save",
+            (monotonic() - started) * 1000.0,
+        )
+    started = monotonic()
+    enriched_track = enrich_track_with_points(saved_track)
+    latency_diagnostics.record(
+        "active_tracking_point_load",
+        (monotonic() - started) * 1000.0,
+    )
+    return enriched_track
 
 
 TRACKING_REORDER_BUFFERED_RESULT = {"_tracking_reorder_status": "buffered"}
@@ -4467,14 +4540,30 @@ def process_tracking_for_active_alert_region(
 ) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
+    started = monotonic()
     trigger_event = get_event_by_event_id(trigger_event_id)
+    latency_diagnostics.record(
+        "active_tracking_source_load",
+        (monotonic() - started) * 1000.0,
+    )
     if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
         return None
     reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
+    started = monotonic()
+    recent_events = list_recent_events(100)
+    latency_diagnostics.record(
+        "active_tracking_source_load",
+        (monotonic() - started) * 1000.0,
+    )
+    started = monotonic()
     measurement = build_active_alert_region_measurement(
-        list_recent_events(100),
+        recent_events,
         reference_time=reference_time,
         window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
+    )
+    latency_diagnostics.record(
+        "active_tracking_association",
+        (monotonic() - started) * 1000.0,
     )
     if measurement is None:
         return None
@@ -6494,6 +6583,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     if not device_id:
         return None
 
+    started = monotonic()
     effective_location = resolve_effective_location(
         device_id=device_id,
         event_latitude=event.latitude,
@@ -6502,6 +6592,10 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     )
     if not effective_location:
         return None
+    latency_diagnostics.record(
+        "device_status_enrichment",
+        (monotonic() - started) * 1000.0,
+    )
     status_latitude = effective_location["latitude"]
     status_longitude = effective_location["longitude"]
 
@@ -6518,6 +6612,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
 
     if not use_postgres():
         now = current_time_iso()
+        started = monotonic()
         with get_sqlite_connection() as connection:
             connection.execute(
                 """
@@ -6591,9 +6686,15 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                 """,
                 (device_id,),
             ).fetchone()
-            return serialize_db_row(dict(row))
+            result = serialize_db_row(dict(row))
+        latency_diagnostics.record(
+            "device_status_db_upsert",
+            (monotonic() - started) * 1000.0,
+        )
+        return result
 
     connection = get_postgres_connection()
+    started = monotonic()
     try:
         with connection:
             with connection.cursor() as cursor:
@@ -6664,7 +6765,12 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     ),
                 )
                 row = cursor.fetchone()
-                return serialize_db_row(dict(row))
+                result = serialize_db_row(dict(row))
+        latency_diagnostics.record(
+            "device_status_db_upsert",
+            (monotonic() - started) * 1000.0,
+        )
+        return result
     finally:
         connection.close()
 
@@ -9543,8 +9649,13 @@ def run_device_event_status_worker(
         return
 
     try:
+        schedule_started = monotonic()
         loop.call_soon_threadsafe(
             lambda: asyncio.create_task(broadcast_device_status_update(enriched_device_row))
+        )
+        latency_diagnostics.record(
+            "device_status_broadcast_schedule",
+            (monotonic() - schedule_started) * 1000.0,
         )
     except RuntimeError:
         logger.warning("Event loop closed before device status broadcast for %s", event.event_id)

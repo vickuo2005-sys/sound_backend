@@ -25,6 +25,10 @@ def test_latency_instrumentation_compiles_and_is_wired() -> None:
     assert 'latency_diagnostics.record("event_fusion"' in main or '"event_fusion",' in main
     assert 'latency_diagnostics.record("tdoa_solver"' in solver or '"tdoa_solver",' in solver
     assert 'latencyDiagnosticsList' in html
+    assert 'latencyDiagnosticsBreakdown' in html
+    for stage in ('fusion_lock_wait', 'fusion_observation_load', 'fusion_compute',
+                  'active_tracking_association', 'event_db_write', 'device_status_db_upsert'):
+        assert stage in html or stage in main
     assert 'function renderLatencyDiagnostics()' in html
     assert 'performance.now()-browserStarted' in html
 
@@ -64,7 +68,11 @@ def test_worker_lifecycle(monkeypatch, diagnostics, kind, outcome):
     monkeypatch.setattr(main, "process_event_post_ingest", work)
     monkeypatch.setattr(main, "upsert_device_event_status", work)
     monkeypatch.setattr(main, "update_device_status_cache_row", lambda row: None)
-    ticks = iter([10.25, 10.75])
+    ticks = iter(
+        [10.25, 10.75]
+        if kind == "post_ingest"
+        else [10.25, 10.5, 10.75, 10.75]
+    )
     monkeypatch.setattr(main, "monotonic", lambda: next(ticks))
     diagnostics.job_enqueued(kind)
     loop = SimpleNamespace(call_soon_threadsafe=call_soon)
@@ -75,7 +83,8 @@ def test_worker_lifecycle(monkeypatch, diagnostics, kind, outcome):
     snapshot = diagnostics.snapshot()
     assert snapshot["pending_jobs"][kind] == 0
     assert snapshot["stages"][f"{kind}_queue_wait"]["last_ms"] == 250
-    assert snapshot["stages"][f"{kind}_worker"]["last_ms"] == 500
+    expected_worker_ms = 250 if kind == "device_status" and outcome == "exception" else 500
+    assert snapshot["stages"][f"{kind}_worker"]["last_ms"] == expected_worker_ms
     assert len(callbacks) == (1 if outcome == "success" else 0)
 
 
