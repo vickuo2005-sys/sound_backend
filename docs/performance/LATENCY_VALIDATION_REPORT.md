@@ -99,6 +99,12 @@ PostgreSQL／Android 瓶頸或宣稱生產效能。後續應優先同步觀察 q
 compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判讀限制。
 
 
+
+## 實機 staging 測試
+
+2026-09-28 使用實體 Android `23108RN04Y`（Android 15 / API 35），App package `com.example.sound_detector_clean.staging`、version `1.0.2-staging`，Wi-Fi 已驗證可連 staging。App 啟動後顯示後端已連線、GPS 與 AI 已載入；啟動監聽並產生真實聲音事件後，staging `/runtime-status` 與 `/events` 均收到 node_A01 新樣本。當次 snapshot：`event_db_write` n=6 P95 1079.45 ms、`event_initial_submission` n=6 P95 1080.07 ms、`event_fusion` n=3 P95 5496.65 ms、`post_ingest_pipeline` n=3 P95 7864.68 ms、`websocket_broadcast` n=241 P95 0.283 ms；`pending_jobs.device_status=0`、`pending_jobs.post_ingest=0`。完整摘要存於 `outputs/verification/android_staging_device_20260928.json`。
+
+這是單一實體節點、少量事件的驗證，尚未完成使用 30–50 次真實多節點事件的 field test；上述 P95 不能代表多節點端到端效能，也不足以下 production 瓶頸結論。
 ## 最新 staging smoke test
 
 2026-09-28 已將 staging service 切換至 `feat/latency-diagnostics-staging` 並手動部署成功。Render deploy `dep-dat0ienpn0mc73adjthg` 顯示 `Deploy succeeded | Live`，來源 commit `9480807aeea1c3662c2287e695c6c5373d3ad521`。`/health` 與 `/runtime-status` 回 200；`build.render_git_commit`、branch 與 service name 均對應本次 staging；`latency_diagnostics` 結構存在且 `sample_window=256`，初始 stages／pending maps 為空。`/dashboard` 回 200，Render logs 顯示 Uvicorn startup complete、WebSocket accepted、runtime-status／health／dashboard／events／device-status／tracks 均成功，未見 exception、OOM 或 restart。
@@ -107,7 +113,7 @@ compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判�
 ## 未完成與交付
 
 - Render staging：已部署並完成 smoke test。服務為 `https://sound-backend-staging.onrender.com`，service `sound-backend-staging`，service ID `srv-da6kdn61egvs7392r92g`。部署 `dep-dat0ienpn0mc73adjthg` 使用 commit `9480807aeea1c3662c2287e695c6c5373d3ad521`、branch `feat/latency-diagnostics-staging`；`/health`、`/runtime-status`、`/dashboard` 與 WebSocket 均正常，`latency_diagnostics` 存在且 sample window 為 256。Render logs 未見 exception、OOM 或 restart。staging DB 與 production DB 隔離仍未獨立確認。
-- Android：已找到 `C:\Users\vicku\sound_detector_clean`、staging config 與 `app-staging-release.apk`（186,369,035 bytes，2026-09-04 建置）；config validator 確認 host 是 `sound-backend-staging.onrender.com`、upload/device token 已設定（值未輸出）。Flutter 3.38.5 `flutter test` 為 **93 passed**。本機沒有 `adb`，沒有連線 Android 裝置；30–50 次真實多節點測試未執行，沒有實測效能結論。
+- Android：已使用 `C:\Users\vicku\sound_detector_clean` 的 staging config 建置並安裝 `com.example.sound_detector_clean.staging` 1.0.2-staging；Flutter 3.38.5 `flutter test` 為 **93 passed**，`flutter analyze` 通過。已在實機 `23108RN04Y`（Android 15）完成單一 node_A01 實機事件測試；尚未完成 30–50 次多節點測試。
 - `LATENCY_FIELD_RUNBOOK.md` 提供可執行 staging 步驟、40 episode 計畫、收集格式、
   版本／隔離門檻與分析限制。`tools/collect_latency_diagnostics.py` 只做 GET，
   檢查 full SHA 與 schema、拒絕 redirect、保護既有輸出；CPU／記憶體／DB connection 另由
@@ -132,7 +138,4 @@ compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判�
 - `docs/performance/LATENCY_VALIDATION_REPORT.md`
 
 本報告隨修復 commit 提交。最終完整 SHA 與推送確認列於外部交付報告，避免文件引用自身 hash。
-
-
-
 
