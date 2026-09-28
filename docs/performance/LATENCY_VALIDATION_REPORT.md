@@ -6,8 +6,7 @@
 ## 結果與範圍
 
 自動化測試與本機合成 smoke test 已完成。**沒有部署 Render staging，也沒有完成 Android 實機測試。**
-本次找不到可確認隔離的 Render service ID／URL、測試 DB／GCS 資源與部署權限；
-環境沒有 Render 憑證，可用瀏覽器也沒有已登入的 Render 分頁，GitHub deployment 列表沒有提供可用隔離證據。
+已確認 Render staging service `sound-backend-staging`（`srv-da6kdn61egvs7392r92g`）及登入帳號的設定／手動部署權限；但該服務目前仍追蹤 `feat/v2-4-dashboard-simulation`，不是本 PR 分支。DATABASE_URL 值在 Render UI 遮罩，無法確認 DB project／host／role 與 production 隔離；因此仍未部署。
 不把 repository 中的 staging blueprint 或 UI 的 STAGING 字樣當成隔離證明。
 因此依使用者要求停止部署，沒有呼叫 Render 部署或改動 production 環境。
 
@@ -127,3 +126,4 @@ compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判�
 - `docs/performance/LATENCY_VALIDATION_REPORT.md`
 
 本報告隨修復 commit 提交。最終完整 SHA 與推送確認列於外部交付報告，避免文件引用自身 hash。
+
