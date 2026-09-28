@@ -5,10 +5,10 @@
 
 ## 結果與範圍
 
-自動化測試與本機合成 smoke test 已完成。**沒有部署 Render staging，也沒有完成 Android 實機測試。**
-已確認 Render staging service `sound-backend-staging`（`srv-da6kdn61egvs7392r92g`）及登入帳號的設定／手動部署權限；但該服務目前仍追蹤 `feat/v2-4-dashboard-simulation`，不是本 PR 分支。DATABASE_URL 值在 Render UI 遮罩，無法確認 DB project／host／role 與 production 隔離；因此仍未部署。
+自動化測試、本機合成 smoke test 與 Render staging smoke test 已完成。**Android 實機測試尚未完成。**
+已確認 Render staging service `sound-backend-staging`（`srv-da6kdn61egvs7392r92g`）及登入帳號的設定／手動部署權限。DATABASE_URL 值在 Render UI 遮罩，無法確認 DB project／host／role 與 production 隔離；本次依使用者指示仍完成 staging 部署。
 不把 repository 中的 staging blueprint 或 UI 的 STAGING 字樣當成隔離證明。
-因此依使用者要求停止部署，沒有呼叫 Render 部署或改動 production 環境。
+production service 未修改、未部署。
 
 全新 checkout 的 Git 狀態乾淨；沒有覆寫其他工作目錄。另建 detached baseline checkout
 重現既有失敗。TDOA／Tracking 演算法檔案 diff 為空，沒有改正式 DB、環境變數或運算資源。
@@ -98,9 +98,15 @@ console 檢查未見 error/warn。Google Maps 未配置，僅驗證 fallback 與
 PostgreSQL／Android 瓶頸或宣稱生產效能。後續應優先同步觀察 queue＋CPU、fusion＋DB waits、
 compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判讀限制。
 
+
+## 最新 staging smoke test
+
+2026-09-28 已將 staging service 切換至 `feat/latency-diagnostics-staging` 並手動部署成功。Render deploy `dep-dat0ienpn0mc73adjthg` 顯示 `Deploy succeeded | Live`，來源 commit `9480807aeea1c3662c2287e695c6c5373d3ad521`。`/health` 與 `/runtime-status` 回 200；`build.render_git_commit`、branch 與 service name 均對應本次 staging；`latency_diagnostics` 結構存在且 `sample_window=256`，初始 stages／pending maps 為空。`/dashboard` 回 200，Render logs 顯示 Uvicorn startup complete、WebSocket accepted、runtime-status／health／dashboard／events／device-status／tracks 均成功，未見 exception、OOM 或 restart。
+
+本次部署依使用者後續指示執行；staging DB 與 production DB 的隔離仍未獨立確認。未送入真實事件流量，故尚無 staging latency percentiles 或效能瓶頸結論。
 ## 未完成與交付
 
-- Render staging：已從其他對話找到並做唯讀 smoke check：`https://sound-backend-staging.onrender.com`，service `sound-backend-staging`，service ID `srv-da6kdn61egvs7392r92g`。`/health` 回 healthy，`/runtime-status` 回 success，且與 production `sound-backend` 的 service ID `srv-d8f572eq1p3s73dimgig` 不同；這證明服務 identity 分離，但公開 API 沒有暴露 DB project／host／role，仍不能單靠此確認資料庫隔離。當前 staging SHA 是 `e7eb351e4ffe9c66c59c7392d39440f98c074885`、branch `feat/v2-4-dashboard-simulation`，不是本 PR `3bcbc00e4eefd2be66899f802ab59ea8580b5ba7`。目前 `latency_diagnostics` 為空／未提供，4 個註冊節點 A01–A04 全 offline、WebSocket 0；因此沒有對 PR #5 做 staging deployment、PR smoke 或 Render logs／CPU／記憶體／DB connection 驗證。工作目錄沒有 Render CLI、Render API token 或 deploy hook，不能安全觸發部署。
+- Render staging：已部署並完成 smoke test。服務為 `https://sound-backend-staging.onrender.com`，service `sound-backend-staging`，service ID `srv-da6kdn61egvs7392r92g`。部署 `dep-dat0ienpn0mc73adjthg` 使用 commit `9480807aeea1c3662c2287e695c6c5373d3ad521`、branch `feat/latency-diagnostics-staging`；`/health`、`/runtime-status`、`/dashboard` 與 WebSocket 均正常，`latency_diagnostics` 存在且 sample window 為 256。Render logs 未見 exception、OOM 或 restart。staging DB 與 production DB 隔離仍未獨立確認。
 - Android：已找到 `C:\Users\vicku\sound_detector_clean`、staging config 與 `app-staging-release.apk`（186,369,035 bytes，2026-09-04 建置）；config validator 確認 host 是 `sound-backend-staging.onrender.com`、upload/device token 已設定（值未輸出）。Flutter 3.38.5 `flutter test` 為 **93 passed**。本機沒有 `adb`，沒有連線 Android 裝置；30–50 次真實多節點測試未執行，沒有實測效能結論。
 - `LATENCY_FIELD_RUNBOOK.md` 提供可執行 staging 步驟、40 episode 計畫、收集格式、
   版本／隔離門檻與分析限制。`tools/collect_latency_diagnostics.py` 只做 GET，
@@ -126,4 +132,7 @@ compute＋solver、broadcast＋client handler，詳見 runbook 的假設與判�
 - `docs/performance/LATENCY_VALIDATION_REPORT.md`
 
 本報告隨修復 commit 提交。最終完整 SHA 與推送確認列於外部交付報告，避免文件引用自身 hash。
+
+
+
 
