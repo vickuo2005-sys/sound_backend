@@ -45,6 +45,14 @@ class LatencyDiagnostics:
         self._peak_pending: dict[str, int] = {}
         self._traces: deque[dict[str, Any]] = deque(maxlen=32)
         self._trace_local = threading.local()
+        self._pool_stats: dict[str, int] = {
+            "acquisitions": 0,
+            "releases": 0,
+            "checked_out": 0,
+            "peak_checked_out": 0,
+            "creation_failures": 0,
+            "acquire_timeouts": 0,
+        }
 
     @staticmethod
     def _percentile(values: list[float], percentile: float) -> float:
@@ -79,11 +87,77 @@ class LatencyDiagnostics:
             trace = getattr(self._trace_local, "current", None)
             if trace is not None:
                 trace["stages"][key] = value
+                values = trace.setdefault("stage_samples", {}).setdefault(key, [])
+                if len(values) < 64:
+                    values.append(value)
+
+    def set_trace_context(self, purpose: str | None) -> None:
+        self._trace_local.context = str(purpose or "").strip() or None
+
+    def trace_context(self) -> str | None:
+        return getattr(self._trace_local, "context", None)
+
+    def record_pool_acquisition(self, duration_ms: float, purpose: str | None = None) -> None:
+        self.record("postgres_pool_acquisition", duration_ms)
+        with self._lock:
+            self._pool_stats["acquisitions"] += 1
+            self._pool_stats["checked_out"] += 1
+            self._pool_stats["peak_checked_out"] = max(
+                self._pool_stats["peak_checked_out"], self._pool_stats["checked_out"]
+            )
+            trace = getattr(self._trace_local, "current", None)
+            if trace is not None:
+                item = {"duration_ms": float(duration_ms), "purpose": str(purpose or self.trace_context() or "unknown")}
+                acquisitions = trace.setdefault("postgres_acquisitions", [])
+                if len(acquisitions) < 32:
+                    acquisitions.append(item)
+                trace["postgres_pool_acquisition_count"] = trace.get("postgres_pool_acquisition_count", 0) + 1
+                trace["postgres_pool_wait_total_ms"] = trace.get("postgres_pool_wait_total_ms", 0.0) + float(duration_ms)
+                trace["postgres_pool_wait_max_ms"] = max(trace.get("postgres_pool_wait_max_ms", 0.0), float(duration_ms))
+
+    def record_pool_release(self, hold_ms: float, purpose: str | None = None) -> None:
+        self.record("postgres_connection_hold", hold_ms)
+        self.record("postgres_transaction_duration", hold_ms)
+        with self._lock:
+            self._pool_stats["releases"] += 1
+            self._pool_stats["checked_out"] = max(0, self._pool_stats["checked_out"] - 1)
+            trace = getattr(self._trace_local, "current", None)
+            if trace is not None:
+                holds = trace.setdefault("postgres_holds", [])
+                if len(holds) < 32:
+                    holds.append({"duration_ms": float(hold_ms), "purpose": str(purpose or self.trace_context() or "unknown")})
+
+    def record_pool_timeout(self) -> None:
+        with self._lock:
+            self._pool_stats["acquire_timeouts"] += 1
+
+    def record_pool_creation_failure(self) -> None:
+        with self._lock:
+            self._pool_stats["creation_failures"] += 1
+
+    def pool_snapshot(self, pool: Any = None, *, min_size: int = 1, max_size: int = 20) -> dict[str, Any]:
+        with self._lock:
+            result = dict(self._pool_stats)
+        result.update({"min_size": int(min_size), "max_size": int(max_size), "waiting_requests": 0})
+        if pool is not None:
+            try:
+                used = getattr(pool, "_used", {})
+                idle = getattr(pool, "_pool", [])
+                result["checked_out"] = len(used)
+                result["idle_connections"] = len(idle)
+                result["available_connections"] = len(idle)
+                result["pool_total_connections"] = len(used) + len(idle)
+            except Exception:
+                pass
+        return result
 
     def begin_trace(self, event_id: str) -> None:
         self._trace_local.current = {
             "event_id": str(event_id or ""),
             "stages": {},
+            "stage_samples": {},
+            "postgres_acquisitions": [],
+            "postgres_holds": [],
         }
 
     def finish_trace(self, total_ms: float | int | None) -> None:
@@ -98,6 +172,16 @@ class LatencyDiagnostics:
         if total is None or not math.isfinite(total) or total < 0:
             return
         trace["total_ms"] = total
+        samples = trace.get("stage_samples", {})
+        for total_key, child_key, residual_key in (
+            ("event_fusion", ("fusion_lock_wait", "fusion_observation_load", "fusion_group_lookup", "fusion_observation_save", "fusion_group_save", "fusion_compute", "fusion_group_cleanup"), "fusion_unaccounted_ms"),
+            ("active_alert_tracking", ("active_tracking_source_load", "active_tracking_track_lookup", "active_tracking_point_load", "active_tracking_association", "active_tracking_db_save"), "tracking_unaccounted_ms"),
+        ):
+            if total_key in samples:
+                child_total = sum(float(value) for key in child_key for value in samples.get(key, []))
+                total_value = sum(float(value) for value in samples.get(total_key, []))
+                trace["stages"][residual_key] = max(0.0, total_value - child_total)
+                trace.setdefault("stage_samples", {}).setdefault(residual_key, []).append(trace["stages"][residual_key])
         with self._lock:
             self._traces.append(trace)
 
@@ -140,6 +224,7 @@ class LatencyDiagnostics:
             pending = dict(self._pending)
             peak_pending = dict(self._peak_pending)
             traces = [dict(item, stages=dict(item["stages"])) for item in self._traces]
+            pool_stats = dict(self._pool_stats)
         # Copy under the lock; percentile sorting must not hold up worker writers.
         return {
             "sample_window": self.max_samples_per_stage,
@@ -149,6 +234,7 @@ class LatencyDiagnostics:
             },
             "pending_jobs": pending,
             "peak_pending_jobs": peak_pending,
+            "pool": pool_stats,
             "recent_traces": traces,
             "note": "Process-local rolling samples; reset on deploy/restart.",
         }
@@ -159,6 +245,7 @@ class LatencyDiagnostics:
             self._pending.clear()
             self._peak_pending.clear()
             self._traces.clear()
+            self._pool_stats.update({key: 0 for key in self._pool_stats})
             self._trace_local.current = None
 
 

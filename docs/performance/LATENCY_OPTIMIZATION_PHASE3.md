@@ -34,3 +34,34 @@ Before Phase 3, connection acquisition P95 was about 1.42 s and device-status/po
 3. Run the four-node Android procedure with fixed staging locations and the same event conditions used for the Phase 2 baseline.
 4. Save `/runtime-status` before and after the run, including `recent_traces`, queue peaks, `postgres_pool_acquisition`, Fusion stages, tracking stages, and event DB stages.
 5. Compare P50/P95/P99 by stage; do not add stage percentiles to claim an end-to-end percentile. Review Render logs for exceptions, OOM, or restarts.
+
+## Phase 3.1: wall-time accounting before further optimization
+
+The follow-up four-node run on `8570e63b` confirmed that Fusion's named child
+stages explain only part of its wall time. The representative traces show
+roughly 0.9–1.2 seconds of named child work inside 2.6–5.0 second
+`event_fusion` spans; the remaining time is now exposed as
+`fusion_unaccounted_ms` rather than being attributed to a guessed query.
+This is an accounting result, not proof of a specific database bottleneck.
+
+Diagnostics now retain bounded per-event `stage_samples`, repeated PostgreSQL
+acquisition entries with a purpose/context label, total and maximum pool wait,
+connection hold/transaction duration, and pool counters (checked out, idle,
+peak checked out, creation failures, and acquire timeouts). The runtime payload
+continues to keep these values in process memory only.
+
+Tracking traces similarly retain sequential stage samples and expose
+`tracking_unaccounted_ms`. Existing tracking and Fusion SQL, lock scope, and
+association math remain unchanged until a larger sample and concurrency-safe
+query evidence are available.
+
+The observed 53 sequence gaps are most consistent with state loss on backend
+restart while Android process sessions continued their sequence numbers. The
+first observation for an unknown `(device_id, process_session_id)` now
+establishes a baseline; later sequence jumps still create real gap metrics.
+This rule is covered by restart and subsequent-gap tests.
+
+The next optimization should use the new traces to identify the residual
+region and connection hold scope. Do not increase pool or worker limits, narrow
+the advisory lock, or change tracking/TDOA behavior until that evidence is
+collected.

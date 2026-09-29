@@ -100,3 +100,34 @@ def test_correlated_trace_is_bounded_and_includes_stage_durations():
     assert trace["stages"] == {"fusion_compute": 12.5, "event_db_commit": 3.0}
     diagnostics.reset()
     assert diagnostics.snapshot()["recent_traces"] == []
+
+
+def test_trace_keeps_repeated_stages_and_pool_accounting():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.begin_trace("evt-repeat")
+    diagnostics.record("fusion_group_save", 10)
+    diagnostics.record("fusion_group_save", 20)
+    diagnostics.record_pool_acquisition(3, "fusion_group_lookup")
+    diagnostics.record_pool_acquisition(7, "fusion_group_save")
+    diagnostics.record_pool_release(30, "fusion_group_save")
+    diagnostics.finish_trace(100)
+    trace = diagnostics.snapshot()["recent_traces"][0]
+    assert trace["stage_samples"]["fusion_group_save"] == [10.0, 20.0]
+    assert trace["postgres_pool_acquisition_count"] == 2
+    assert trace["postgres_pool_wait_total_ms"] == 10.0
+    assert trace["postgres_pool_wait_max_ms"] == 7.0
+    assert trace["postgres_holds"][0]["duration_ms"] == 30.0
+
+
+def test_trace_residual_accounting_is_explicit():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.begin_trace("evt-residual")
+    diagnostics.record("fusion_lock_wait", 10)
+    diagnostics.record("fusion_compute", 20)
+    diagnostics.record("event_fusion", 100)
+    diagnostics.record("active_tracking_source_load", 5)
+    diagnostics.record("active_alert_tracking", 25)
+    diagnostics.finish_trace(125)
+    trace = diagnostics.snapshot()["recent_traces"][0]
+    assert trace["stages"]["fusion_unaccounted_ms"] == 70
+    assert trace["stages"]["tracking_unaccounted_ms"] == 20

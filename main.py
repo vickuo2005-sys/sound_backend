@@ -1067,11 +1067,14 @@ class PooledPostgresConnection:
         pool: Any,
         connection: Any,
         gate: Optional[threading.BoundedSemaphore] = None,
+        purpose: Optional[str] = None,
     ) -> None:
         self._pool = pool
         self._connection = connection
         self._gate = gate
         self._returned = False
+        self._checked_out_at = monotonic()
+        self._purpose = purpose or latency_diagnostics.trace_context() or "unknown"
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._connection, name)
@@ -1103,6 +1106,10 @@ class PooledPostgresConnection:
         try:
             self._pool.putconn(self._connection, close=should_close)
         finally:
+            latency_diagnostics.record_pool_release(
+                (monotonic() - self._checked_out_at) * 1000.0,
+                self._purpose,
+            )
             if self._gate is not None:
                 self._gate.release()
 
@@ -1144,6 +1151,7 @@ def get_postgres_connection() -> PooledPostgresConnection:
         gate = _postgres_pool_gate if pool is _postgres_pool else None
 
     if gate is None or not gate.acquire(timeout=POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS):
+        latency_diagnostics.record_pool_timeout()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database connection pool is temporarily busy",
@@ -1160,15 +1168,21 @@ def get_postgres_connection() -> PooledPostgresConnection:
                     continue
 
                 connection.rollback()
-                wrapped = PooledPostgresConnection(pool, connection, gate)
+                wrapped = PooledPostgresConnection(
+                    pool,
+                    connection,
+                    gate,
+                    latency_diagnostics.trace_context(),
+                )
                 gate = None
-                latency_diagnostics.record(
-                    "postgres_pool_acquisition",
+                latency_diagnostics.record_pool_acquisition(
                     (monotonic() - started) * 1000.0,
+                    latency_diagnostics.trace_context(),
                 )
                 return wrapped
             except Exception as exc:
                 last_error = exc
+                latency_diagnostics.record_pool_creation_failure()
                 if connection is not None:
                     try:
                         pool.putconn(connection, close=True)
@@ -3302,32 +3316,37 @@ def delete_event_by_event_id(event_id: str) -> dict:
 
 
 def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
-    event_record = get_event_by_event_id(event_id)
-    if not event_record:
-        return None
+    latency_diagnostics.set_trace_context("fusion_event_load")
+    try:
+        event_record = get_event_by_event_id(event_id)
+        if not event_record:
+            return None
 
-    if use_postgres():
-        connection = get_postgres_connection()
-        try:
-            with connection:
-                return process_fusion_event(
-                    connection=connection,
-                    event_record=event_record,
-                    is_postgres=True,
-                    window_seconds=EVENT_FUSION_WINDOW_SECONDS,
-                    latency_recorder=latency_diagnostics.record,
-                )
-        finally:
-            connection.close()
+        latency_diagnostics.set_trace_context("fusion")
+        if use_postgres():
+            connection = get_postgres_connection()
+            try:
+                with connection:
+                    return process_fusion_event(
+                        connection=connection,
+                        event_record=event_record,
+                        is_postgres=True,
+                        window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                        latency_recorder=latency_diagnostics.record,
+                    )
+            finally:
+                connection.close()
 
-    with get_sqlite_connection() as connection:
-        return process_fusion_event(
-            connection=connection,
-            event_record=event_record,
-            is_postgres=False,
-            window_seconds=EVENT_FUSION_WINDOW_SECONDS,
-            latency_recorder=latency_diagnostics.record,
-        )
+        with get_sqlite_connection() as connection:
+            return process_fusion_event(
+                connection=connection,
+                event_record=event_record,
+                is_postgres=False,
+                window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                latency_recorder=latency_diagnostics.record,
+            )
+    finally:
+        latency_diagnostics.set_trace_context(None)
 
 
 def list_event_fusion_groups(
@@ -4546,36 +4565,40 @@ def process_tracking_for_active_alert_region(
 ) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
-    started = monotonic()
-    trigger_event = get_event_by_event_id(trigger_event_id)
-    latency_diagnostics.record(
-        "active_tracking_source_load",
-        (monotonic() - started) * 1000.0,
-    )
-    if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
-        return None
-    reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
-    started = monotonic()
-    recent_events = list_recent_events(100)
-    latency_diagnostics.record(
-        "active_tracking_source_load",
-        (monotonic() - started) * 1000.0,
-    )
-    started = monotonic()
-    measurement = build_active_alert_region_measurement(
-        recent_events,
-        reference_time=reference_time,
-        window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
-    )
-    latency_diagnostics.record(
-        "active_tracking_association",
-        (monotonic() - started) * 1000.0,
-    )
-    if measurement is None:
-        return None
-    if post_ingest_reorder:
-        return process_post_ingest_tracking_measurement(measurement)
-    return process_tracking_measurement(measurement)
+    latency_diagnostics.set_trace_context("tracking")
+    try:
+        started = monotonic()
+        trigger_event = get_event_by_event_id(trigger_event_id)
+        latency_diagnostics.record(
+            "active_tracking_source_load",
+            (monotonic() - started) * 1000.0,
+        )
+        if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
+            return None
+        reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
+        started = monotonic()
+        recent_events = list_recent_events(100)
+        latency_diagnostics.record(
+            "active_tracking_source_load",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
+        measurement = build_active_alert_region_measurement(
+            recent_events,
+            reference_time=reference_time,
+            window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
+        )
+        latency_diagnostics.record(
+            "active_tracking_association",
+            (monotonic() - started) * 1000.0,
+        )
+        if measurement is None:
+            return None
+        if post_ingest_reorder:
+            return process_post_ingest_tracking_measurement(measurement)
+        return process_tracking_measurement(measurement)
+    finally:
+        latency_diagnostics.set_trace_context(None)
 
 
 def tracking_point_diagnostics(measurement: dict) -> dict:
@@ -9815,6 +9838,19 @@ async def health():
 @app.get("/runtime-status")
 async def runtime_status():
     live_nodes = node_manager.live_states()
+    pool_min = max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1))
+    pool_max = max(pool_min, int(os.getenv("POSTGRES_POOL_MAX", "20") or 20))
+    pool = None
+    if use_postgres():
+        try:
+            pool = get_postgres_pool()
+        except Exception:
+            pool = None
+    latency_snapshot = latency_diagnostics.snapshot()
+    if use_postgres():
+        latency_snapshot["pool"] = latency_diagnostics.pool_snapshot(
+            pool, min_size=pool_min, max_size=pool_max
+        )
     return {
         "status": "success",
         "time": current_time_iso(),
@@ -9830,9 +9866,9 @@ async def runtime_status():
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
         "device_status_workers": DEVICE_STATUS_WORKERS,
-        "postgres_pool_min": max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1)),
-        "postgres_pool_max": max(1, int(os.getenv("POSTGRES_POOL_MAX", "20") or 20)),
-        "latency_diagnostics": latency_diagnostics.snapshot(),
+        "postgres_pool_min": pool_min,
+        "postgres_pool_max": pool_max,
+        "latency_diagnostics": latency_snapshot,
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,

@@ -19,7 +19,7 @@ def test_latency_instrumentation_compiles_and_is_wired() -> None:
     compile(main, "main.py", "exec")
     compile(solver, "timestamp_tdoa.py", "exec")
     assert 'from services.latency_diagnostics import latency_diagnostics' in main
-    assert '"latency_diagnostics": latency_diagnostics.snapshot()' in main
+    assert '"latency_diagnostics": latency_snapshot' in main
     assert '"post_ingest_queue_wait"' not in main or 'job_started(' in main
     assert 'latency_diagnostics.record("event_db_write"' in main
     assert 'latency_diagnostics.record("event_fusion"' in main or '"event_fusion",' in main
