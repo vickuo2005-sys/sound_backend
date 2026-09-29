@@ -49,6 +49,7 @@ class PerKeySequenceExecutor:
         max_pending_per_key: int = 1024,
         max_keys: int = 2048,
         key_ttl_ms: float = 3_600_000.0,
+        baseline_on_first: bool = False,
     ) -> None:
         if max_late_ms < 0:
             raise ValueError("max_late_ms must be non-negative")
@@ -60,6 +61,7 @@ class PerKeySequenceExecutor:
         self.max_pending_per_key = max(1, int(max_pending_per_key))
         self.max_keys = max(1, int(max_keys))
         self.key_ttl_ms = max(1.0, float(key_ttl_ms))
+        self.baseline_on_first = bool(baseline_on_first)
         self._lock = threading.RLock()
         self._next_sequence: dict[str, int] = {}
         self._pending: dict[str, dict[int, SequencedItem]] = {}
@@ -117,10 +119,18 @@ class PerKeySequenceExecutor:
             while len(seen_ids) > self.max_seen_ids_per_key:
                 seen_ids.popitem(last=False)
 
-            next_sequence = self._next_sequence.setdefault(
-                normalized_key,
-                self.initial_sequence,
-            )
+            new_key_baseline = self.baseline_on_first and normalized_key not in self._next_sequence
+            if new_key_baseline:
+                # Backend restart can erase ordering state while a device
+                # process continues its sequence. Establish the first seen
+                # sequence as the baseline; later jumps remain real gaps.
+                next_sequence = numeric_sequence
+                self._next_sequence[normalized_key] = numeric_sequence
+            else:
+                next_sequence = self._next_sequence.setdefault(
+                    normalized_key,
+                    self.initial_sequence,
+                )
             pending = self._pending.setdefault(normalized_key, {})
             seen_sequences = self._seen_sequences.setdefault(
                 normalized_key,
@@ -135,7 +145,7 @@ class PerKeySequenceExecutor:
                 )
             highest_seen = self._highest_seen.get(
                 normalized_key,
-                self.initial_sequence - 1,
+                numeric_sequence - 1 if new_key_baseline else self.initial_sequence - 1,
             )
             if numeric_sequence < highest_seen:
                 self._metrics["sequence_out_of_order_count"] += 1

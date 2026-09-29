@@ -3194,9 +3194,10 @@ def list_recent_events(limit: int = 50) -> list[dict]:
     return enrich_event_location_rows([dict(row) for row in rows])
 
 
-def get_event_by_event_id(event_id: str) -> Optional[dict]:
+def get_event_by_event_id(event_id: str, connection: Any = None) -> Optional[dict]:
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -3213,7 +3214,8 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
                     row = cursor.fetchone()
                     event_row = dict(row) if row else None
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
         return enrich_event_location_row(event_row) if event_row else None
 
     with get_sqlite_connection() as connection:
@@ -3317,25 +3319,26 @@ def delete_event_by_event_id(event_id: str) -> dict:
 
 def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
     latency_diagnostics.set_trace_context("fusion_event_load")
+    connection = None
     try:
-        event_record = get_event_by_event_id(event_id)
+        if use_postgres():
+            connection = get_postgres_connection()
+        event_record = get_event_by_event_id(event_id, connection=connection)
         if not event_record:
             return None
 
         latency_diagnostics.set_trace_context("fusion")
+        if connection is not None:
+            connection._purpose = "fusion_transaction"
         if use_postgres():
-            connection = get_postgres_connection()
-            try:
-                with connection:
-                    return process_fusion_event(
-                        connection=connection,
-                        event_record=event_record,
-                        is_postgres=True,
-                        window_seconds=EVENT_FUSION_WINDOW_SECONDS,
-                        latency_recorder=latency_diagnostics.record,
-                    )
-            finally:
-                connection.close()
+            with connection:
+                return process_fusion_event(
+                    connection=connection,
+                    event_record=event_record,
+                    is_postgres=True,
+                    window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                    latency_recorder=latency_diagnostics.record,
+                )
 
         with get_sqlite_connection() as connection:
             return process_fusion_event(
@@ -3346,6 +3349,8 @@ def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
                 latency_recorder=latency_diagnostics.record,
             )
     finally:
+        if connection is not None:
+            connection.close()
         latency_diagnostics.set_trace_context(None)
 
 
@@ -3980,9 +3985,10 @@ def process_event_group_localization(
     return {"localization": saved, "track": track}
 
 
-def active_tracks_for_label(label: str) -> list[dict]:
+def active_tracks_for_label(label: str, connection: Any = None) -> list[dict]:
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -3999,7 +4005,8 @@ def active_tracks_for_label(label: str) -> list[dict]:
                     )
                     return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
 
     with get_sqlite_connection() as connection:
         rows = connection.execute(
@@ -4016,12 +4023,13 @@ def active_tracks_for_label(label: str) -> list[dict]:
         return [serialize_db_row(dict(row)) for row in rows]
 
 
-def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
+def find_active_track_for_group(group_id: Optional[str], connection: Any = None) -> Optional[dict]:
     if not group_id:
         return None
 
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -4040,7 +4048,8 @@ def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
                     row = cursor.fetchone()
                     return serialize_db_row(dict(row)) if row else None
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
 
     with get_sqlite_connection() as connection:
         row = connection.execute(
@@ -4058,9 +4067,9 @@ def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
         return serialize_db_row(dict(row)) if row else None
 
 
-def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
+def choose_track_for_measurement(measurement: dict, connection: Any = None) -> Optional[dict]:
     started = monotonic()
-    group_track = find_active_track_for_group(measurement.get("group_id"))
+    group_track = find_active_track_for_group(measurement.get("group_id"), connection=connection)
     latency_diagnostics.record(
         "active_tracking_track_lookup",
         (monotonic() - started) * 1000.0,
@@ -4070,7 +4079,7 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
 
     started = monotonic()
     best: Optional[tuple[float, dict]] = None
-    for track in active_tracks_for_label(str(measurement.get("label") or "")):
+    for track in active_tracks_for_label(str(measurement.get("label") or ""), connection=connection):
         ok, details = can_associate_track(
             track,
             measurement,
@@ -4133,7 +4142,20 @@ def process_tracking_measurement(
                 "Motion-field tracking measurement rejected: canonical event_time_ms is required"
             )
             return None
-        track = choose_track_for_measurement(measurement)
+        lookup_connection = None
+        if use_postgres():
+            latency_diagnostics.set_trace_context("tracking_track_lookup")
+            lookup_connection = get_postgres_connection()
+        try:
+            track = choose_track_for_measurement(
+                measurement,
+                connection=lookup_connection,
+            )
+        finally:
+            if lookup_connection is not None:
+                lookup_connection._purpose = "tracking_track_lookup"
+                lookup_connection.close()
+            latency_diagnostics.set_trace_context("tracking")
         if track is not None:
             last_time_ms = parse_tracking_time_ms(track.get("last_event_time_ms"))
             if (
@@ -4199,13 +4221,17 @@ def process_tracking_measurement(
             )
             return enriched_track
         started = monotonic()
+        latency_diagnostics.set_trace_context("tracking_save")
         saved_track = save_track_point(track, measurement, state)
+        latency_diagnostics.set_trace_context("tracking")
         latency_diagnostics.record(
             "active_tracking_db_save",
             (monotonic() - started) * 1000.0,
         )
     started = monotonic()
+    latency_diagnostics.set_trace_context("tracking_point_load")
     enriched_track = enrich_track_with_points(saved_track)
+    latency_diagnostics.set_trace_context("tracking")
     latency_diagnostics.record(
         "active_tracking_point_load",
         (monotonic() - started) * 1000.0,

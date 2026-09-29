@@ -610,6 +610,7 @@ class ShadowTrackingPipeline:
             max_pending_per_key=max_pending_per_key,
             max_keys=max_sequence_keys,
             key_ttl_ms=self.state_ttl_ms,
+            baseline_on_first=True,
         )
         self.mailbox = PerKeySerializedMailbox(
             max_workers=mailbox_workers,
