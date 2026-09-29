@@ -1084,7 +1084,14 @@ class PooledPostgresConnection:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Any:
-        return self._connection.__exit__(exc_type, exc, tb)
+        started = monotonic()
+        try:
+            return self._connection.__exit__(exc_type, exc, tb)
+        finally:
+            latency_diagnostics.record(
+                "postgres_transaction_commit",
+                (monotonic() - started) * 1000.0,
+            )
 
     def cursor(self, *args: Any, **kwargs: Any) -> Any:
         return self._connection.cursor(*args, **kwargs)
@@ -4474,6 +4481,7 @@ def process_tracking_for_event_group_region(
         "reporting_nodes": event_group.get("reporting_nodes"),
         "region_geojson": event_group.get("region_geojson"),
     }
+    latency_diagnostics.set_trace_context("tracking_source_load")
     if post_ingest_reorder:
         return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement, close_stale=close_stale)

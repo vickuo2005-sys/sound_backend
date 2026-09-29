@@ -131,3 +131,21 @@ def test_trace_residual_accounting_is_explicit():
     trace = diagnostics.snapshot()["recent_traces"][0]
     assert trace["stages"]["fusion_unaccounted_ms"] == 70
     assert trace["stages"]["tracking_unaccounted_ms"] == 20
+
+
+def test_fusion_transaction_accounting_is_non_overlapping():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.begin_trace("evt-transaction")
+    diagnostics.record("fusion_observation_load", 10)
+    diagnostics.record("fusion_lock_wait", 5)
+    diagnostics.record("fusion_compute", 7)
+    diagnostics.record("postgres_transaction_commit", 3)
+    diagnostics.record_pool_release(50, "fusion_transaction")
+    diagnostics.record("event_fusion", 60)
+    diagnostics.finish_trace(60)
+    stages = diagnostics.snapshot()["recent_traces"][0]["stages"]
+    assert stages["fusion_transaction_sql_ms"] == 10
+    assert stages["fusion_transaction_lock_ms"] == 5
+    assert stages["fusion_transaction_python_ms"] == 7
+    assert stages["fusion_transaction_commit_ms"] == 3
+    assert stages["fusion_transaction_idle_ms"] == 25

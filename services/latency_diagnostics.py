@@ -176,12 +176,33 @@ class LatencyDiagnostics:
         for total_key, child_key, residual_key in (
             ("event_fusion", ("fusion_lock_wait", "fusion_observation_load", "fusion_group_lookup", "fusion_observation_save", "fusion_group_save", "fusion_compute", "fusion_group_cleanup"), "fusion_unaccounted_ms"),
             ("active_alert_tracking", ("active_tracking_source_load", "active_tracking_track_lookup", "active_tracking_point_load", "active_tracking_association", "active_tracking_db_save"), "tracking_unaccounted_ms"),
+            ("region_tracking", ("active_tracking_source_load", "active_tracking_track_lookup", "active_tracking_point_load", "active_tracking_association", "active_tracking_db_save"), "region_tracking_unaccounted_ms"),
         ):
             if total_key in samples:
                 child_total = sum(float(value) for key in child_key for value in samples.get(key, []))
                 total_value = sum(float(value) for value in samples.get(total_key, []))
                 trace["stages"][residual_key] = max(0.0, total_value - child_total)
                 trace.setdefault("stage_samples", {}).setdefault(residual_key, []).append(trace["stages"][residual_key])
+        if "event_fusion" in samples:
+            sql_keys = ("fusion_observation_load", "fusion_group_lookup", "fusion_observation_save", "fusion_group_save", "fusion_group_cleanup")
+            sql_ms = sum(float(value) for key in sql_keys for value in samples.get(key, []))
+            lock_ms = sum(float(value) for value in samples.get("fusion_lock_wait", []))
+            python_ms = sum(float(value) for value in samples.get("fusion_compute", []))
+            commit_ms = sum(float(value) for value in samples.get("postgres_transaction_commit", []))
+            hold_ms = sum(
+                float(item.get("duration_ms") or 0.0)
+                for item in trace.get("postgres_holds", [])
+                if item.get("purpose") == "fusion_transaction"
+            )
+            trace["stages"].update({
+                "fusion_transaction_sql_ms": sql_ms,
+                "fusion_transaction_lock_ms": lock_ms,
+                "fusion_transaction_python_ms": python_ms,
+                "fusion_transaction_commit_ms": commit_ms,
+                "fusion_transaction_idle_ms": max(0.0, hold_ms - sql_ms - lock_ms - python_ms - commit_ms),
+            })
+            for key in ("fusion_transaction_sql_ms", "fusion_transaction_lock_ms", "fusion_transaction_python_ms", "fusion_transaction_commit_ms", "fusion_transaction_idle_ms"):
+                trace.setdefault("stage_samples", {}).setdefault(key, []).append(trace["stages"][key])
         with self._lock:
             self._traces.append(trace)
 
