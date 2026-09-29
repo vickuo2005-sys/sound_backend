@@ -10059,8 +10059,9 @@ async def time_sync():
 def measure_staging_database_latency(
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+    samples: int = Query(default=50, ge=10, le=50),
 ) -> dict:
-    """Measure Render pool acquisition and one Supabase SELECT round trip.
+    """Measure bounded staging pool, warm SELECT, transaction, and connect timings.
 
     This probe is disabled by default and still requires the normal upload token.
     It is intended only for bounded staging validation runs.
@@ -10075,34 +10076,90 @@ def measure_staging_database_latency(
             detail="postgres_required",
         )
 
+    def summarize(values: list[float]) -> dict[str, float | int]:
+        ordered = sorted(float(value) for value in values)
+        if not ordered:
+            return {"count": 0}
+        def percentile(fraction: float) -> float:
+            index = min(len(ordered) - 1, max(0, int(math.ceil(fraction * len(ordered))) - 1))
+            return round(ordered[index], 3)
+        return {
+            "count": len(ordered),
+            "min_ms": round(ordered[0], 3),
+            "mean_ms": round(sum(ordered) / len(ordered), 3),
+            "p50_ms": percentile(0.50),
+            "p90_ms": percentile(0.90),
+            "p95_ms": percentile(0.95),
+            "p99_ms": percentile(0.99),
+            "max_ms": round(ordered[-1], 3),
+        }
+
     total_started = monotonic()
-    acquire_started = monotonic()
+    acquire_samples: list[float] = []
+    for _ in range(min(30, samples)):
+        acquire_started = monotonic()
+        connection = get_postgres_connection()
+        acquire_samples.append((monotonic() - acquire_started) * 1000.0)
+        connection.close()
+
+    warm_select_samples: list[float] = []
+    transaction_select_samples: list[float] = []
+    commit_samples: list[float] = []
     connection = get_postgres_connection()
-    acquire_duration_ms = (monotonic() - acquire_started) * 1000.0
     try:
-        query_started = monotonic()
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 AS ok")
-            row = cursor.fetchone()
-        query_duration_ms = (monotonic() - query_started) * 1000.0
+        for _ in range(samples):
+            query_started = monotonic()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 AS ok")
+                row = cursor.fetchone()
+            warm_select_samples.append((monotonic() - query_started) * 1000.0)
+            if not row or int(row.get("ok") if isinstance(row, dict) else row[0]) != 1:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="db_probe_failed")
+        for _ in range(min(30, samples)):
+            with connection.cursor() as cursor:
+                cursor.execute("BEGIN")
+                select_started = monotonic()
+                cursor.execute("SELECT 1 AS ok")
+                row = cursor.fetchone()
+                select_ms = (monotonic() - select_started) * 1000.0
+                commit_started = monotonic()
+                cursor.execute("COMMIT")
+                commit_ms = (monotonic() - commit_started) * 1000.0
+            transaction_select_samples.append(select_ms)
+            commit_samples.append(commit_ms)
+            if not row:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="db_probe_failed")
     finally:
         connection.close()
-    total_duration_ms = (monotonic() - total_started) * 1000.0
-    if not row or int(row.get("ok") if isinstance(row, dict) else row[0]) != 1:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="db_probe_failed",
-        )
 
+    physical_samples: list[float] = []
+    try:
+        import psycopg2
+        database_url = get_database_url()
+        if database_url:
+            for _ in range(10):
+                started = monotonic()
+                physical = psycopg2.connect(database_url, connect_timeout=POSTGRES_CONNECT_TIMEOUT_SECONDS)
+                physical.close()
+                physical_samples.append((monotonic() - started) * 1000.0)
+    except Exception:
+        physical_samples = []
+
+    total_duration_ms = (monotonic() - total_started) * 1000.0
     response.headers["Server-Timing"] = (
-        f"db_acquire;dur={acquire_duration_ms:.2f}, "
-        f"db_ping;dur={query_duration_ms:.2f}, "
+        f"db_acquire;dur={summarize(acquire_samples)['p50_ms']:.2f}, "
+        f"db_ping;dur={summarize(warm_select_samples)['p50_ms']:.2f}, "
         f"db_probe_total;dur={total_duration_ms:.2f}"
     )
     return {
         "status": "success",
-        "db_acquire_ms": round(acquire_duration_ms, 2),
-        "db_ping_ms": round(query_duration_ms, 2),
+        "samples_requested": samples,
+        "pool_checkout_ms": summarize(acquire_samples),
+        "same_connection_select_1_ms": summarize(warm_select_samples),
+        "transaction_select_1_ms": summarize(transaction_select_samples),
+        "transaction_commit_ms": summarize(commit_samples),
+        "physical_connect_ms": summarize(physical_samples),
+        "indexed_select": {"status": "not_run", "reason": "requires a known staging primary-key fixture"},
         "db_probe_total_ms": round(total_duration_ms, 2),
     }
 
