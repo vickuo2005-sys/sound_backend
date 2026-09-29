@@ -203,6 +203,9 @@ class LatencyDiagnostics:
             })
             for key in ("fusion_transaction_sql_ms", "fusion_transaction_lock_ms", "fusion_transaction_python_ms", "fusion_transaction_commit_ms", "fusion_transaction_idle_ms"):
                 trace.setdefault("stage_samples", {}).setdefault(key, []).append(trace["stages"][key])
+        for key, value in trace.get("stages", {}).items():
+            if key.endswith("_unaccounted_ms") or key.startswith("fusion_transaction_"):
+                self.record(key, value)
         with self._lock:
             self._traces.append(trace)
 

@@ -162,3 +162,7 @@ def test_fusion_transaction_commit_accounting_uses_fusion_commits_only():
     diagnostics.finish_trace(100)
     stages = diagnostics.snapshot()["recent_traces"][0]["stages"]
     assert stages["fusion_transaction_commit_ms"] == 12
+
+    aggregate = diagnostics.snapshot()["stages"]
+    assert aggregate["fusion_transaction_commit_ms"]["count"] == 1
+    assert aggregate["fusion_transaction_commit_ms"]["p50_ms"] == 12
