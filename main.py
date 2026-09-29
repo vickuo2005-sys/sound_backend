@@ -10134,13 +10134,14 @@ def measure_staging_database_latency(
         connection.close()
 
     physical_samples: list[float] = []
+    connect_timeout_seconds = max(1, int(os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10") or 10))
     try:
         import psycopg2
         database_url = get_database_url()
         if database_url:
             for _ in range(10):
                 started = monotonic()
-                physical = psycopg2.connect(database_url, connect_timeout=POSTGRES_CONNECT_TIMEOUT_SECONDS)
+                physical = psycopg2.connect(database_url, connect_timeout=connect_timeout_seconds)
                 physical.close()
                 physical_samples.append((monotonic() - started) * 1000.0)
     except Exception:
@@ -10161,7 +10162,7 @@ def measure_staging_database_latency(
             tcp_samples: list[float] = []
             for _ in range(20):
                 started = monotonic()
-                with socket.create_connection((host, port), timeout=POSTGRES_CONNECT_TIMEOUT_SECONDS):
+                with socket.create_connection((host, port), timeout=connect_timeout_seconds):
                     pass
                 tcp_samples.append((monotonic() - started) * 1000.0)
             network = {
