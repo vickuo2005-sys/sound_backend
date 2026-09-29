@@ -43,6 +43,8 @@ class LatencyDiagnostics:
         self._samples: dict[str, deque[float]] = {}
         self._pending: dict[str, int] = {}
         self._peak_pending: dict[str, int] = {}
+        self._traces: deque[dict[str, Any]] = deque(maxlen=32)
+        self._trace_local = threading.local()
 
     @staticmethod
     def _percentile(values: list[float], percentile: float) -> float:
@@ -74,6 +76,30 @@ class LatencyDiagnostics:
                 key, deque(maxlen=self.max_samples_per_stage)
             )
             bucket.append(value)
+            trace = getattr(self._trace_local, "current", None)
+            if trace is not None:
+                trace["stages"][key] = value
+
+    def begin_trace(self, event_id: str) -> None:
+        self._trace_local.current = {
+            "event_id": str(event_id or ""),
+            "stages": {},
+        }
+
+    def finish_trace(self, total_ms: float | int | None) -> None:
+        trace = getattr(self._trace_local, "current", None)
+        self._trace_local.current = None
+        if trace is None:
+            return
+        try:
+            total = float(total_ms) if total_ms is not None else None
+        except (TypeError, ValueError, OverflowError):
+            return
+        if total is None or not math.isfinite(total) or total < 0:
+            return
+        trace["total_ms"] = total
+        with self._lock:
+            self._traces.append(trace)
 
     def job_enqueued(self, kind: str) -> None:
         key = str(kind or "unknown")
@@ -113,6 +139,7 @@ class LatencyDiagnostics:
             samples = {key: list(values) for key, values in self._samples.items() if values}
             pending = dict(self._pending)
             peak_pending = dict(self._peak_pending)
+            traces = [dict(item, stages=dict(item["stages"])) for item in self._traces]
         # Copy under the lock; percentile sorting must not hold up worker writers.
         return {
             "sample_window": self.max_samples_per_stage,
@@ -122,6 +149,7 @@ class LatencyDiagnostics:
             },
             "pending_jobs": pending,
             "peak_pending_jobs": peak_pending,
+            "recent_traces": traces,
             "note": "Process-local rolling samples; reset on deploy/restart.",
         }
 
@@ -130,6 +158,8 @@ class LatencyDiagnostics:
             self._samples.clear()
             self._pending.clear()
             self._peak_pending.clear()
+            self._traces.clear()
+            self._trace_local.current = None
 
 
 latency_diagnostics = LatencyDiagnostics()

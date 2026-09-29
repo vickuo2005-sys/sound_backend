@@ -86,3 +86,17 @@ def test_concurrent_record_snapshot_and_reset():
     assert diagnostics.snapshot()["pending_jobs"] == {}
     assert diagnostics.snapshot()["peak_pending_jobs"] == {}
     assert snapshot["stages"]["0"]["count"] == 100  # Detached snapshot.
+
+
+def test_correlated_trace_is_bounded_and_includes_stage_durations():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.begin_trace("evt-1")
+    diagnostics.record("fusion_compute", 12.5)
+    diagnostics.record("event_db_commit", 3)
+    diagnostics.finish_trace(20)
+    trace = diagnostics.snapshot()["recent_traces"][0]
+    assert trace["event_id"] == "evt-1"
+    assert trace["total_ms"] == 20
+    assert trace["stages"] == {"fusion_compute": 12.5, "event_db_commit": 3.0}
+    diagnostics.reset()
+    assert diagnostics.snapshot()["recent_traces"] == []

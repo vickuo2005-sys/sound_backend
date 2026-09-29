@@ -97,6 +97,8 @@ def test_submit_failure_and_queued_cancellation(monkeypatch, diagnostics, kind, 
             raise RuntimeError("executor shut down")
         return future
     monkeypatch.setattr(main, "post_ingest_executor", SimpleNamespace(submit=submit))
+    if kind == "device_status":
+        monkeypatch.setattr(main, "device_status_executor", SimpleNamespace(submit=submit))
     async def run():
         schedule(kind)
     asyncio.run(run())
@@ -121,6 +123,8 @@ def test_actual_executor_queue(monkeypatch, diagnostics, kind):
         executor.submit(block)
         assert occupied.wait(5)
         monkeypatch.setattr(main, "post_ingest_executor", executor)
+        if kind == "device_status":
+            monkeypatch.setattr(main, "device_status_executor", executor)
         try:
             async def run():
                 schedule(kind)
@@ -142,6 +146,8 @@ def test_actual_runtime_api_and_dashboard(diagnostics, monkeypatch):
     assert response.status_code == 200
     assert response.json()["latency_diagnostics"] == diagnostics.snapshot()
     assert response.json()["latency_diagnostics"]["stages"]["event_db_write"]["p95_ms"] == 12
+    assert response.json()["device_status_workers"] == main.DEVICE_STATUS_WORKERS
+    assert "recent_traces" in response.json()["latency_diagnostics"]
     assert client.get("/health").status_code == 200
 
 
@@ -193,6 +199,8 @@ def test_fusion_and_pipeline_timings(monkeypatch, diagnostics, fails):
     stages = diagnostics.snapshot()["stages"]
     assert stages["event_fusion"]["last_ms"] == 1000
     assert stages["post_ingest_pipeline"]["last_ms"] == 3000
+    assert diagnostics.snapshot()["recent_traces"][0]["event_id"] == "test"
+    assert diagnostics.snapshot()["recent_traces"][0]["total_ms"] == 3000
 
 
 def test_db_sample_survives_later_lookup_failure(monkeypatch, diagnostics):

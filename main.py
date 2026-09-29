@@ -322,6 +322,7 @@ DASHBOARD_BROADCAST_TIMEOUT_SECONDS = float(
     os.getenv("DASHBOARD_BROADCAST_TIMEOUT_SECONDS", "1.5") or 1.5
 )
 POST_INGEST_WORKERS = max(1, int(os.getenv("POST_INGEST_WORKERS", "2") or 2))
+DEVICE_STATUS_WORKERS = max(1, int(os.getenv("DEVICE_STATUS_WORKERS", "1") or 1))
 GCS_UPLOAD_RETRY_ATTEMPTS = max(
     1,
     int(os.getenv("GCS_UPLOAD_RETRY_ATTEMPTS", "3") or 3),
@@ -414,6 +415,10 @@ postgres_schema_cache: dict[tuple[str, str], tuple[float, set[str]]] = {}
 post_ingest_executor = ThreadPoolExecutor(
     max_workers=POST_INGEST_WORKERS,
     thread_name_prefix="post-ingest",
+)
+device_status_executor = ThreadPoolExecutor(
+    max_workers=DEVICE_STATUS_WORKERS,
+    thread_name_prefix="device-status",
 )
 observation_shadow_executor = ThreadPoolExecutor(
     max_workers=2,
@@ -1132,6 +1137,7 @@ def get_postgres_pool() -> Any:
 
 
 def get_postgres_connection() -> PooledPostgresConnection:
+    started = monotonic()
     pool = get_postgres_pool()
     last_error: Optional[Exception] = None
     with _postgres_pool_lock:
@@ -1154,12 +1160,12 @@ def get_postgres_connection() -> PooledPostgresConnection:
                     continue
 
                 connection.rollback()
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
-                connection.rollback()
                 wrapped = PooledPostgresConnection(pool, connection, gate)
                 gate = None
+                latency_diagnostics.record(
+                    "postgres_pool_acquisition",
+                    (monotonic() - started) * 1000.0,
+                )
                 return wrapped
             except Exception as exc:
                 last_error = exc
@@ -9471,6 +9477,7 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
 
 def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_event: bool) -> dict:
     post_ingest_started = monotonic()
+    latency_diagnostics.begin_trace(event_id)
     event_group = None
     region_track = None
     active_alert_track = None
@@ -9540,10 +9547,9 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
             )
 
     event_group = with_realtime_alert_timing(event_group)
-    latency_diagnostics.record(
-        "post_ingest_pipeline",
-        (monotonic() - post_ingest_started) * 1000.0,
-    )
+    post_ingest_duration_ms = (monotonic() - post_ingest_started) * 1000.0
+    latency_diagnostics.record("post_ingest_pipeline", post_ingest_duration_ms)
+    latency_diagnostics.finish_trace(post_ingest_duration_ms)
 
     return {
         "event_group": event_group,
@@ -9671,7 +9677,7 @@ def schedule_device_event_status_update(event: SoundEvent) -> None:
     enqueued_at_monotonic = monotonic()
     latency_diagnostics.job_enqueued("device_status")
     try:
-        future = post_ingest_executor.submit(
+        future = device_status_executor.submit(
             run_device_event_status_worker,
             loop,
             event,
@@ -9823,6 +9829,9 @@ async def runtime_status():
             if node.get("device_id") and not is_diagnostic_device_id(node.get("device_id"))
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
+        "device_status_workers": DEVICE_STATUS_WORKERS,
+        "postgres_pool_min": max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1)),
+        "postgres_pool_max": max(1, int(os.getenv("POSTGRES_POOL_MAX", "20") or 20)),
         "latency_diagnostics": latency_diagnostics.snapshot(),
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
