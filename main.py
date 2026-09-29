@@ -4,6 +4,7 @@ import math
 import os
 import re
 import sqlite3
+import socket
 import asyncio
 import csv
 import secrets
@@ -14,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from time import monotonic, sleep
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import (
     FastAPI,
@@ -10145,6 +10146,66 @@ def measure_staging_database_latency(
     except Exception:
         physical_samples = []
 
+    network: dict[str, Any] = {"status": "not_available"}
+    explain: dict[str, Any] = {"status": "not_available"}
+    database_url = get_database_url()
+    if database_url:
+        try:
+            parsed = urlsplit(database_url)
+            host = parsed.hostname or ""
+            port = parsed.port or 5432
+            dns_started = monotonic()
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            dns_ms = (monotonic() - dns_started) * 1000.0
+            addresses = sorted({info[4][0] for info in infos})
+            tcp_samples: list[float] = []
+            for _ in range(20):
+                started = monotonic()
+                with socket.create_connection((host, port), timeout=POSTGRES_CONNECT_TIMEOUT_SECONDS):
+                    pass
+                tcp_samples.append((monotonic() - started) * 1000.0)
+            network = {
+                "status": "success",
+                "hostname_suffix": ".".join(host.split(".")[-3:]) if host else "",
+                "port": port,
+                "dns_resolution_ms": round(dns_ms, 3),
+                "resolved_addresses": addresses,
+                "tcp_connect_ms": summarize(tcp_samples),
+                "tls_postgresql_split": "not_available_with_current_probe",
+            }
+        except Exception as exc:
+            network = {"status": "failed", "error_type": type(exc).__name__}
+
+    try:
+        connection = get_postgres_connection()
+        try:
+            started = monotonic()
+            with connection.cursor() as cursor:
+                cursor.execute("EXPLAIN (ANALYZE, TIMING, BUFFERS) SELECT 1")
+                rows = cursor.fetchall() if hasattr(cursor, "fetchall") else []
+            client_ms = (monotonic() - started) * 1000.0
+            text_rows = [str(row) for row in rows]
+            planning_ms = next(
+                (float(match.group(1)) for row in text_rows if (match := re.search(r"Planning Time: ([0-9.]+) ms", row))),
+                None,
+            )
+            execution_ms = next(
+                (float(match.group(1)) for row in text_rows if (match := re.search(r"Execution Time: ([0-9.]+) ms", row))),
+                None,
+            )
+            explain = {
+                "status": "success" if execution_ms is not None else "not_available",
+                "planning_ms": planning_ms,
+                "execution_ms": execution_ms,
+                "client_wall_ms": round(client_ms, 3),
+                "difference_ms": round(client_ms - execution_ms, 3) if execution_ms is not None else None,
+                "query": "EXPLAIN (ANALYZE, TIMING, BUFFERS) SELECT 1",
+            }
+        finally:
+            connection.close()
+    except Exception as exc:
+        explain = {"status": "failed", "error_type": type(exc).__name__}
+
     total_duration_ms = (monotonic() - total_started) * 1000.0
     response.headers["Server-Timing"] = (
         f"db_acquire;dur={summarize(acquire_samples)['p50_ms']:.2f}, "
@@ -10160,6 +10221,8 @@ def measure_staging_database_latency(
         "transaction_commit_ms": summarize(commit_samples),
         "physical_connect_ms": summarize(physical_samples),
         "indexed_select": {"status": "not_run", "reason": "requires a known staging primary-key fixture"},
+        "network": network,
+        "server_side_select_1": explain,
         "db_probe_total_ms": round(total_duration_ms, 2),
     }
 
