@@ -26,9 +26,13 @@ python tools/measure_staging_db_latency.py `
 
 Before running, set the flag only on the isolated staging service, confirm the existing staging database is being used, and restore `STAGING_DB_LATENCY_PROBE_ENABLED=false` immediately after collecting the JSON. Do not use port 6543 and do not run the endpoint against production.
 
-## Execution status for this checkout
+## Execution status
 
-The code and helper are validated locally, but the staging request was not executed from this checkout because no `UPLOAD_TOKEN` is present in the local environment. No Render environment variable was changed and no endpoint was enabled. A token must be supplied through the approved staging secret path; it should not be committed, pasted into source, or printed in logs.
+The probe was executed once against the isolated staging service after deploying commit `6abcee7b1f76e77d7c89c5a9544a87bf2cf2e735`. The result is saved as `outputs/staging_db_latency_probe.json` locally and was not committed because it is runtime evidence. The endpoint was then disabled again and `/runtime-status` confirmed `staging_db_latency_probe_enabled=false`.
+
+The run returned 50 warm SELECT samples, 30 transaction samples, and 30 application checkout samples. The direct-connect series returned `count=0`, so it is unavailable evidence rather than a zero-latency result. The indexed query was intentionally not run because no approved staging primary-key fixture was supplied.
+
+The probe used the existing staging upload token through the Render secret UI. The token was not written to source, command output, or the repository.
 
 The repository does not contain the staging `DATABASE_URL`, so the direct-connect and Supabase region results can only be obtained by the staging service itself. The user-provided architecture is Session Pooler on port 5432; the service-side probe should be used as the authoritative measurement.
 
