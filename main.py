@@ -1092,6 +1092,11 @@ class PooledPostgresConnection:
                 "postgres_transaction_commit",
                 (monotonic() - started) * 1000.0,
             )
+            if self._purpose == "fusion_transaction":
+                latency_diagnostics.record(
+                    "fusion_transaction_commit",
+                    (monotonic() - started) * 1000.0,
+                )
 
     def cursor(self, *args: Any, **kwargs: Any) -> Any:
         return self._connection.cursor(*args, **kwargs)

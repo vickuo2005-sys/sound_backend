@@ -140,6 +140,7 @@ def test_fusion_transaction_accounting_is_non_overlapping():
     diagnostics.record("fusion_lock_wait", 5)
     diagnostics.record("fusion_compute", 7)
     diagnostics.record("postgres_transaction_commit", 3)
+    diagnostics.record("fusion_transaction_commit", 3)
     diagnostics.record_pool_release(50, "fusion_transaction")
     diagnostics.record("event_fusion", 60)
     diagnostics.finish_trace(60)
@@ -149,3 +150,15 @@ def test_fusion_transaction_accounting_is_non_overlapping():
     assert stages["fusion_transaction_python_ms"] == 7
     assert stages["fusion_transaction_commit_ms"] == 3
     assert stages["fusion_transaction_idle_ms"] == 25
+
+
+def test_fusion_transaction_commit_accounting_uses_fusion_commits_only():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.begin_trace("evt-commit-scope")
+    diagnostics.record("event_fusion", 100)
+    diagnostics.record("fusion_transaction_commit", 12)
+    diagnostics.record("postgres_transaction_commit", 12)
+    diagnostics.record("postgres_transaction_commit", 88)
+    diagnostics.finish_trace(100)
+    stages = diagnostics.snapshot()["recent_traces"][0]["stages"]
+    assert stages["fusion_transaction_commit_ms"] == 12

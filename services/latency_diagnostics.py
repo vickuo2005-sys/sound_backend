@@ -188,7 +188,7 @@ class LatencyDiagnostics:
             sql_ms = sum(float(value) for key in sql_keys for value in samples.get(key, []))
             lock_ms = sum(float(value) for value in samples.get("fusion_lock_wait", []))
             python_ms = sum(float(value) for value in samples.get("fusion_compute", []))
-            commit_ms = sum(float(value) for value in samples.get("postgres_transaction_commit", []))
+            commit_ms = sum(float(value) for value in samples.get("fusion_transaction_commit", []))
             hold_ms = sum(
                 float(item.get("duration_ms") or 0.0)
                 for item in trace.get("postgres_holds", [])
