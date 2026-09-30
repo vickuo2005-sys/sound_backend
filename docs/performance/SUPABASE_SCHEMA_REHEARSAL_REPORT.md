@@ -6,9 +6,11 @@ Scope: staging only; read-only live catalog inspection and repository rehearsal 
 
 ## Decision
 
-**SCHEMA_REHEARSAL = NO-GO**
+**SCHEMA_REHEARSAL = PASS (public schema-only rehearsal)**
 
-Singapore schema rehearsal was not executed. The destination project is still empty (`public` has 0 base tables), and no staging DSN was present in the local process environment for a controlled migration run. No runtime data, Render `DATABASE_URL`, production service, or Tokyo schema was changed.
+**DATA_MIGRATION / RENDER CUTOVER = NO-GO (intentionally not executed)**
+
+The public schema-only rehearsal was completed against the two staging projects after a local read-only connection preflight. No runtime data, sequence state, Render `DATABASE_URL`, production service, or Tokyo schema was changed.
 
 ## 1. Tokyo live schema inventory
 
@@ -43,7 +45,7 @@ Sequences observed: `device_commands_id_seq` start 1, increment 1, last value 13
 
 Tokyo has these extensions: `pg_stat_statements` 1.11, `pgcrypto` 1.3, `plpgsql` 1.0, `supabase_vault` 0.3.1, and `uuid-ossp` 1.1. Public function count is 0. Public user-defined trigger count is 0. All inspected public tables have RLS disabled and forced RLS disabled; `pg_policies` returned 0 rows. Relevant table-grant grantees are `anon`, `authenticated`, `postgres`, and `service_role`; grants are broad and must be reviewed before any cutover.
 
-Views, materialized views, enum types, and non-public provider-managed objects require a schema-only dump or a DSN-based catalog export for a complete definition-level comparison. No schema-only dump was produced because `pg_dump` is unavailable in the workspace and no DSN was placed in the local environment.
+The full Tokyo schema-only dump was produced locally with PostgreSQL 17.11 (server 17.6). The reviewed rehearsal input was restricted to the `public` schema so Supabase-managed `auth`, `storage`, `realtime`, `vault`, and related provider objects were not replayed. The dump SHA-256 is recorded in the latest run section below; the dump itself is local-only and is not committed.
 
 ## 3. Repository migration replay audit
 
@@ -61,12 +63,12 @@ Conclusion: repository migrations alone are **not proven sufficient** to reconst
 
 ## 4. Singapore rehearsal and object diff
 
-Singapore project `sound-detector-staging2` in `ap-southeast-1` currently has 0 public base tables. Therefore:
+Singapore project `sound-detector-staging2` in `ap-southeast-1` now has the reviewed public schema. Therefore:
 
-- MATCH: none established.
-- MISSING_IN_SINGAPORE: all 12 application tables listed above.
+- MATCH: all 12 application tables and the public catalog sections compared.
+- MISSING_IN_SINGAPORE: none in the compared public schema.
 - EXTRA_IN_SINGAPORE: none observed.
-- Column/PK/FK/index/sequence/function/trigger/RLS equivalence: not established because the destination schema was not created.
+- Column/PK/FK/index/sequence/function/trigger/RLS equivalence: matched in the aggregate catalog comparison.
 - Destination row counts are expected to remain 0; this is not a schema failure by itself.
 
 The aggregate metadata artifact is [tokyo_singapore_schema_diff.json](../../outputs/tokyo_singapore_schema_diff.json). It contains no credentials or row contents.
@@ -93,7 +95,7 @@ Sequence state was recorded only as metadata; no `setval` was run. RLS is disabl
 
 ## 8. Data migration readiness
 
-**NOT READY.** The destination has no schema, no data was moved, and the live FK/extension/grant catalog still needs a controlled schema-only comparison. The next safe step is to place staging-only DSNs in the operator environment, run `pg_dump --schema-only --no-owner --no-privileges` for Tokyo, apply only reviewed non-DML schema statements to Singapore, then rerun catalog diff. Do not set sequence values or copy runtime rows during that rehearsal.
+**SCHEMA READY; DATA NOT READY.** The destination public schema now matches the compared Tokyo public catalog. Runtime rows were deliberately not copied, sequence values were not set, and Render staging was not cut over. A separate data-copy plan still requires row-level reconciliation, a final FK/sequence check, rollback readiness, and an explicit staging-only cutover decision.
 
 ## 9. Safety record
 
@@ -115,4 +117,6 @@ Sequence state was recorded only as metadata; no `setval` was run. RLS is disabl
 
 ## Latest schema-only rehearsal preflight (2026-09-30)
 
-Preflight was executed locally and stopped safely: TOKYO_STAGING_DSN available = no, SINGAPORE_STAGING_DSN available = no, pg_dump version = unavailable, and psql version = unavailable. Per the runbook, no dump, schema replay, Singapore DDL, catalog diff, or verifier run was attempted. The three new JSON artifacts record NOT_COLLECTED/NOT_RUN status without credentials. SCHEMA_REHEARSAL = NO-GO; DATA_MIGRATION_READY = NO.
+The initial preflight record above is historical. A follow-up preflight succeeded using local process-only credentials (never written to the repository): both staging DSNs returned `SELECT 1`, PostgreSQL server version was 17.6, `pg_dump` was 17.11, and `psql` was available. The Tokyo dump was created at `outputs/tokyo_schema_only.sql` with SHA-256 `ffff6612dd76441997184467977de6bb5442ace93945fc5a97d3a06ea4e9c8a6`; a public-only reviewed input was generated at `outputs/tokyo_public_schema_rehearsal.sql`. A destructive/DML scan found no DROP, TRUNCATE, DELETE, UPDATE, INSERT, or COPY statements in the rehearsal input. The public-only DDL applied successfully to Singapore with `ON_ERROR_STOP=1`.
+
+Post-rehearsal catalog comparison in `outputs/tokyo_singapore_schema_diff_after_rehearsal.json` reports PASS for schemas, tables, columns, indexes, constraints, sequences, extensions, policies, triggers, and functions. Tokyo retained its existing rows (for example `events=375`, `event_groups=183`, `event_group_observations=372`); Singapore remains empty for those application tables by design. This is a schema validation result, not a data migration or application cutover result.
