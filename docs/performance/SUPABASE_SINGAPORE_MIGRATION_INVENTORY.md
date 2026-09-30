@@ -10,6 +10,8 @@ Status: repository/static inventory complete; live catalog inventory pending ope
 - Render region: Singapore
 - Current Supabase staging region: Tokyo (`ap-northeast-1`)
 - Current endpoint: Supabase Shared Session Pooler, port 5432
+- New Singapore project confirmed manually: `sound-detector-staging2`, project ref `jlkjmyhxmwgaalkrpaow`, region `ap-southeast-1`
+- New Shared Session Pooler host template: `aws-0-ap-southeast-1.pooler.supabase.com:5432` (password intentionally omitted)
 - `DATABASE_URL`: Render secret; not present in this workspace and never printed
 - `POSTGRES_SCHEMA_AUTO_INIT`: `false` in staging
 - Startup therefore logs that PostgreSQL schema initialization is skipped.

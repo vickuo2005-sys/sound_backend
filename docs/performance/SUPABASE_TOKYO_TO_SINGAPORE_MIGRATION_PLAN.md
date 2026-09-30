@@ -225,4 +225,4 @@ Risks are schema drift, missing remote-only objects, sequence collisions, FK/ord
 
 ## Current checkpoint
 
-The repository is at **READY TO MIGRATE: NO**. The required next operator inputs are a Supabase Singapore project, its staging-only credentials stored outside chat, and a completed Tokyo schema/data inventory. Until those are available, the only safe deliverable is this plan and the read-only verification tooling.
+The Singapore project is now confirmed manually as `sound-detector-staging2` (`jlkjmyhxmwgaalkrpaow`, `ap-southeast-1`). Its Session Pooler host template is `aws-0-ap-southeast-1.pooler.supabase.com:5432`; the password is not viewable from Supabase after creation and has not been handled here. The repository is still at **READY TO MIGRATE: NO** because staging-only DSNs have not been placed in local environment variables, `pg_dump`/`psql` are not installed in this workspace, and the live Tokyo/Singapore catalog inventory is therefore pending. Until those are available, no schema, data, or Render `DATABASE_URL` change is safe.
