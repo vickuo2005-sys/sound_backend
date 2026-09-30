@@ -77,7 +77,50 @@ def _table_summary(connection: Any, table: str) -> dict[str, Any]:
             (table,),
         )
         primary_key = [str(row[0]) for row in cursor.fetchall()]
-    result: dict[str, Any] = {"row_count": count, "primary_key": primary_key}
+        cursor.execute(
+            """
+            SELECT column_name, data_type, udt_name, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema='public' AND table_name=%s
+            ORDER BY ordinal_position
+            """,
+            (table,),
+        )
+        columns = [
+            {
+                "name": row[0],
+                "data_type": row[1],
+                "udt_name": row[2],
+                "nullable": row[3],
+                "default": row[4],
+            }
+            for row in cursor.fetchall()
+        ]
+        cursor.execute(
+            """
+            SELECT indexname, indexdef FROM pg_indexes
+            WHERE schemaname='public' AND tablename=%s ORDER BY indexname
+            """,
+            (table,),
+        )
+        indexes = [{"name": row[0], "definition": row[1]} for row in cursor.fetchall()]
+        cursor.execute(
+            """
+            SELECT constraint_name, constraint_type
+            FROM information_schema.table_constraints
+            WHERE table_schema='public' AND table_name=%s
+            ORDER BY constraint_name
+            """,
+            (table,),
+        )
+        constraints = [{"name": row[0], "type": row[1]} for row in cursor.fetchall()]
+    result: dict[str, Any] = {
+        "row_count": count,
+        "primary_key": primary_key,
+        "columns": columns,
+        "indexes": indexes,
+        "constraints": constraints,
+    }
     if timestamp_summary is not None:
         result["timestamp"] = timestamp_summary
     return result
