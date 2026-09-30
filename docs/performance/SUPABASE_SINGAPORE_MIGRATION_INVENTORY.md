@@ -10,6 +10,7 @@ Status: repository/static inventory complete; live catalog inventory pending ope
 - Render region: Singapore
 - Current Supabase staging region: Tokyo (`ap-northeast-1`)
 - Current endpoint: Supabase Shared Session Pooler, port 5432
+- Render staging secret inspection confirms the actual Tokyo staging project ref is `reamgpuvjfvmsouipvom` and the host family is `aws-0-ap-northeast-1.pooler.supabase.com`; do not substitute the paused production project ref.
 - New Singapore project confirmed manually: `sound-detector-staging2`, project ref `jlkjmyhxmwgaalkrpaow`, region `ap-southeast-1`
 - New Shared Session Pooler host template: `aws-0-ap-southeast-1.pooler.supabase.com:5432` (password intentionally omitted)
 - `DATABASE_URL`: Render secret; not present in this workspace and never printed
