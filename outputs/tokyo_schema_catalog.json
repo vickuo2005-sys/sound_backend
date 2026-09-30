@@ -1,0 +1,1 @@
+{"status":"NOT_COLLECTED","reason":"TOKYO_STAGING_DSN unavailable in operator environment; pg_dump/psql unavailable; schema-only rehearsal stopped at preflight.","secrets_emitted":false}

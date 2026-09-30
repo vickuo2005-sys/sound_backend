@@ -112,3 +112,7 @@ Sequence state was recorded only as metadata; no `setval` was run. RLS is disabl
 - `outputs/staging_region_inventory_20260930.json`
 - `python -m py_compile tools/verify_db_migration.py` passed.
 - Full repository pytest baseline remains `320 passed, 3 warnings` from the prior validation; this change did not alter application runtime behavior.
+
+## Latest schema-only rehearsal preflight (2026-09-30)
+
+Preflight was executed locally and stopped safely: TOKYO_STAGING_DSN available = no, SINGAPORE_STAGING_DSN available = no, pg_dump version = unavailable, and psql version = unavailable. Per the runbook, no dump, schema replay, Singapore DDL, catalog diff, or verifier run was attempted. The three new JSON artifacts record NOT_COLLECTED/NOT_RUN status without credentials. SCHEMA_REHEARSAL = NO-GO; DATA_MIGRATION_READY = NO.
