@@ -82,9 +82,70 @@ from services.tracking.tracking_service import (
 from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
 from services.latency_diagnostics import latency_diagnostics
+from services.staging_write_freeze import (
+    RouteClass,
+    classify_route,
+    freeze_is_active,
+    write_quiescent,
+)
 
 
 app = FastAPI()
+
+
+APP_ENV = os.getenv("APP_ENV", "").strip().lower()
+STAGING_WRITE_FREEZE_CONFIGURED = (
+    os.getenv("STAGING_WRITE_FREEZE", "false").lower() == "true"
+)
+STAGING_WRITE_FREEZE_ACTIVE = freeze_is_active(
+    APP_ENV,
+    STAGING_WRITE_FREEZE_CONFIGURED,
+)
+_active_write_requests = 0
+_active_write_requests_lock = threading.Lock()
+
+
+def staging_write_freeze_active() -> bool:
+    """Return the startup-evaluated, staging-guarded freeze state."""
+
+    return STAGING_WRITE_FREEZE_ACTIVE
+
+
+def staging_write_request_started() -> None:
+    global _active_write_requests
+    with _active_write_requests_lock:
+        _active_write_requests += 1
+
+
+def staging_write_request_finished() -> None:
+    global _active_write_requests
+    with _active_write_requests_lock:
+        _active_write_requests = max(0, _active_write_requests - 1)
+
+
+def staging_active_write_request_count() -> int:
+    with _active_write_requests_lock:
+        return _active_write_requests
+
+
+@app.middleware("http")
+async def staging_write_freeze_middleware(request: Request, call_next):
+    """Reject classified mutating routes while preserving diagnostic reads."""
+
+    route_class = classify_route(request.method, request.url.path)
+    if route_class != RouteClass.WRITE_BLOCKED_DURING_FREEZE:
+        return await call_next(request)
+    staging_write_request_started()
+    try:
+        if staging_write_freeze_active():
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": "staging_write_freeze_active"},
+                headers={"Retry-After": "60"},
+            )
+        return await call_next(request)
+    finally:
+        staging_write_request_finished()
 
 
 def _json_safe_validation_detail(value: Any) -> Any:
@@ -9736,6 +9797,9 @@ def run_device_event_status_worker(
 
 
 def schedule_device_event_status_update(event: SoundEvent) -> None:
+    if staging_write_freeze_active():
+        logger.info("Device status write skipped during staging freeze")
+        return
     loop = asyncio.get_running_loop()
     enqueued_at_monotonic = monotonic()
     latency_diagnostics.job_enqueued("device_status")
@@ -9798,6 +9862,9 @@ def schedule_event_post_ingest(
     label: Optional[str],
     is_existing_event: bool,
 ) -> None:
+    if staging_write_freeze_active():
+        logger.info("Post-ingest write skipped during staging freeze event_id=%s", event_id)
+        return
     global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
     tracking_reorder_event_loop = loop
@@ -9891,6 +9958,8 @@ async def runtime_status():
         latency_snapshot["pool"] = latency_diagnostics.pool_snapshot(
             pool, min_size=pool_min, max_size=pool_max
         )
+    pending_jobs = latency_snapshot.get("pending_jobs", {})
+    active_write_requests = staging_active_write_request_count()
     return {
         "status": "success",
         "time": current_time_iso(),
@@ -9909,6 +9978,18 @@ async def runtime_status():
         "postgres_pool_min": pool_min,
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
+        "staging_write_freeze": {
+            "configured": STAGING_WRITE_FREEZE_CONFIGURED,
+            "active": staging_write_freeze_active(),
+            "environment": APP_ENV or "unknown",
+            "active_write_requests": active_write_requests,
+            "pending_post_ingest_jobs": int(pending_jobs.get("post_ingest", 0) or 0),
+            "pending_device_status_jobs": int(pending_jobs.get("device_status", 0) or 0),
+            "write_quiescent": write_quiescent(
+                active_write_requests=active_write_requests,
+                pending_jobs=pending_jobs,
+            ),
+        },
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
@@ -10728,7 +10809,9 @@ def tracks(
         if cached is not None:
             return cached
 
-        closed_tracks = close_stale_tracks()
+        # The staging freeze keeps this read endpoint available while
+        # preventing its normal stale-track cleanup write side effect.
+        closed_tracks = [] if staging_write_freeze_active() else close_stale_tracks()
         rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
         if points_limit:
             rows = enrich_tracks_with_points(rows, limit=points_limit)
@@ -11469,6 +11552,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type == "command_ack":
+                if staging_write_freeze_active():
+                    await websocket.send_json(
+                        build_envelope(
+                            message_type="write_freeze_active",
+                            device_id=device_id,
+                            payload={"error": "staging_write_freeze_active"},
+                        )
+                    )
+                    continue
                 command_id = command_id_from_payload(envelope.payload)
                 if command_id is not None:
                     row = set_device_command_status(
@@ -11489,6 +11581,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type == "command_result":
+                if staging_write_freeze_active():
+                    await websocket.send_json(
+                        build_envelope(
+                            message_type="write_freeze_active",
+                            device_id=device_id,
+                            payload={"error": "staging_write_freeze_active"},
+                        )
+                    )
+                    continue
                 command_id = command_id_from_payload(envelope.payload)
                 raw_status = str(envelope.payload.get("status") or "").lower()
                 if raw_status in {"running", "started"}:
@@ -11544,6 +11645,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
 @app.websocket("/ws/audio/{device_id}")
 async def audio_stream_websocket(websocket: WebSocket, device_id: str):
     await websocket.accept()
+    if staging_write_freeze_active():
+        await websocket.send_json(
+            {
+                "type": "audio_stream_rejected",
+                "reason": "staging_write_freeze_active",
+            }
+        )
+        await websocket.close(code=1013)
+        return
     if not LIVE_AUDIO_ENABLED:
         await websocket.send_json(
             {

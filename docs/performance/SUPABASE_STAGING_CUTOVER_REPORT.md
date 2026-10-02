@@ -9,7 +9,7 @@ Scope: staging-only cutover preflight. No Render setting was changed.
 **STAGING_CUTOVER = NO-GO**  
 **STAGING_RUNNING_ON_SINGAPORE = NO**
 
-The cutover stopped before any Render change because the required staging-only write-freeze mechanism could not be verified. The Tokyo and Singapore databases are currently reconciled and healthy, but changing the Render staging `DATABASE_URL` without a verified write-freeze would allow a moving source snapshot and violate the cutover gate.
+The cutover remains stopped before any Render change. A fail-closed, reversible staging-only write-freeze mechanism is now implemented and locally validated, but it has not yet been activated and observed on the Render staging service. The Tokyo and Singapore databases are currently reconciled and healthy, but changing the Render staging `DATABASE_URL` before staging activation/quiescence evidence would allow a moving source snapshot and violate the cutover gate.
 
 ## Pre-cutover checks
 
@@ -27,9 +27,9 @@ The cutover stopped before any Render change because the required staging-only w
 
 ## Write-freeze gate
 
-`STAGING_WRITE_FREEZE_AVAILABLE = NO`.
+`STAGING_WRITE_FREEZE_AVAILABLE = YES (implementation and local tests); STAGING_WRITES_FROZEN = NOT YET TESTED ON RENDER`.
 
-Repository and deployment documentation describes stopping staging clients/device uploads as a plan step, but no existing executable, reversible, staging-only freeze mechanism was available to verify. `LIVE_AUDIO_ENABLED` controls audio streaming and does not prevent event/database writes. No new maintenance flag, production-affecting control, firewall rule, or client modification was invented.
+The branch now provides an explicit `APP_ENV=staging` + `STAGING_WRITE_FREEZE=true` guard. It blocks classified HTTP/database mutation paths, command WebSocket writes, audio upload WebSocket writes, and new post-ingest/device-status jobs while preserving reads. `LIVE_AUDIO_ENABLED` remains unrelated to the freeze. Local route, background, production-guard, and unfreeze tests passed; Render activation and quiescence observation are still pending.
 
 Per the runbook, the process stopped before rollback-state confirmation, Render mutation, health checks, controlled writes, unfreeze, and latency A/B.
 
@@ -52,4 +52,5 @@ Machine-readable status is in `outputs/supabase_staging_cutover_verification.jso
 
 ## Required next step
 
-Provide or establish an already-supported, reversible staging-only write-freeze procedure (for example, a documented staging service pause or client stop that can be verified and undone). Then repeat the TLS and final reconciliation immediately before cutover. Do not change Render `DATABASE_URL` until that gate passes.
+Activate `APP_ENV=staging` and `STAGING_WRITE_FREEZE=true` on the Render staging service, verify `/runtime-status` reports `write_quiescent=true`, and observe Tokyo metadata twice without changes. Then repeat TLS and final reconciliation immediately before any cutover. Do not change Render `DATABASE_URL` until that gate passes.
+
