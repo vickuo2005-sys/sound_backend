@@ -1,44 +1,28 @@
 {
-  "captured_at": "2026-10-02T01:39:39.3576976Z",
-  "tokyo": {
-    "tcp": "PASS",
-    "postgresql_tls": "FAIL_TLS_HANDSHAKE_RESET",
-    "psql_default": "PASS",
-    "psql_sslmode_require": "FAIL",
-    "psycopg2_default": "PASS",
-    "psycopg2_sslmode_require": "FAIL",
-    "select_1_default": "PASS",
-    "select_1_require": "FAIL",
-    "dns_a_count": 4
+  "captured_at": "2026-10-02T01:46:36.9426187Z",
+  "local_current_network": {
+    "tokyo_tcp": "PASS",
+    "singapore_tcp": "PASS",
+    "tokyo_sslrequest": "S",
+    "singapore_sslrequest": "S",
+    "tokyo_tls": "PASS_TLSv1.3",
+    "singapore_tls": "PASS_TLSv1.3",
+    "tokyo_psql_sslmode_require": "PASS",
+    "singapore_psql_sslmode_require": "PASS",
+    "tokyo_psycopg2_sslmode_require": "PASS",
+    "singapore_psycopg2_sslmode_require": "PASS"
   },
-  "singapore": {
-    "tcp": "PASS",
-    "postgresql_tls": "FAIL_TLS_HANDSHAKE_RESET",
-    "psql_default": "PASS",
-    "psql_sslmode_require": "FAIL",
-    "psycopg2_default": "PASS",
-    "psycopg2_sslmode_require": "FAIL",
-    "select_1_default": "PASS",
-    "select_1_require": "FAIL",
-    "dns_a_count": 3
+  "independent_network": {
+    "tested": false,
+    "reason": "No second network or trusted host with PostgreSQL client was available"
   },
-  "sslrequest": {
-    "tokyo_response": "S",
-    "singapore_response": "S",
-    "tokyo_tls_handshake": "RESET",
-    "singapore_tls_handshake": "RESET",
-    "openssl_cli_available": false,
-    "python_openssl": "OpenSSL 3.0.18"
+  "render_staging_host": {
+    "tested": false,
+    "reason": "No Render shell/SSH PostgreSQL client access available"
   },
-  "common_path": {
-    "http_proxy": "none",
-    "https_proxy": "none",
-    "winhttp_proxy": "direct",
-    "windows_firewall_profiles": "enabled",
-    "ipv4_test": "all_resolved_ips_reset_tls",
-    "client_mismatch": "not_confirmed"
-  },
-  "confirmed_failure_layer": "TLS_HANDSHAKE",
+  "previous_failure": "Intermittent TLS peer reset; recovered on current retest",
+  "root_cause_direction": "UNRESOLVED",
   "confirmed_root_cause": false,
-  "data_migration_preflight_ready": false
+  "data_migration_preflight_ready": true,
+  "migration_started": false
 }
