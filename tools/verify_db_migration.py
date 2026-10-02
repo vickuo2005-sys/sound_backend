@@ -49,7 +49,7 @@ def _table_summary(connection: Any, table: str) -> dict[str, Any]:
             """
             SELECT column_name FROM information_schema.columns
             WHERE table_schema='public' AND table_name=%s
-              AND (column_name ILIKE '%time%' OR column_name IN ('created_at','updated_at','last_seen'))
+              AND (column_name ILIKE '%%time%%' OR column_name IN ('created_at','updated_at','last_seen'))
             ORDER BY ordinal_position LIMIT 1
             """,
             (table,),
@@ -65,14 +65,15 @@ def _table_summary(connection: Any, table: str) -> dict[str, Any]:
             timestamp_summary = {"column": column, "min": str(min_value) if min_value is not None else None, "max": str(max_value) if max_value is not None else None}
         cursor.execute(
             """
-            SELECT ccu.column_name
+            SELECT kcu.column_name
             FROM information_schema.table_constraints tc
-            JOIN information_schema.constraint_column_usage ccu
-              ON ccu.constraint_name = tc.constraint_name
-             AND ccu.table_schema = tc.table_schema
+            JOIN information_schema.key_column_usage kcu
+              ON kcu.constraint_name = tc.constraint_name
+             AND kcu.table_schema = tc.table_schema
+             AND kcu.table_name = tc.table_name
             WHERE tc.table_schema='public' AND tc.table_name=%s
               AND tc.constraint_type='PRIMARY KEY'
-            ORDER BY ccu.ordinal_position
+            ORDER BY kcu.ordinal_position
             """,
             (table,),
         )

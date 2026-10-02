@@ -1,0 +1,6079 @@
+{
+  "source": {
+    "tables": [
+      "audio_stream_sessions",
+      "device_commands",
+      "device_connections",
+      "device_locations",
+      "device_status",
+      "event_group_observations",
+      "event_groups",
+      "events",
+      "localization_pair_results",
+      "localization_results",
+      "target_track_points",
+      "target_tracks"
+    ],
+    "table_summary": {
+      "audio_stream_sessions": {
+        "row_count": 0,
+        "primary_key": [
+          "stream_id"
+        ],
+        "columns": [
+          {
+            "name": "stream_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "connection_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "codec",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "frame_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "started_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "stopped_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_frame_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "received_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "dropped_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "sequence_gaps",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "out_of_order_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "malformed_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "bytes_received",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "subscriber_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "audio_stream_sessions_device_idx",
+            "definition": "CREATE INDEX audio_stream_sessions_device_idx ON public.audio_stream_sessions USING btree (device_id, started_at DESC)"
+          },
+          {
+            "name": "audio_stream_sessions_pkey",
+            "definition": "CREATE UNIQUE INDEX audio_stream_sessions_pkey ON public.audio_stream_sessions USING btree (stream_id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25500_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25500_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "audio_stream_sessions_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_commands": {
+        "row_count": 13,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "NO",
+            "default": "nextval('device_commands_id_seq'::regclass)"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "command",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "value",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'pending'::text"
+          },
+          {
+            "name": "issued_by",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "executed_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ack_message",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "command_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "args_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "issued_at_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "expires_at_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "idempotency_key",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "acked_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "result_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "result_message",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "delivery_channel",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "delivery_attempts",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_commands_idempotency_idx",
+            "definition": "CREATE UNIQUE INDEX device_commands_idempotency_idx ON public.device_commands USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL)"
+          },
+          {
+            "name": "device_commands_pending_idx",
+            "definition": "CREATE INDEX device_commands_pending_idx ON public.device_commands USING btree (device_id, status, created_at)"
+          },
+          {
+            "name": "device_commands_pkey",
+            "definition": "CREATE UNIQUE INDEX device_commands_pkey ON public.device_commands USING btree (id)"
+          },
+          {
+            "name": "device_commands_status_idx",
+            "definition": "CREATE INDEX device_commands_status_idx ON public.device_commands USING btree (device_id, status, created_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25391_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25391_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25391_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_commands_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": "2026-09-01 14:17:58.578887+00:00",
+          "max": "2026-09-08 14:51:25.535813+00:00"
+        }
+      },
+      "device_connections": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "connection_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "protocol_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "1"
+          },
+          {
+            "name": "connected_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "last_heartbeat_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "disconnected_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "disconnect_reason",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "availability_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ONLINE'::text"
+          },
+          {
+            "name": "websocket_connected",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "true"
+          },
+          {
+            "name": "recording",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "detection_enabled",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "streaming",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "battery_percent",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_available",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "network_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "app_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reconnect_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "generation",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "1"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_connections_device_idx",
+            "definition": "CREATE INDEX device_connections_device_idx ON public.device_connections USING btree (device_id, updated_at DESC)"
+          },
+          {
+            "name": "device_connections_live_connection_idx",
+            "definition": "CREATE UNIQUE INDEX device_connections_live_connection_idx ON public.device_connections USING btree (device_id, connection_id)"
+          },
+          {
+            "name": "device_connections_pkey",
+            "definition": "CREATE UNIQUE INDEX device_connections_pkey ON public.device_connections USING btree (id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25475_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25475_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25475_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_connections_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_locations": {
+        "row_count": 4,
+        "primary_key": [
+          "device_id"
+        ],
+        "columns": [
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "location_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "NO",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "NO",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_locations_pkey",
+            "definition": "CREATE UNIQUE INDEX device_locations_pkey ON public.device_locations USING btree (device_id)"
+          },
+          {
+            "name": "device_locations_updated_at_idx",
+            "definition": "CREATE INDEX device_locations_updated_at_idx ON public.device_locations USING btree (updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25586_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25586_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25586_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25586_4_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25586_6_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25586_7_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_accuracy_check",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_latitude_range",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_longitude_range",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_pkey",
+            "type": "PRIMARY KEY"
+          },
+          {
+            "name": "device_locations_source_check",
+            "type": "CHECK"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": "2026-09-08 14:50:27.930114+00:00",
+          "max": "2026-09-22 03:21:15.067285+00:00"
+        }
+      },
+      "device_status": {
+        "row_count": 4,
+        "primary_key": [
+          "device_id"
+        ],
+        "columns": [
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_seen",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'online'::text"
+          },
+          {
+            "name": "is_listening",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "upload_mode",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "battery",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ai_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "backend_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "app_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_ai_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_command_id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_time_sync_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "backend_http_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_websocket_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "metadata_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_location_upload_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_status_pkey",
+            "definition": "CREATE UNIQUE INDEX device_status_pkey ON public.device_status USING btree (device_id)"
+          },
+          {
+            "name": "device_status_time_sync_quality_idx",
+            "definition": "CREATE INDEX device_status_time_sync_quality_idx ON public.device_status USING btree (time_sync_quality)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25380_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_status_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "last_seen",
+          "min": "2026-09-29 17:33:23.427201+00:00",
+          "max": "2026-09-29 17:34:18.457823+00:00"
+        }
+      },
+      "event_group_observations": {
+        "row_count": 372,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_db_id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_timestamp",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ai_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "aircraft_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "observation_kind",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'fusion'::text"
+          },
+          {
+            "name": "weight",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "corrected_arrival_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_used",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "tdoa_residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "capture_start_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_duration_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_event_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "source_pcm_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_encoding_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_synced_at_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_age_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "event_group_observations_clip_idx",
+            "definition": "CREATE INDEX event_group_observations_clip_idx ON public.event_group_observations USING btree (tdoa_clip_path) WHERE (tdoa_clip_path IS NOT NULL)"
+          },
+          {
+            "name": "event_group_observations_corrected_arrival_time_ms_idx",
+            "definition": "CREATE INDEX event_group_observations_corrected_arrival_time_ms_idx ON public.event_group_observations USING btree (corrected_arrival_time_ms)"
+          },
+          {
+            "name": "event_group_observations_device_event_time_ms_idx",
+            "definition": "CREATE INDEX event_group_observations_device_event_time_ms_idx ON public.event_group_observations USING btree (device_event_time_ms)"
+          },
+          {
+            "name": "event_group_observations_device_idx",
+            "definition": "CREATE INDEX event_group_observations_device_idx ON public.event_group_observations USING btree (device_id)"
+          },
+          {
+            "name": "event_group_observations_event_id_idx",
+            "definition": "CREATE INDEX event_group_observations_event_id_idx ON public.event_group_observations USING btree (event_id)"
+          },
+          {
+            "name": "event_group_observations_fusion_event_id_key",
+            "definition": "CREATE UNIQUE INDEX event_group_observations_fusion_event_id_key ON public.event_group_observations USING btree (event_id) WHERE (observation_kind = 'fusion'::text)"
+          },
+          {
+            "name": "event_group_observations_group_idx",
+            "definition": "CREATE INDEX event_group_observations_group_idx ON public.event_group_observations USING btree (group_id)"
+          },
+          {
+            "name": "event_group_observations_pkey",
+            "definition": "CREATE UNIQUE INDEX event_group_observations_pkey ON public.event_group_observations USING btree (id)"
+          },
+          {
+            "name": "event_group_observations_timestamp_idx",
+            "definition": "CREATE INDEX event_group_observations_timestamp_idx ON public.event_group_observations USING btree (event_timestamp)"
+          },
+          {
+            "name": "event_group_observations_timing_source_idx",
+            "definition": "CREATE INDEX event_group_observations_timing_source_idx ON public.event_group_observations USING btree (timing_source)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25415_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "event_group_observations_event_db_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_event_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "event_timestamp",
+          "min": "2026-08-25 15:49:52.672000+00:00",
+          "max": "2026-09-29 17:08:37.140000+00:00"
+        }
+      },
+      "event_groups": {
+        "row_count": 183,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "group_kind",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'fusion'::text"
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "first_event_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "start_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "end_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "estimated_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_residual_rmse_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "geometry_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reference_device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localized_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_center_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_center_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_geojson",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reporting_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reporting_device_ids",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "event_groups_label_status_last_time_idx",
+            "definition": "CREATE INDEX event_groups_label_status_last_time_idx ON public.event_groups USING btree (label, status, last_event_time)"
+          },
+          {
+            "name": "event_groups_pkey",
+            "definition": "CREATE UNIQUE INDEX event_groups_pkey ON public.event_groups USING btree (id)"
+          },
+          {
+            "name": "event_groups_region_type_idx",
+            "definition": "CREATE INDEX event_groups_region_type_idx ON public.event_groups USING btree (region_type)"
+          },
+          {
+            "name": "event_groups_region_updated_at_idx",
+            "definition": "CREATE INDEX event_groups_region_updated_at_idx ON public.event_groups USING btree (region_updated_at DESC)"
+          },
+          {
+            "name": "event_groups_updated_at_idx",
+            "definition": "CREATE INDEX event_groups_updated_at_idx ON public.event_groups USING btree (updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25402_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "event_groups_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": "2026-08-25 15:49:57.065884+00:00",
+          "max": "2026-09-29 17:08:26.143270+00:00"
+        }
+      },
+      "events": {
+        "row_count": 375,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "NO",
+            "default": "nextval('events_id_seq'::regclass)"
+          },
+          {
+            "name": "event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timestamp",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "duration_s",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_file_name",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "local_audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "source_pcm_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_encoding_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "note",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "capture_start_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_duration_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_synced_at_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_age_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "corrected_arrival_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "classification_schema_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "operational_class",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "aircraft_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "drone_subtype",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "class_scores_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "events_corrected_arrival_time_ms_idx",
+            "definition": "CREATE INDEX events_corrected_arrival_time_ms_idx ON public.events USING btree (corrected_arrival_time_ms)"
+          },
+          {
+            "name": "events_device_event_time_ms_idx",
+            "definition": "CREATE INDEX events_device_event_time_ms_idx ON public.events USING btree (device_event_time_ms)"
+          },
+          {
+            "name": "events_event_id_key",
+            "definition": "CREATE UNIQUE INDEX events_event_id_key ON public.events USING btree (event_id)"
+          },
+          {
+            "name": "events_gps_movement_idx",
+            "definition": "CREATE INDEX events_gps_movement_idx ON public.events USING btree (device_id, gps_speed_mps, gps_heading_deg)"
+          },
+          {
+            "name": "events_model_label_idx",
+            "definition": "CREATE INDEX events_model_label_idx ON public.events USING btree (model_label, id DESC) WHERE (model_label IS NOT NULL)"
+          },
+          {
+            "name": "events_operational_class_idx",
+            "definition": "CREATE INDEX events_operational_class_idx ON public.events USING btree (operational_class, id DESC) WHERE (operational_class IS NOT NULL)"
+          },
+          {
+            "name": "events_pkey",
+            "definition": "CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)"
+          },
+          {
+            "name": "events_timing_source_idx",
+            "definition": "CREATE INDEX events_timing_source_idx ON public.events USING btree (timing_source)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25371_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25371_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "events_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "timestamp",
+          "min": "2026-08-27T18:30:20.986768+00:00",
+          "max": "2026/09/30 01:08:36"
+        }
+      },
+      "localization_pair_results": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "localization_result_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_a",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "device_b",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "lag_samples",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "lag_seconds",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "correlation_score",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "accepted",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "rejection_reason",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "max_physical_lag_seconds",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "localization_pair_results_group_idx",
+            "definition": "CREATE INDEX localization_pair_results_group_idx ON public.localization_pair_results USING btree (group_id)"
+          },
+          {
+            "name": "localization_pair_results_pkey",
+            "definition": "CREATE UNIQUE INDEX localization_pair_results_pkey ON public.localization_pair_results USING btree (id)"
+          },
+          {
+            "name": "localization_pair_results_result_idx",
+            "definition": "CREATE INDEX localization_pair_results_result_idx ON public.localization_pair_results USING btree (localization_result_id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25520_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25520_4_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_25520_5_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "localization_pair_results_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_pair_results_localization_result_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_pair_results_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "localization_results": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "geometry_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reference_device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "input_signature",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "diagnostics_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "localization_results_created_idx",
+            "definition": "CREATE INDEX localization_results_created_idx ON public.localization_results USING btree (created_at DESC)"
+          },
+          {
+            "name": "localization_results_group_idx",
+            "definition": "CREATE INDEX localization_results_group_idx ON public.localization_results USING btree (group_id)"
+          },
+          {
+            "name": "localization_results_input_signature_key",
+            "definition": "CREATE UNIQUE INDEX localization_results_input_signature_key ON public.localization_results USING btree (input_signature)"
+          },
+          {
+            "name": "localization_results_method_idx",
+            "definition": "CREATE INDEX localization_results_method_idx ON public.localization_results USING btree (method, status, created_at DESC)"
+          },
+          {
+            "name": "localization_results_pkey",
+            "definition": "CREATE UNIQUE INDEX localization_results_pkey ON public.localization_results USING btree (id)"
+          },
+          {
+            "name": "localization_results_signature_idx",
+            "definition": "CREATE UNIQUE INDEX localization_results_signature_idx ON public.localization_results USING btree (input_signature)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25455_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "localization_results_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_results_input_signature_key",
+            "type": "UNIQUE"
+          },
+          {
+            "name": "localization_results_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "event_time_ms",
+          "min": null,
+          "max": null
+        }
+      },
+      "target_track_points": {
+        "row_count": 90,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "track_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_result_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measurement_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measured_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measured_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "filtered_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "filtered_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "predicted_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "predicted_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_east_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_north_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rejected_as_outlier",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "innovation_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "state_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "covariance_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "diagnostics_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "target_track_points_group_idx",
+            "definition": "CREATE INDEX target_track_points_group_idx ON public.target_track_points USING btree (group_id)"
+          },
+          {
+            "name": "target_track_points_pkey",
+            "definition": "CREATE UNIQUE INDEX target_track_points_pkey ON public.target_track_points USING btree (id)"
+          },
+          {
+            "name": "target_track_points_time_idx",
+            "definition": "CREATE INDEX target_track_points_time_idx ON public.target_track_points USING btree (measurement_time_ms DESC)"
+          },
+          {
+            "name": "target_track_points_track_idx",
+            "definition": "CREATE INDEX target_track_points_track_idx ON public.target_track_points USING btree (track_id, measurement_time_ms)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25555_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "target_track_points_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "target_track_points_localization_result_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "target_track_points_pkey",
+            "type": "PRIMARY KEY"
+          },
+          {
+            "name": "target_track_points_track_id_fkey",
+            "type": "FOREIGN KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "measurement_time_ms",
+          "min": "1790004712941.0",
+          "max": "1790701717140.0"
+        }
+      },
+      "target_tracks": {
+        "row_count": 17,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "origin_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "origin_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "first_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "point_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "last_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_east_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_north_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "closed_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "target_tracks_pkey",
+            "definition": "CREATE UNIQUE INDEX target_tracks_pkey ON public.target_tracks USING btree (id)"
+          },
+          {
+            "name": "target_tracks_status_label_idx",
+            "definition": "CREATE INDEX target_tracks_status_label_idx ON public.target_tracks USING btree (status, label, updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_25542_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "target_tracks_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": "2026-09-21 15:32:25.279379+00:00",
+          "max": "2026-09-29 17:08:34.391086+00:00"
+        }
+      }
+    },
+    "sequences": {
+      "device_commands_id_seq": {
+        "last_value": 13,
+        "start_value": 1,
+        "increment_by": 1
+      },
+      "events_id_seq": {
+        "last_value": 532,
+        "start_value": 1,
+        "increment_by": 1
+      }
+    },
+    "foreign_keys": [
+      {
+        "table": "event_group_observations",
+        "column": "event_db_id",
+        "ref_table": "events",
+        "ref_column": "id"
+      },
+      {
+        "table": "event_group_observations",
+        "column": "event_id",
+        "ref_table": "events",
+        "ref_column": "event_id"
+      },
+      {
+        "table": "event_group_observations",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "track_id",
+        "ref_table": "target_tracks",
+        "ref_column": "id"
+      }
+    ],
+    "orphan_foreign_keys": [
+      {
+        "table": "event_group_observations",
+        "column": "event_db_id",
+        "ref_table": "events",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "event_group_observations",
+        "column": "event_id",
+        "ref_table": "events",
+        "ref_column": "event_id",
+        "orphan_count": 0
+      },
+      {
+        "table": "event_group_observations",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "track_id",
+        "ref_table": "target_tracks",
+        "ref_column": "id",
+        "orphan_count": 0
+      }
+    ]
+  },
+  "target": {
+    "tables": [
+      "audio_stream_sessions",
+      "device_commands",
+      "device_connections",
+      "device_locations",
+      "device_status",
+      "event_group_observations",
+      "event_groups",
+      "events",
+      "localization_pair_results",
+      "localization_results",
+      "target_track_points",
+      "target_tracks"
+    ],
+    "table_summary": {
+      "audio_stream_sessions": {
+        "row_count": 0,
+        "primary_key": [
+          "stream_id"
+        ],
+        "columns": [
+          {
+            "name": "stream_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "connection_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "codec",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "frame_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "started_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "stopped_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_frame_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "received_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "dropped_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "sequence_gaps",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "out_of_order_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "malformed_frames",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "bytes_received",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "subscriber_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "audio_stream_sessions_device_idx",
+            "definition": "CREATE INDEX audio_stream_sessions_device_idx ON public.audio_stream_sessions USING btree (device_id, started_at DESC)"
+          },
+          {
+            "name": "audio_stream_sessions_pkey",
+            "definition": "CREATE UNIQUE INDEX audio_stream_sessions_pkey ON public.audio_stream_sessions USING btree (stream_id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17602_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17602_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "audio_stream_sessions_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_commands": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "NO",
+            "default": "nextval('device_commands_id_seq'::regclass)"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "command",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "value",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'pending'::text"
+          },
+          {
+            "name": "issued_by",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "executed_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ack_message",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "command_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "args_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "issued_at_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "expires_at_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "idempotency_key",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "acked_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "result_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "result_message",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "delivery_channel",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "delivery_attempts",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_commands_idempotency_idx",
+            "definition": "CREATE UNIQUE INDEX device_commands_idempotency_idx ON public.device_commands USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL)"
+          },
+          {
+            "name": "device_commands_pending_idx",
+            "definition": "CREATE INDEX device_commands_pending_idx ON public.device_commands USING btree (device_id, status, created_at)"
+          },
+          {
+            "name": "device_commands_pkey",
+            "definition": "CREATE UNIQUE INDEX device_commands_pkey ON public.device_commands USING btree (id)"
+          },
+          {
+            "name": "device_commands_status_idx",
+            "definition": "CREATE INDEX device_commands_status_idx ON public.device_commands USING btree (device_id, status, created_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17619_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17619_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17619_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_commands_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_connections": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "connection_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "protocol_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "1"
+          },
+          {
+            "name": "connected_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "last_heartbeat_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "disconnected_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "disconnect_reason",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "availability_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ONLINE'::text"
+          },
+          {
+            "name": "websocket_connected",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "true"
+          },
+          {
+            "name": "recording",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "detection_enabled",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "streaming",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "battery_percent",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_available",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "network_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "app_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reconnect_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "generation",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "1"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_connections_device_idx",
+            "definition": "CREATE INDEX device_connections_device_idx ON public.device_connections USING btree (device_id, updated_at DESC)"
+          },
+          {
+            "name": "device_connections_live_connection_idx",
+            "definition": "CREATE UNIQUE INDEX device_connections_live_connection_idx ON public.device_connections USING btree (device_id, connection_id)"
+          },
+          {
+            "name": "device_connections_pkey",
+            "definition": "CREATE UNIQUE INDEX device_connections_pkey ON public.device_connections USING btree (id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17628_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17628_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17628_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_connections_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_locations": {
+        "row_count": 0,
+        "primary_key": [
+          "device_id"
+        ],
+        "columns": [
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "location_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "NO",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "NO",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_locations_pkey",
+            "definition": "CREATE UNIQUE INDEX device_locations_pkey ON public.device_locations USING btree (device_id)"
+          },
+          {
+            "name": "device_locations_updated_at_idx",
+            "definition": "CREATE INDEX device_locations_updated_at_idx ON public.device_locations USING btree (updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17646_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17646_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17646_3_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17646_4_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17646_6_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17646_7_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_accuracy_check",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_latitude_range",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_longitude_range",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_locations_pkey",
+            "type": "PRIMARY KEY"
+          },
+          {
+            "name": "device_locations_source_check",
+            "type": "CHECK"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "device_status": {
+        "row_count": 0,
+        "primary_key": [
+          "device_id"
+        ],
+        "columns": [
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_seen",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'online'::text"
+          },
+          {
+            "name": "is_listening",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "upload_mode",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "battery",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ai_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "backend_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "app_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_ai_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_command_id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_time_sync_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "backend_http_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_websocket_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "metadata_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_upload_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_location_upload_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "device_status_pkey",
+            "definition": "CREATE UNIQUE INDEX device_status_pkey ON public.device_status USING btree (device_id)"
+          },
+          {
+            "name": "device_status_time_sync_quality_idx",
+            "definition": "CREATE INDEX device_status_time_sync_quality_idx ON public.device_status USING btree (time_sync_quality)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17657_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "device_status_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "last_seen",
+          "min": null,
+          "max": null
+        }
+      },
+      "event_group_observations": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_db_id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_timestamp",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "ai_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "aircraft_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "observation_kind",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'fusion'::text"
+          },
+          {
+            "name": "weight",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "corrected_arrival_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_used",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "tdoa_residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "capture_start_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_duration_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_event_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "source_pcm_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_encoding_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_synced_at_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_age_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "event_group_observations_clip_idx",
+            "definition": "CREATE INDEX event_group_observations_clip_idx ON public.event_group_observations USING btree (tdoa_clip_path) WHERE (tdoa_clip_path IS NOT NULL)"
+          },
+          {
+            "name": "event_group_observations_corrected_arrival_time_ms_idx",
+            "definition": "CREATE INDEX event_group_observations_corrected_arrival_time_ms_idx ON public.event_group_observations USING btree (corrected_arrival_time_ms)"
+          },
+          {
+            "name": "event_group_observations_device_event_time_ms_idx",
+            "definition": "CREATE INDEX event_group_observations_device_event_time_ms_idx ON public.event_group_observations USING btree (device_event_time_ms)"
+          },
+          {
+            "name": "event_group_observations_device_idx",
+            "definition": "CREATE INDEX event_group_observations_device_idx ON public.event_group_observations USING btree (device_id)"
+          },
+          {
+            "name": "event_group_observations_event_id_idx",
+            "definition": "CREATE INDEX event_group_observations_event_id_idx ON public.event_group_observations USING btree (event_id)"
+          },
+          {
+            "name": "event_group_observations_fusion_event_id_key",
+            "definition": "CREATE UNIQUE INDEX event_group_observations_fusion_event_id_key ON public.event_group_observations USING btree (event_id) WHERE (observation_kind = 'fusion'::text)"
+          },
+          {
+            "name": "event_group_observations_group_idx",
+            "definition": "CREATE INDEX event_group_observations_group_idx ON public.event_group_observations USING btree (group_id)"
+          },
+          {
+            "name": "event_group_observations_pkey",
+            "definition": "CREATE UNIQUE INDEX event_group_observations_pkey ON public.event_group_observations USING btree (id)"
+          },
+          {
+            "name": "event_group_observations_timestamp_idx",
+            "definition": "CREATE INDEX event_group_observations_timestamp_idx ON public.event_group_observations USING btree (event_timestamp)"
+          },
+          {
+            "name": "event_group_observations_timing_source_idx",
+            "definition": "CREATE INDEX event_group_observations_timing_source_idx ON public.event_group_observations USING btree (timing_source)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17665_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "event_group_observations_event_db_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_event_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "event_group_observations_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "event_timestamp",
+          "min": null,
+          "max": null
+        }
+      },
+      "event_groups": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "group_kind",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'fusion'::text"
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "first_event_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "start_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "end_time",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "estimated_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_residual_rmse_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "geometry_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reference_device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localized_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_type",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_center_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_center_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_geojson",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reporting_node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reporting_device_ids",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "region_updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "event_groups_label_status_last_time_idx",
+            "definition": "CREATE INDEX event_groups_label_status_last_time_idx ON public.event_groups USING btree (label, status, last_event_time)"
+          },
+          {
+            "name": "event_groups_pkey",
+            "definition": "CREATE UNIQUE INDEX event_groups_pkey ON public.event_groups USING btree (id)"
+          },
+          {
+            "name": "event_groups_region_type_idx",
+            "definition": "CREATE INDEX event_groups_region_type_idx ON public.event_groups USING btree (region_type)"
+          },
+          {
+            "name": "event_groups_region_updated_at_idx",
+            "definition": "CREATE INDEX event_groups_region_updated_at_idx ON public.event_groups USING btree (region_updated_at DESC)"
+          },
+          {
+            "name": "event_groups_updated_at_idx",
+            "definition": "CREATE INDEX event_groups_updated_at_idx ON public.event_groups USING btree (updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17674_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "event_groups_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "events": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "NO",
+            "default": "nextval('events_id_seq'::regclass)"
+          },
+          {
+            "name": "event_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timestamp",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "latitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "longitude",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "duration_s",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_avg_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_peak_db",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "gps_accuracy_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_file_name",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "local_audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "source_pcm_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_encoding_status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_path",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_format",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_size_bytes",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_duration_ms",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "tdoa_clip_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "note",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_source",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "capture_start_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_sample",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate_hz",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "channel_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_start_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_end_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_time_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rms_peak_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "sample_rate",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "audio_duration_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_version",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_offset_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_rtt_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_synced_at_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "time_sync_age_ms",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "corrected_arrival_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "timing_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "classification_schema_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "model_confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "operational_class",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "aircraft_probability",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "drone_subtype",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "class_scores_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "events_corrected_arrival_time_ms_idx",
+            "definition": "CREATE INDEX events_corrected_arrival_time_ms_idx ON public.events USING btree (corrected_arrival_time_ms)"
+          },
+          {
+            "name": "events_device_event_time_ms_idx",
+            "definition": "CREATE INDEX events_device_event_time_ms_idx ON public.events USING btree (device_event_time_ms)"
+          },
+          {
+            "name": "events_event_id_key",
+            "definition": "CREATE UNIQUE INDEX events_event_id_key ON public.events USING btree (event_id)"
+          },
+          {
+            "name": "events_gps_movement_idx",
+            "definition": "CREATE INDEX events_gps_movement_idx ON public.events USING btree (device_id, gps_speed_mps, gps_heading_deg)"
+          },
+          {
+            "name": "events_model_label_idx",
+            "definition": "CREATE INDEX events_model_label_idx ON public.events USING btree (model_label, id DESC) WHERE (model_label IS NOT NULL)"
+          },
+          {
+            "name": "events_operational_class_idx",
+            "definition": "CREATE INDEX events_operational_class_idx ON public.events USING btree (operational_class, id DESC) WHERE (operational_class IS NOT NULL)"
+          },
+          {
+            "name": "events_pkey",
+            "definition": "CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)"
+          },
+          {
+            "name": "events_timing_source_idx",
+            "definition": "CREATE INDEX events_timing_source_idx ON public.events USING btree (timing_source)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17685_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17685_2_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "events_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "timestamp",
+          "min": null,
+          "max": null
+        }
+      },
+      "localization_pair_results": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "localization_result_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "device_a",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "device_b",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "lag_samples",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "lag_seconds",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "correlation_score",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "accepted",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "rejection_reason",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "max_physical_lag_seconds",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "localization_pair_results_group_idx",
+            "definition": "CREATE INDEX localization_pair_results_group_idx ON public.localization_pair_results USING btree (group_id)"
+          },
+          {
+            "name": "localization_pair_results_pkey",
+            "definition": "CREATE UNIQUE INDEX localization_pair_results_pkey ON public.localization_pair_results USING btree (id)"
+          },
+          {
+            "name": "localization_pair_results_result_idx",
+            "definition": "CREATE INDEX localization_pair_results_result_idx ON public.localization_pair_results USING btree (localization_result_id)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17691_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17691_4_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "2200_17691_5_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "localization_pair_results_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_pair_results_localization_result_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_pair_results_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      },
+      "localization_results": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "method",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "version",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "estimated_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "residual_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "geometry_quality",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "reference_device_id",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "node_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "input_signature",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "diagnostics_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "localization_results_created_idx",
+            "definition": "CREATE INDEX localization_results_created_idx ON public.localization_results USING btree (created_at DESC)"
+          },
+          {
+            "name": "localization_results_group_idx",
+            "definition": "CREATE INDEX localization_results_group_idx ON public.localization_results USING btree (group_id)"
+          },
+          {
+            "name": "localization_results_input_signature_key",
+            "definition": "CREATE UNIQUE INDEX localization_results_input_signature_key ON public.localization_results USING btree (input_signature)"
+          },
+          {
+            "name": "localization_results_method_idx",
+            "definition": "CREATE INDEX localization_results_method_idx ON public.localization_results USING btree (method, status, created_at DESC)"
+          },
+          {
+            "name": "localization_results_pkey",
+            "definition": "CREATE UNIQUE INDEX localization_results_pkey ON public.localization_results USING btree (id)"
+          },
+          {
+            "name": "localization_results_signature_idx",
+            "definition": "CREATE UNIQUE INDEX localization_results_signature_idx ON public.localization_results USING btree (input_signature)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17699_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "localization_results_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "localization_results_input_signature_key",
+            "type": "UNIQUE"
+          },
+          {
+            "name": "localization_results_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "event_time_ms",
+          "min": null,
+          "max": null
+        }
+      },
+      "target_track_points": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "track_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "group_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "localization_result_id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measurement_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measured_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "measured_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "filtered_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "filtered_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "predicted_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "predicted_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_east_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_north_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "uncertainty_radius_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "rejected_as_outlier",
+            "data_type": "boolean",
+            "udt_name": "bool",
+            "nullable": "YES",
+            "default": "false"
+          },
+          {
+            "name": "innovation_m",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "state_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "covariance_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "diagnostics_json",
+            "data_type": "jsonb",
+            "udt_name": "jsonb",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "target_track_points_group_idx",
+            "definition": "CREATE INDEX target_track_points_group_idx ON public.target_track_points USING btree (group_id)"
+          },
+          {
+            "name": "target_track_points_pkey",
+            "definition": "CREATE UNIQUE INDEX target_track_points_pkey ON public.target_track_points USING btree (id)"
+          },
+          {
+            "name": "target_track_points_time_idx",
+            "definition": "CREATE INDEX target_track_points_time_idx ON public.target_track_points USING btree (measurement_time_ms DESC)"
+          },
+          {
+            "name": "target_track_points_track_idx",
+            "definition": "CREATE INDEX target_track_points_track_idx ON public.target_track_points USING btree (track_id, measurement_time_ms)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17705_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "target_track_points_group_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "target_track_points_localization_result_id_fkey",
+            "type": "FOREIGN KEY"
+          },
+          {
+            "name": "target_track_points_pkey",
+            "type": "PRIMARY KEY"
+          },
+          {
+            "name": "target_track_points_track_id_fkey",
+            "type": "FOREIGN KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "measurement_time_ms",
+          "min": null,
+          "max": null
+        }
+      },
+      "target_tracks": {
+        "row_count": 0,
+        "primary_key": [
+          "id"
+        ],
+        "columns": [
+          {
+            "name": "id",
+            "data_type": "uuid",
+            "udt_name": "uuid",
+            "nullable": "NO",
+            "default": "gen_random_uuid()"
+          },
+          {
+            "name": "label",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "status",
+            "data_type": "text",
+            "udt_name": "text",
+            "nullable": "YES",
+            "default": "'ACTIVE'::text"
+          },
+          {
+            "name": "origin_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "origin_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "created_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "updated_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": "now()"
+          },
+          {
+            "name": "first_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_event_time_ms",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "point_count",
+            "data_type": "integer",
+            "udt_name": "int4",
+            "nullable": "YES",
+            "default": "0"
+          },
+          {
+            "name": "last_lat",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_lng",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_speed_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_heading_deg",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "last_confidence",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_east_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "velocity_north_mps",
+            "data_type": "double precision",
+            "udt_name": "float8",
+            "nullable": "YES",
+            "default": null
+          },
+          {
+            "name": "closed_at",
+            "data_type": "timestamp with time zone",
+            "udt_name": "timestamptz",
+            "nullable": "YES",
+            "default": null
+          }
+        ],
+        "indexes": [
+          {
+            "name": "target_tracks_pkey",
+            "definition": "CREATE UNIQUE INDEX target_tracks_pkey ON public.target_tracks USING btree (id)"
+          },
+          {
+            "name": "target_tracks_status_label_idx",
+            "definition": "CREATE INDEX target_tracks_status_label_idx ON public.target_tracks USING btree (status, label, updated_at DESC)"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "2200_17713_1_not_null",
+            "type": "CHECK"
+          },
+          {
+            "name": "target_tracks_pkey",
+            "type": "PRIMARY KEY"
+          }
+        ],
+        "timestamp": {
+          "column": "created_at",
+          "min": null,
+          "max": null
+        }
+      }
+    },
+    "sequences": {
+      "device_commands_id_seq": {
+        "last_value": null,
+        "start_value": 1,
+        "increment_by": 1
+      },
+      "events_id_seq": {
+        "last_value": null,
+        "start_value": 1,
+        "increment_by": 1
+      }
+    },
+    "foreign_keys": [
+      {
+        "table": "event_group_observations",
+        "column": "event_db_id",
+        "ref_table": "events",
+        "ref_column": "id"
+      },
+      {
+        "table": "event_group_observations",
+        "column": "event_id",
+        "ref_table": "events",
+        "ref_column": "event_id"
+      },
+      {
+        "table": "event_group_observations",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id"
+      },
+      {
+        "table": "localization_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id"
+      },
+      {
+        "table": "target_track_points",
+        "column": "track_id",
+        "ref_table": "target_tracks",
+        "ref_column": "id"
+      }
+    ],
+    "orphan_foreign_keys": [
+      {
+        "table": "event_group_observations",
+        "column": "event_db_id",
+        "ref_table": "events",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "event_group_observations",
+        "column": "event_id",
+        "ref_table": "events",
+        "ref_column": "event_id",
+        "orphan_count": 0
+      },
+      {
+        "table": "event_group_observations",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_pair_results",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "localization_results",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "group_id",
+        "ref_table": "event_groups",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "localization_result_id",
+        "ref_table": "localization_results",
+        "ref_column": "id",
+        "orphan_count": 0
+      },
+      {
+        "table": "target_track_points",
+        "column": "track_id",
+        "ref_table": "target_tracks",
+        "ref_column": "id",
+        "orphan_count": 0
+      }
+    ]
+  },
+  "schema": {
+    "missing_on_target": [],
+    "extra_on_target": [],
+    "row_count_differences": {
+      "device_commands": {
+        "source": 13,
+        "target": 0
+      },
+      "device_locations": {
+        "source": 4,
+        "target": 0
+      },
+      "device_status": {
+        "source": 4,
+        "target": 0
+      },
+      "event_group_observations": {
+        "source": 372,
+        "target": 0
+      },
+      "event_groups": {
+        "source": 183,
+        "target": 0
+      },
+      "events": {
+        "source": 375,
+        "target": 0
+      },
+      "target_track_points": {
+        "source": 90,
+        "target": 0
+      },
+      "target_tracks": {
+        "source": 17,
+        "target": 0
+      }
+    },
+    "orphan_fk_count": {
+      "source": 0,
+      "target": 0
+    }
+  },
+  "secrets_emitted": false
+}
