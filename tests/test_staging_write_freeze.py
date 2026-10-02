@@ -38,6 +38,8 @@ def test_reads_remain_available_and_writes_are_blocked(monkeypatch):
     monkeypatch.setattr(main, "list_recent_events", lambda limit=50: [])
     monkeypatch.setattr(main, "list_event_fusion_groups", lambda **kwargs: [])
     monkeypatch.setattr(main, "get_tracks_cache", lambda key: {"status": "success", "tracks": []})
+    monkeypatch.setattr(main, "list_device_status_rows", lambda: [])
+    monkeypatch.setattr(main, "list_device_fixed_locations", lambda: [])
 
     assert client.get("/health").status_code == 200
     runtime = client.get("/runtime-status")
@@ -46,6 +48,8 @@ def test_reads_remain_available_and_writes_are_blocked(monkeypatch):
     assert client.get("/events").status_code == 200
     assert client.get("/event-groups").status_code == 200
     assert client.get("/tracks").status_code == 200
+    assert client.get("/device-status").status_code == 200
+    assert client.get("/device-locations").status_code == 200
 
     for method, path in (
         ("post", "/events"),
