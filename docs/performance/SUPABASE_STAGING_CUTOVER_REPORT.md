@@ -2,14 +2,14 @@
 
 Date: 2026-10-02  
 Branch: `feat/latency-diagnostics-staging`  
-Scope: staging-only cutover preflight. No Render setting was changed.
+Scope: staging-only cutover preflight. Render staging was updated only for deployment and reversible freeze validation; `DATABASE_URL` was not changed.
 
 ## Decision
 
 **STAGING_CUTOVER = NO-GO**  
 **STAGING_RUNNING_ON_SINGAPORE = NO**
 
-The cutover remains stopped before any Render change. A fail-closed, reversible staging-only write-freeze mechanism is now implemented and locally validated, but it has not yet been activated and observed on the Render staging service. The Tokyo and Singapore databases are currently reconciled and healthy, but changing the Render staging `DATABASE_URL` before staging activation/quiescence evidence would allow a moving source snapshot and violate the cutover gate.
+The cutover remains **NO-GO**. Commit `b3ed190738930ca7e9305a4f08cb593120e6912c` was deployed to the identified Render staging service. The reversible write-freeze was activated and reported quiescent, then disabled after the gate failed. The existing Render staging Tokyo connection failed password authentication, so read checks were degraded and Singapore was not assigned.
 
 ## Pre-cutover checks
 
@@ -24,14 +24,15 @@ The cutover remains stopped before any Render change. A fail-closed, reversible 
 - Sequence runtime values: `device_commands_id_seq=13`, `events_id_seq=532` on both sides.
 - `FINAL_SYNC_REQUIRED = NO` for the captured state.
 - Source write observation during metadata capture: no observed count/timestamp change; this is not a freeze.
+- Render deployment identity: service `sound-backend-staging`, ID `srv-da6kdn61egvs7392r92g`, branch `feat/latency-diagnostics-staging`, commit `b3ed190738930ca7e9305a4f08cb593120e6912c`.
 
 ## Write-freeze gate
 
-`STAGING_WRITE_FREEZE_AVAILABLE = YES (implementation and local tests); STAGING_WRITES_FROZEN = NOT YET TESTED ON RENDER`.
+`STAGING_WRITE_FREEZE_AVAILABLE = YES (implementation and local tests); STAGING_WRITES_FROZEN = YES (Render observed)`.
 
-The branch now provides an explicit `APP_ENV=staging` + `STAGING_WRITE_FREEZE=true` guard. It blocks classified HTTP/database mutation paths, command WebSocket writes, audio upload WebSocket writes, and new post-ingest/device-status jobs while preserving reads. `LIVE_AUDIO_ENABLED` remains unrelated to the freeze. Local route, background, production-guard, and unfreeze tests passed; Render activation and quiescence observation are still pending.
+The branch provides an explicit `APP_ENV=staging` + `STAGING_WRITE_FREEZE=true` guard. Render reported `active_write_requests=0`, both pending job counters zero, and `write_quiescent=true`. The flag was later set false and Render reported normal mode again. `LIVE_AUDIO_ENABLED` remains unrelated to the freeze. Local route, background, production-guard, and unfreeze tests passed.
 
-Per the runbook, the process stopped before rollback-state confirmation, Render mutation, health checks, controlled writes, unfreeze, and latency A/B.
+During the frozen smoke check `/health` and `/runtime-status` returned 200. Read endpoints `/events`, `/tracks`, and `/device-status` returned degraded responses because the existing Tokyo password was rejected; `/event-groups` returned 500 for the same database failure. `/device-locations` returned 200 with an empty result. The representative write request was not allowed to proceed beyond the freeze middleware. No controlled write or latency A/B was run.
 
 ## Render and rollback state
 
@@ -40,17 +41,17 @@ Per the runbook, the process stopped before rollback-state confirmation, Render 
 - Database after: unchanged; Singapore was not assigned.
 - `DATABASE_URL` changed: no.
 - Rollback performed: no.
-- Rollback readiness: not assessed because no cutover occurred.
+- Rollback readiness: Tokyo remains the unchanged Render target; Singapore was not assigned. A future cutover remains blocked until the staging credential is corrected and all read/TLS/reconciliation gates pass.
 - Production touched: no.
 - PR merged: no.
 
 ## Not run
 
-Post-cutover `/health`, `/runtime-status`, dashboard/WebSocket checks, controlled write smoke, staging unfreeze, and Singapore latency A/B were not run because the cutover gate failed. No latency improvement is claimed.
+Post-cutover checks and Singapore latency A/B were not run because the pre-cutover database authentication gate failed. Freeze activation/unfreeze and pre-cutover health/runtime checks were run. No latency improvement is claimed.
 
 Machine-readable status is in `outputs/supabase_staging_cutover_verification.json`. No DSN, password, token, dump, or raw row payload is included.
 
 ## Required next step
 
-Activate `APP_ENV=staging` and `STAGING_WRITE_FREEZE=true` on the Render staging service, verify `/runtime-status` reports `write_quiescent=true`, and observe Tokyo metadata twice without changes. Then repeat TLS and final reconciliation immediately before any cutover. Do not change Render `DATABASE_URL` until that gate passes.
+Correct and verify the Render staging Tokyo database credential without exposing it, then rerun read checks. Repeat TLS and final reconciliation while the freeze is active. Do not change Render `DATABASE_URL` until all gates pass.
 
