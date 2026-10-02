@@ -1,0 +1,26 @@
+{
+  "captured_at": "2026-10-02T01:30:51.5729438Z",
+  "source_writes_active": "UNKNOWN",
+  "preflight": {
+    "tokyo_dsn_available": true,
+    "singapore_dsn_available": true,
+    "pg_dump": "17.11",
+    "pg_restore": "17.11",
+    "psql": "17.11",
+    "tokyo_select_1": "BLOCKED_REMOTE_CONNECTION_RESET",
+    "singapore_select_1": "BLOCKED_REMOTE_CONNECTION_RESET"
+  },
+  "schema_rehearsal": "PASS_PREVIOUSLY_VERIFIED",
+  "destination_safety": "NOT_RUN",
+  "data_backup": "NOT_CREATED",
+  "data_restore": "NOT_RUN",
+  "row_counts": "NOT_CAPTURED",
+  "pk_unique": "NOT_RUN",
+  "fk_orphans": "NOT_RUN",
+  "checksums": "NOT_RUN",
+  "application_smoke": "NOT_RUN",
+  "tokyo_unchanged": true,
+  "data_migration_rehearsal": "NO-GO",
+  "staging_cutover_ready": false,
+  "reason": "Both staging pooler endpoints reset the PostgreSQL TLS connection during preflight; no SQL session was established, so the runbook requires stopping before snapshot or restore."
+}
