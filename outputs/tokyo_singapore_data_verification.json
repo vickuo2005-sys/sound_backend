@@ -1,32 +1,7 @@
 {
-  "application_smoke": {
-    "gcs_reference_fields_preserved": "no_nonnull_reference_fields_in_snapshot",
-    "read_only": true,
-    "status": "PASS",
-    "tables_queried": 12
-  },
-  "captured_at": "2026-10-02T02:09:44Z",
-  "checksums": {
-    "all_12_tables_match": true,
-    "method": "md5 of canonical PostgreSQL jsonb row text ordered deterministically",
-    "reliable": true,
-    "status": "PASS"
-  },
-  "data_backup": {
-    "bytes": 185814,
-    "committed": false,
-    "path": "outputs/tokyo_staging_data_rehearsal.dump",
-    "sha256": "a070e08035d821cd9fbd798a09c6ea6116dd086ea05fdb861a85c552e073da70"
-  },
-  "data_migration_rehearsal": "PASS",
-  "data_restore": {
-    "destructive_sql": "NONE",
-    "sequence_set_entries_excluded": 2,
-    "status": "PASS",
-    "table_data_entries_restored": 12
-  },
+  "captured_at": "2026-10-02T02:31:42Z",
   "destination": {
-    "captured_at": "2026-10-02T02:09:08Z",
+    "captured_at": "2026-10-02T02:31:23Z",
     "fk_orphans": {
       "event_group_observations.event_db_id->events.id": 0,
       "event_group_observations.event_id->events.event_id": 0,
@@ -630,43 +605,8 @@
       }
     }
   },
-  "destination_safety": {
-    "empty_before_restore": true,
-    "nonzero_tables_before_restore": []
-  },
-  "remaining_risks": [
-    "Tokyo remains the rollback source; Render DATABASE_URL has not been changed.",
-    "SOURCE_WRITES_ACTIVE is only a 5-second observation and is not a maintenance freeze.",
-    "Previous TLS reset was intermittent; repeat TLS preflight immediately before any future cutover."
-  ],
-  "schema_rehearsal": {
-    "destination_tables": 12,
-    "extra": [],
-    "missing": [],
-    "source_tables": 12,
-    "status": "PASS"
-  },
-  "sequence_validation": {
-    "destination": {
-      "device_commands_id_seq": 13,
-      "events_id_seq": 532
-    },
-    "max_existing_id": {
-      "device_commands": 13,
-      "events": 530
-    },
-    "next_values": {
-      "device_commands_id_seq": 14,
-      "events_id_seq": 533
-    },
-    "next_values_above_existing_max": true,
-    "source": {
-      "device_commands_id_seq": 13,
-      "events_id_seq": 532
-    }
-  },
   "source_current": {
-    "captured_at": "2026-10-02T02:08:35Z",
+    "captured_at": "2026-10-02T02:31:10Z",
     "fk_orphans": {
       "event_group_observations.event_db_id->events.id": 0,
       "event_group_observations.event_id->events.event_id": 0,
@@ -1273,8 +1213,6 @@
   "source_write_observation": {
     "snapshot_count_changed": false
   },
-  "source_writes_active": "NO_OBSERVED_DURING_5S_WINDOW",
-  "staging_cutover_ready": "NO",
   "status": "PENDING_SEQUENCE_RESTORE",
   "table_checks": {
     "audio_stream_sessions": {
@@ -1385,11 +1323,5 @@
       "source_snapshot_count": 17,
       "timestamp_match": true
     }
-  },
-  "tls_preflight": {
-    "singapore": "PASS",
-    "sslmode": "require",
-    "tokyo": "PASS"
-  },
-  "tokyo_unchanged": true
+  }
 }

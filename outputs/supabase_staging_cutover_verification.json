@@ -1,0 +1,38 @@
+{
+  "captured_at": "2026-10-02T02:32:59.9577805Z",
+  "tls_preflight": {
+    "tokyo": "PASS",
+    "singapore": "PASS",
+    "sslmode": "require",
+    "psql_select_1": "PASS",
+    "psycopg2_select_1": "PASS"
+  },
+  "current_state": {
+    "schema_diff": "PASS",
+    "source_tables": 12,
+    "destination_tables": 12,
+    "final_sync_required": false,
+    "row_counts_match": true,
+    "checksums_match": true,
+    "timestamps_match": true,
+    "pk_unique": "PASS",
+    "fk_orphans_source": 0,
+    "fk_orphans_destination": 0,
+    "sequences_match": true
+  },
+  "staging_write_freeze_available": false,
+  "staging_write_freeze_reason": "No existing documented, reversible staging-only mechanism was verified. LIVE_AUDIO_ENABLED does not prevent database writes.",
+  "source_writes_active": "NO_OBSERVED_DURING_METADATA_CAPTURE",
+  "cutover": "NO-GO",
+  "staging_cutover": "NO-GO",
+  "staging_running_on_singapore": false,
+  "rollback_ready": "NOT_ASSESSED",
+  "render_database_before": "TOKYO (previously verified; no Render change made)",
+  "render_database_after": "UNCHANGED",
+  "post_cutover_health": "NOT_RUN",
+  "controlled_write_smoke": "NOT_RUN",
+  "latency_ab": "NOT_RUN",
+  "production_touched": false,
+  "rollback_performed": false,
+  "reason": "Stopped before cutover because the required staging write-freeze mechanism could not be verified."
+}
