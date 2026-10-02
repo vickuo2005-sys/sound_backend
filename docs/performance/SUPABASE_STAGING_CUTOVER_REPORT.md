@@ -2,14 +2,14 @@
 
 Date: 2026-10-02  
 Branch: `feat/latency-diagnostics-staging`  
-Scope: staging-only cutover preflight. Render staging was updated only for deployment and reversible freeze validation; `DATABASE_URL` was not changed.
+Scope: staging-only cutover preflight. Render staging was updated only for deployment, reversible freeze validation, and Tokyo credential repair attempts; production was not touched.
 
 ## Decision
 
 **STAGING_CUTOVER = NO-GO**  
 **STAGING_RUNNING_ON_SINGAPORE = NO**
 
-The cutover remains **NO-GO**. Commit `b3ed190738930ca7e9305a4f08cb593120e6912c` was deployed to the identified Render staging service. The reversible write-freeze was activated and reported quiescent, then disabled after the gate failed. The existing Render staging Tokyo connection failed password authentication, so read checks were degraded and Singapore was not assigned.
+The cutover remains **NO-GO**. Commit `b3ed190738930ca7e9305a4f08cb593120e6912c` was deployed to the identified Render staging service. The reversible write-freeze was activated and reported quiescent, then disabled after the gate failed. Two user-provided Tokyo credential variants were applied to the staging service in separate deploys; both failed password authentication. Read checks remain degraded and Singapore was not assigned.
 
 ## Pre-cutover checks
 
@@ -37,11 +37,12 @@ During the frozen smoke check `/health` and `/runtime-status` returned 200. Read
 ## Render and rollback state
 
 - Render staging service: `sound-backend-staging` (previously documented service ID `srv-da6kdn61egvs7392r92g`).
-- Database before: Tokyo, based on the previously verified unchanged Render configuration.
-- Database after: unchanged; Singapore was not assigned.
-- `DATABASE_URL` changed: no.
-- Rollback performed: no.
-- Rollback readiness: Tokyo remains the unchanged Render target; Singapore was not assigned. A future cutover remains blocked until the staging credential is corrected and all read/TLS/reconciliation gates pass.
+- Database before: Tokyo, based on the Render staging host and user configuration.
+- Database after: Tokyo host/user still configured; Singapore was not assigned.
+- `DATABASE_URL` changed: yes, staging-only; the value is not recorded here.
+- Credential result: both supplied password variants rejected; the pooler subsequently returned an authentication circuit-breaker response.
+- Rollback performed: no database cutover occurred.
+- Rollback readiness: Singapore was not assigned. A future cutover remains blocked until a confirmed Tokyo credential is supplied and all read/TLS/reconciliation gates pass.
 - Production touched: no.
 - PR merged: no.
 
@@ -53,5 +54,5 @@ Machine-readable status is in `outputs/supabase_staging_cutover_verification.jso
 
 ## Required next step
 
-Correct and verify the Render staging Tokyo database credential without exposing it, then rerun read checks. Repeat TLS and final reconciliation while the freeze is active. Do not change Render `DATABASE_URL` until all gates pass.
+Provide or reset the Tokyo staging database credential in Supabase, then verify it once the pooler circuit breaker clears. Rerun read checks, TLS, and final reconciliation while the freeze is active. Do not assign Singapore until all gates pass.
 
