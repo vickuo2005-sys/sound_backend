@@ -82,6 +82,7 @@ from services.tracking.tracking_service import (
 from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
 from services.latency_diagnostics import latency_diagnostics
+from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -499,7 +500,20 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
             latency_trace = dict(message.get("latency_trace") or {})
             latency_trace["ws_sent_at"] = utc_wall_time_ms()
             message["latency_trace"] = latency_trace
+        trace = critical_trace()
+        if trace is not None and message.get("type") in {"event_group", "track_update"}:
+            message = {**message, "critical_path": {"event_id": trace["event_id"]}}
         await dashboard_manager.broadcast(message)
+        if message.get("type") == "event_group":
+            group = message.get("group") or {}
+            lat, lng = group.get("region_center_lat"), group.get("region_center_lng")
+            if (isinstance(lat, (int, float)) and isinstance(lng, (int, float))
+                    and math.isfinite(lat) and math.isfinite(lng)
+                    and -90 <= lat <= 90 and -180 <= lng <= 180
+                    and dashboard_manager.active_connections):
+                critical_mark("websocket_event_group_sent")
+        elif message.get("type") == "track_update" and dashboard_manager.active_connections:
+            critical_mark("websocket_track_update_sent")
     except Exception:
         logger.exception(
             "Dashboard broadcast failed context=%s type=%s",
@@ -1161,7 +1175,8 @@ class PooledPostgresConnection:
                 )
 
     def cursor(self, *args: Any, **kwargs: Any) -> Any:
-        return self._connection.cursor(*args, **kwargs)
+        cursor = self._connection.cursor(*args, **kwargs)
+        return CountingCursor(cursor) if critical_trace() is not None else cursor
 
     def close(self) -> None:
         if self._returned:
@@ -1280,7 +1295,7 @@ def get_postgres_connection() -> PooledPostgresConnection:
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_NAME)
+    connection = sqlite3.connect(DB_NAME, factory=CountingSQLiteConnection)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -4268,6 +4283,7 @@ def process_tracking_measurement(
                     (monotonic() - started) * 1000.0,
                 )
                 return enriched_track
+        critical_mark("tracking_association_done")
         state = update_track_from_measurement(
             track,
             measurement,
@@ -4297,6 +4313,7 @@ def process_tracking_measurement(
         started = monotonic()
         latency_diagnostics.set_trace_context("tracking_save")
         saved_track = save_track_point(track, measurement, state)
+        critical_mark("tracking_db_saved")
         latency_diagnostics.set_trace_context("tracking")
         latency_diagnostics.record(
             "active_tracking_db_save",
@@ -4402,6 +4419,9 @@ def schedule_tracking_reorder_tail_flush(key: str) -> None:
 def process_post_ingest_tracking_measurement(measurement: dict) -> Optional[dict]:
     if not TRACKING_REORDER_BUFFER_ENABLED:
         return process_tracking_measurement(measurement)
+    trace = critical_trace()
+    if trace is not None:
+        trace["tracking_correlated"] = False
 
     event_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
     if event_time_ms is None:
@@ -4432,7 +4452,11 @@ def process_post_ingest_tracking_measurement(measurement: dict) -> Optional[dict
     if tracking_reorder_buffer.pending_count(key):
         schedule_tracking_reorder_tail_flush(key)
     if result.ready:
-        return process_tracking_reorder_items(result.ready)
+        trace = critical_trace()
+        if trace is not None:
+            trace["tracking_correlated"] = False
+        with latency_diagnostics.critical_scope(None):
+            return process_tracking_reorder_items(result.ready)
     return dict(TRACKING_REORDER_BUFFERED_RESULT)
 
 
@@ -9565,6 +9589,7 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         db_committed_at = utc_wall_time_ms()
         latency_trace["db_committed_at"] = db_committed_at
         latency_trace["db_complete"] = db_committed_at
+    critical_mark("event_db_write_done")
     is_existing_event = not inserted
     fixed_location_started_monotonic = monotonic()
     fixed_location_rows, fixed_location_cache_stale = (
@@ -9608,8 +9633,10 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     localization_package = None
 
     fusion_started = monotonic()
+    critical_mark("fusion_started")
     try:
-        event_group = process_event_fusion_for_event(event_id)
+        with latency_diagnostics.critical_scope(section="fusion"):
+            event_group = process_event_fusion_for_event(event_id)
     except Exception:
         logger.exception("Event fusion failed for event_id=%s", event_id)
     finally:
@@ -9622,10 +9649,12 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     if event_group and is_alert and not is_existing_event:
         region_tracking_started = monotonic()
         try:
-            region_track = process_tracking_for_event_group_region(
-                event_group,
-                post_ingest_reorder=True,
-            )
+            critical_mark("tracking_started")
+            with latency_diagnostics.critical_scope(section="tracking"):
+                region_track = process_tracking_for_event_group_region(
+                    event_group,
+                    post_ingest_reorder=True,
+                )
         except Exception:
             logger.exception(
                 "Region tracking failed for event_group=%s",
@@ -9640,10 +9669,12 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     if is_alert and not is_existing_event and region_track is None:
         active_tracking_started = monotonic()
         try:
-            active_alert_track = process_tracking_for_active_alert_region(
-                event_id,
-                post_ingest_reorder=True,
-            )
+            critical_mark("tracking_started")
+            with latency_diagnostics.critical_scope(section="tracking"):
+                active_alert_track = process_tracking_for_active_alert_region(
+                    event_id,
+                    post_ingest_reorder=True,
+                )
         except Exception:
             logger.exception("Active alert region tracking failed for event_id=%s", event_id)
         finally:
@@ -9670,6 +9701,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 (monotonic() - localization_started) * 1000.0,
             )
 
+    critical_mark("post_ingest_done")
     event_group = with_realtime_alert_timing(event_group)
     post_ingest_duration_ms = (monotonic() - post_ingest_started) * 1000.0
     latency_diagnostics.record("post_ingest_pipeline", post_ingest_duration_ms)
@@ -9684,6 +9716,15 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 
 
 async def broadcast_event_post_ingest_result(result: dict) -> None:
+    trace = result.get("_critical_trace")
+    with latency_diagnostics.critical_scope(trace):
+        try:
+            await _broadcast_event_post_ingest_result(result)
+        finally:
+            latency_diagnostics.finish_critical_trace(trace)
+
+
+async def _broadcast_event_post_ingest_result(result: dict) -> None:
     event_group = result.get("event_group")
     region_track = result.get("region_track")
     active_alert_track = result.get("active_alert_track")
@@ -9828,15 +9869,21 @@ def run_event_post_ingest_worker(
     label: Optional[str],
     is_existing_event: bool,
     enqueued_at_monotonic: float,
+    event_trace: Optional[dict] = None,
 ) -> None:
     worker_started = monotonic()
+    latency_diagnostics.critical_mark("post_ingest_started", event_trace)
     latency_diagnostics.job_started(
         "post_ingest",
         (worker_started - enqueued_at_monotonic) * 1000.0,
     )
     try:
-        result = process_event_post_ingest(event_id, label, is_existing_event)
+        with latency_diagnostics.critical_scope(event_trace):
+            result = process_event_post_ingest(event_id, label, is_existing_event)
+        if event_trace is not None:
+            result["_critical_trace"] = event_trace
     except Exception:
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="worker_failed")
         logger.exception("Event post-ingest failed for event_id=%s", event_id)
         latency_diagnostics.job_finished(
             "post_ingest",
@@ -9849,12 +9896,19 @@ def run_event_post_ingest_worker(
             lambda: asyncio.create_task(broadcast_event_post_ingest_result(result))
         )
     except RuntimeError:
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="broadcast_schedule_failed")
         logger.warning("Event loop closed before post-ingest broadcast for %s", event_id)
     finally:
         latency_diagnostics.job_finished(
             "post_ingest",
             (monotonic() - worker_started) * 1000.0,
         )
+
+
+def finish_cancelled_post_ingest(job: Any, trace: Optional[dict]) -> None:
+    if job.cancelled():
+        latency_diagnostics.job_cancelled("post_ingest")
+        latency_diagnostics.finish_critical_trace(trace, outcome="cancelled")
 
 
 def schedule_event_post_ingest(
@@ -9868,6 +9922,8 @@ def schedule_event_post_ingest(
     global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
     tracking_reorder_event_loop = loop
+    event_trace = critical_trace()
+    critical_mark("post_ingest_enqueued")
     enqueued_at_monotonic = monotonic()
     latency_diagnostics.job_enqueued("post_ingest")
     try:
@@ -9878,13 +9934,14 @@ def schedule_event_post_ingest(
             label,
             is_existing_event,
             enqueued_at_monotonic,
+            event_trace,
         )
         future.add_done_callback(
-            lambda job: latency_diagnostics.job_cancelled("post_ingest")
-            if job.cancelled() else None
+            lambda job: finish_cancelled_post_ingest(job, event_trace)
         )
     except Exception:
         latency_diagnostics.job_cancelled("post_ingest")
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="submit_failed")
         logger.exception("Failed to schedule event post-ingest for event_id=%s", event_id)
 
 
@@ -9978,6 +10035,7 @@ async def runtime_status():
         "postgres_pool_min": pool_min,
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
+        "critical_path_diagnostics_enabled": (os.getenv("APP_ENV", "").lower() == "staging" and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true"),
         "staging_write_freeze": {
             "configured": STAGING_WRITE_FREEZE_CONFIGURED,
             "active": staging_write_freeze_active(),
@@ -10463,6 +10521,25 @@ def shadow_observation_metrics(
 
 @app.post("/events")
 async def create_event(
+    event: SoundEvent,
+    response: Response,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    enabled = (os.getenv("APP_ENV", "").lower() == "staging"
+               and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true")
+    trace = latency_diagnostics.new_critical_trace(event.event_id) if enabled else None
+    with latency_diagnostics.critical_scope(trace):
+        try:
+            return await _create_event(event, response, upload_token)
+        except BaseException:
+            latency_diagnostics.finish_critical_trace(trace, outcome="ingestion_failed")
+            raise
+        finally:
+            if trace is not None and "post_ingest_enqueued" not in trace["timestamps_ms"]:
+                latency_diagnostics.finish_critical_trace(trace, outcome="no_post_ingest")
+
+
+async def _create_event(
     event: SoundEvent,
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),

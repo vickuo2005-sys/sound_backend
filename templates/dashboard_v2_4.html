@@ -2099,6 +2099,9 @@
             const pending=diagnostics?.pending_jobs || {};
             const pendingCount=key=>Number.isSafeInteger(pending[key]) && pending[key]>=0?pending[key]:0;
             const rows=[
+                ['First group position backend','first_position_backend',500,1000],
+                ['Fusion → group position','fusion_to_position',500,1000],
+                ['Tracking followup','tracking_followup',500,1000],
                 ['Event DB write','event_db_write',150,500],
                 ['Post-ingest queue','post_ingest_queue_wait',250,1000],
                 ['Event Fusion','event_fusion',250,1000],
@@ -2113,6 +2116,8 @@
             });
             rows.push(healthRow('Worker queue',`post-ingest ${pendingCount('post_ingest')} · device-status ${pendingCount('device_status')}`,Math.max(pendingCount('post_ingest'),pendingCount('device_status'))>2?'warn':'info'));
             rows.push(healthRow('Browser message handler',browserP95===null?'尚無樣本':`P95 ${browserP95.toFixed(1)} ms · n=${state.browserMessageLatencySamples.length}`,browserP95!==null&&browserP95>50?'warn':'info'));
+            const mapSamples=(state.browserGroupMapSamples || []).map(item=>item.synchronous_map_update_ms).filter(Number.isFinite).sort((a,b)=>a-b);
+            if(state.runtime?.critical_path_diagnostics_enabled === true) rows.push(healthRow('Browser group map synchronous update',mapSamples.length?`P95 ${mapSamples[Math.ceil(mapSamples.length*.95)-1].toFixed(1)} ms · n=${mapSamples.length}`:'尚無樣本','info'));
             target.innerHTML=rows.join('');
             renderLatencyBreakdown();
         }
@@ -2593,6 +2598,18 @@
             const delay = Math.min(30000, 1000 * (2 ** Math.min(wsRetryAttempt - 1, 5)));
             renderCommandBar(); setTimeout(connectWebSocket, delay);
         }
+        // Measures synchronous map API/update work, never network latency or paint.
+        function recordGroupMapTiming(data, receivedAt, completedAt) {
+            if (state.runtime?.critical_path_diagnostics_enabled !== true) return;
+            if (!Number.isFinite(receivedAt) || !Number.isFinite(completedAt) || completedAt < receivedAt) return;
+            const group=data.group || data;
+            if (typeof group.region_center_lat !== 'number' || typeof group.region_center_lng !== 'number' || !Number.isFinite(group.region_center_lat) || !Number.isFinite(group.region_center_lng)) return;
+            const samples=state.browserGroupMapSamples || (state.browserGroupMapSamples=[]);
+            samples.push({event_id:String(data.critical_path?.event_id || ''), dashboard_event_group_received:receivedAt,
+                dashboard_map_render_completed:completedAt, synchronous_map_update_ms:completedAt-receivedAt});
+            if(samples.length>256) samples.splice(0,samples.length-256);
+        }
+
         function handleWebSocketMessage(data) {
             if (!data || typeof data !== 'object') return;
             if (data.type === 'event_trigger') {
@@ -2611,7 +2628,10 @@
             } else if (data.type === 'device_status_deleted') {
                 if (data.device_id) state.devices.delete(data.device_id); renderAll();
             } else if (data.type === 'event_group') {
-                const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderOverview(); renderTracksView(); renderMap(); renderCommandBar();
+                const groupReceivedAt=state.runtime?.critical_path_diagnostics_enabled === true?performance.now():null;
+                const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderOverview(); renderTracksView(); renderMap();
+                if(groupReceivedAt!==null) recordGroupMapTiming(data,groupReceivedAt,performance.now());
+                renderCommandBar();
             } else if (data.type === 'track_update') {
                 const track = data.track || data; const id = trackId(track); if (id) state.tracks.set(id, track); state.lastUpdate = new Date(); renderOverview(); renderMotion(); renderTracksView(); renderMap(); renderCommandBar();
             } else if (data.type === 'device_command_created') {

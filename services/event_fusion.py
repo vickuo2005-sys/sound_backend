@@ -1,3 +1,4 @@
+from services.latency_diagnostics import CountingCursor, critical_mark
 import json
 from time import monotonic
 import re
@@ -295,6 +296,8 @@ def execute(cursor: Any, is_postgres: bool, sql: str, params: tuple = ()) -> Any
 @contextmanager
 def open_cursor(connection: Any):
     cursor = connection.cursor()
+    if not getattr(cursor, "_critical_counted", False):
+        cursor = CountingCursor(cursor)
     try:
         yield cursor
     finally:
@@ -1037,6 +1040,7 @@ def fixed_locations_for_devices(
 
 def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
     region = estimate_region(group_region_observations(cursor, group_id, is_postgres))
+    critical_mark("region_ready")
     now = datetime.now(timezone.utc)
     geojson = (
         json.dumps(region.get("region_geojson"), separators=(",", ":"))
@@ -1083,6 +1087,7 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
                 group_id,
             ),
         )
+        critical_mark("region_db_saved")
         return region
 
     cursor.execute(
@@ -1122,6 +1127,7 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
             group_id,
         ),
     )
+    critical_mark("region_db_saved")
     return region
 
 
@@ -1511,9 +1517,11 @@ def process_event(
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
         measure("fusion_observation_load", started)
         if existing_group:
+            critical_mark("fusion_group_resolved")
             started = monotonic()
             update_existing_observation_snapshot(cursor, event_record, is_postgres)
             measure("fusion_observation_save", started)
+            critical_mark("fusion_observation_saved")
             started = monotonic()
             result = update_group_rollup(cursor, existing_group["id"], is_postgres)
             measure("fusion_group_save", started)
@@ -1541,6 +1549,7 @@ def process_event(
             group = create_group(cursor, label, event_time, is_postgres)
             measure("fusion_group_save", started)
 
+        critical_mark("fusion_group_resolved")
         started = monotonic()
         inserted = insert_observation(
             cursor=cursor,
@@ -1551,6 +1560,7 @@ def process_event(
             is_postgres=is_postgres,
         )
         measure("fusion_observation_save", started)
+        critical_mark("fusion_observation_saved")
         if not inserted:
             started = monotonic()
             result = observation_group_for_event(cursor, event_id, is_postgres)
