@@ -60,6 +60,25 @@ close_stale_tracks callers: process_tracking_measurement ignores its returned li
 
 ## Instrumentation and benchmark plan
 
-Correlated monotonic offsets T0–T14, actual successful broadcast completion, valid-position eligibility, per-event attempted SQL counts (total/fusion/tracking), and stage aggregates. Explicit trace handoff from request to worker and broadcast; scope restoration avoids attributing concurrent requests. Diagnostics default off outside staging. Browser performance.now captures synchronous event_group map update duration with 256-sample bound, no API per message. It does not measure paint.
+Correlated monotonic offsets T0–T14, actual successful socket-send completion, valid-position eligibility, per-event attempted SQL counts (total/fusion/tracking), and stage aggregates. Explicit trace handoff from request to worker and broadcast; scope restoration avoids attributing concurrent requests. Diagnostics default off outside staging. Browser performance.now captures synchronous event_group map update duration with 256-sample bound, no API per message. It does not measure paint.
 
 Before benchmark follows instrumentation-only checkpoint; after uses identical seven deterministic local synthetic scenarios, 50 iterations each. Local SQLite lacks network/advisory lock contention and does not establish Render or Android SLA. PostgreSQL-only improvements must be validated separately with isolated disposable schema before live use. Do not sum stage percentiles. Required field decision remains INSUFFICIENT_SAMPLE unless 30–50 real Android events exist.
+
+
+## Implemented low-risk changes (after instrumentation baseline f56faae)
+
+1. Rollup-only group payload passes both overrides from one group_observation_summaries query. An explicit preserve_empty_devices option keeps the legacy rollup empty-ID behavior, without changing REST bulk-list defaults. Null timestamps, duplicate devices, ordered relative times and fixed coordinates are tested against legacy payload helpers.
+2. PostgreSQL region UPDATE uses RETURNING * only for the rollup caller; its returned row replaces the immediate same-row SELECT. SQLite preserves the old reload. Singapore read-only pg_trigger inventory shows no user event_groups triggers. Actual RETURNING was tested on disposable local PostgreSQL 17; no cloud data was changed.
+3. process_tracking_measurement calls close_stale_tracks(enrich=False), preserving its updates/cache invalidation and skipping only ignored per-track points. Other callers use the unchanged enriched default. Their tracking cleanup and REST contracts retain recent_points.
+
+No JOIN, minimal payload, two-phase broadcast, changed lock, combined candidate lookup or track-point RETURNING was applied. The fixed-location SELECT already fetches all devices in one batch (not per-device N+1); preserve its validation/filtering precedence. Save-track reload occurs after point INSERT and possible future triggers; a stronger contract is needed before changing it. Two-phase broadcasting remains deferred until group tombstones and revision ordering are proven.
+
+## Dashboard eligibility and measurement limits
+
+renderMap checks map/Google Maps availability, group freshness, group location and active track state; it can return early or suppress a group estimate when an existing fresh track is shown. A valid backend group broadcast is therefore **not proof of a newly visible position**. Browser timestamps capture receipt-to-synchronous-renderMap return only; no acknowledgement joins browser and backend clocks. The field SLA requires device observation + backend send + browser eligibility/paint evidence on the same event. No such evidence was collected this round.
+
+Diagnostics only start traces for staging /events requests (CRITICAL_PATH_DIAGNOSTICS_ENABLED defaults true in staging, false elsewhere). T0 is handler entry after FastAPI body validation, not TCP packet receipt. Invalid/no-position, no-client, failed broadcast and duplicate/no-post-ingest requests do not contribute a first-position sample. The existing queue metric records once; correlated timestamps independently expose T2/T3. Counts cover ingestion and its inline post-ingest path, excluding independent device-status worker work. Reorder-buffer emissions are explicitly uncorrelated and excluded, rather than assigning another event's SQL/timing to the current trigger. Missing milestones represent skipped/rejected/buffered work.
+
+A PostgreSQL statement count is not a measured network round-trip count: implicit BEGIN, commit/rollback and server trigger internals are not counted. No round-trip aliases are invented. The raw query text, bind parameters, DSNs, tokens and audio are never saved in the correlated trace.
+
+The first-position marker is written inside DashboardConnectionManager after a successful send_json, preserving its return value. Concurrent newly connected clients cannot be used as evidence of a prior successful send. Shared diagnostics throttling also covers renderHealth calls; runtime refresh identity changes bypass the throttle.
