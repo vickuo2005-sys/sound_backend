@@ -50,7 +50,8 @@ def test_nested_scope_clear_bounds_and_invalid_samples():
             sampler.finish_critical_trace()  # exactly once
     snapshot=sampler.snapshot()
     assert len(snapshot['critical_path_traces'])==32
-    assert snapshot['stages']['post_ingest_queue_wait']['count']==40
+    assert all(set(t['timestamps_ms']) >= {'post_ingest_enqueued','post_ingest_started'} for t in snapshot['critical_path_traces'])
+    assert 'post_ingest_queue_wait' not in snapshot['stages']  # existing job_started records once
     assert 'invalid' not in snapshot['stages']
     assert all(t['sql_statement_count']['total']==0 for t in snapshot['critical_path_traces'])
 
@@ -115,3 +116,79 @@ def test_no_position_no_clients_and_failed_broadcast_not_counted(monkeypatch):
             await main.safe_dashboard_broadcast({'type':'event_group','group':{'region_center_lat':25,'region_center_lng':121}})
     asyncio.run(run())
     assert 'first_position_backend' not in sampler.snapshot()['stages']
+
+
+def test_sql_cursor_preserves_postgres_execute_return_value():
+    class Cursor:
+        def execute(self,*args): return None
+        def executemany(self,*args): return None
+    facade=CountingCursor(Cursor())
+    assert facade.execute('SELECT 1') is None
+    assert facade.executemany('SELECT 1',[]) is None
+
+
+def test_existing_queue_metric_not_doubled_by_critical_marks():
+    sampler=LatencyDiagnostics()
+    with sampler.critical_scope(sampler.new_critical_trace('queued')):
+        critical_mark('post_ingest_enqueued')
+        critical_mark('post_ingest_started')
+        sampler.job_started('post_ingest',3)
+        sampler.finish_critical_trace()
+    assert sampler.snapshot()['stages']['post_ingest_queue_wait']['count']==1
+
+
+@pytest.mark.parametrize('environment,flag,enabled', [('production','true',False),('staging','false',False),('staging','true',True)])
+def test_critical_tracing_is_staging_only(monkeypatch,environment,flag,enabled):
+    import main
+    sampler=LatencyDiagnostics()
+    monkeypatch.setattr(main,'latency_diagnostics',sampler)
+    monkeypatch.setenv('APP_ENV',environment)
+    monkeypatch.setenv('CRITICAL_PATH_DIAGNOSTICS_ENABLED',flag)
+    long_id='e'*300
+    async def submission(event,response,upload_token):
+        trace=critical_trace()
+        assert (trace is not None)==enabled
+        if enabled: assert trace['event_id']==long_id
+        return {'status':'success'}
+    monkeypatch.setattr(main,'_create_event',submission)
+    event=main.SoundEvent(event_id=long_id,device_id='node',label='aircraft',timestamp='2026-10-04T00:00:00Z',latitude=25,longitude=121,rms_peak=.5)
+    assert asyncio.run(main.create_event(event,main.Response(),'local-test'))=={'status':'success'}
+    assert len(sampler.snapshot()['critical_path_traces'])==int(enabled)
+    assert critical_trace() is None
+
+
+def test_new_connection_during_failed_broadcast_is_not_false_send(monkeypatch):
+    import main
+    sampler=LatencyDiagnostics()
+    monkeypatch.setattr(main,'latency_diagnostics',sampler)
+    class NewClient:
+        async def send_json(self,message): pytest.fail('new client was not in send snapshot')
+    class FailedClient:
+        async def send_json(self,message):
+            main.dashboard_manager.active_connections.append(NewClient())
+            raise RuntimeError('disconnected')
+    monkeypatch.setattr(main.dashboard_manager,'active_connections',[FailedClient()])
+    async def run():
+        with sampler.critical_scope(sampler.new_critical_trace('failed-old-client')):
+            await main.safe_dashboard_broadcast({'type':'event_group','group':{'region_center_lat':25,'region_center_lng':121}})
+    asyncio.run(run())
+    assert main.dashboard_manager.active_connections
+    assert 'first_position_backend' not in sampler.snapshot()['stages']
+
+
+def test_reorder_emissions_do_not_inherit_trigger_trace(monkeypatch):
+    import main
+    from types import SimpleNamespace
+    sampler=LatencyDiagnostics()
+    monkeypatch.setattr(main,'latency_diagnostics',sampler)
+    seen=[]
+    def process(measurement):
+        seen.append(critical_trace())
+        sampler.critical_sql()
+        return {'id':'track'}
+    monkeypatch.setattr(main,'process_tracking_measurement',process)
+    with sampler.critical_scope(sampler.new_critical_trace('new-trigger'),section='tracking'):
+        result=main.process_tracking_reorder_items((SimpleNamespace(payload={'event':'older'}),))
+        sampler.finish_critical_trace()
+    assert result=={'id':'track'} and seen==[None]
+    assert sampler.snapshot()['critical_path_traces'][0]['sql_statement_count']['total']==0

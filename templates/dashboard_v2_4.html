@@ -2093,6 +2093,12 @@
             target.innerHTML=rows.join('');
         }
         function renderLatencyDiagnostics() {
+            const force=arguments.length===0 || arguments[0]!==false;
+            const panelNow=performance.now();
+            if(!force && state.__latencyRuntime === state.runtime && panelNow-(state.__latencyPanelAt || 0)<1000)return;
+            state.__latencyRuntime=state.runtime;
+            state.__latencyPanelAt=panelNow;
+            window.__lastLatencyPanelPaint=panelNow;
             const target=document.getElementById('latencyDiagnosticsList'); if(!target)return;
             const diagnostics=state.runtime?.latency_diagnostics;
             const browserP95=browserLatencyPercentile(.95);
@@ -2127,7 +2133,7 @@
             const gpsAvailable = devices.some(device => nodeLocation(device));
             const databaseError = state.runtime?.database_init_error || state.health?.database_init_error;
             const databaseKnown = !!state.runtime?.database;
-            renderLatencyDiagnostics();
+            renderLatencyDiagnostics(false);
             document.getElementById('healthList').innerHTML = [
                 healthRow('Backend API', state.backendConnected ? 'Healthy' : 'Disconnected', state.backendConnected ? 'ok' : 'error'),
                 healthRow('Database', databaseError ? 'Error' : (databaseKnown ? 'Healthy' : '尚無回報'), databaseError ? 'error' : (databaseKnown ? 'ok' : 'info')),

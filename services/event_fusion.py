@@ -761,15 +761,19 @@ def update_group_rollup(
         """,
         tuple(params),
     )
-    region = update_group_region(cursor, group_id, is_postgres)
-    execute(
-        cursor,
-        is_postgres,
-        "SELECT * FROM event_groups WHERE id = %s LIMIT 1",
-        (group_id,),
+    region = update_group_region(cursor, group_id, is_postgres, return_group_row=True)
+    row = region.pop("_persisted_group_row", None)
+    if row is None:
+        # SQLite retains its existing SELECT compatibility path.
+        execute(cursor, is_postgres, "SELECT * FROM event_groups WHERE id = %s LIMIT 1", (group_id,))
+        row = fetchone_dict(cursor) or {"id": group_id}
+    devices, relative_times = group_observation_summaries(
+        cursor, [group_id], is_postgres, preserve_empty_devices=True,
     )
-    row = fetchone_dict(cursor) or {"id": group_id}
-    return {**group_payload(cursor, row, is_postgres), "reporting_nodes": region.get("reporting_nodes", [])}
+    return {**group_payload(cursor, row, is_postgres,
+                           devices_override=devices.get(group_id, []),
+                           device_relative_times_override=relative_times.get(group_id, [])),
+            "reporting_nodes": region.get("reporting_nodes", [])}
 
 
 def load_group_row(cursor: Any, group_id: str, is_postgres: bool) -> Optional[dict]:
@@ -1038,7 +1042,7 @@ def fixed_locations_for_devices(
     return location_map(fetchall_dict(cursor))
 
 
-def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
+def update_group_region(cursor: Any, group_id: str, is_postgres: bool, *, return_group_row: bool = False) -> dict:
     region = estimate_region(group_region_observations(cursor, group_id, is_postgres))
     critical_mark("region_ready")
     now = datetime.now(timezone.utc)
@@ -1070,7 +1074,7 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
                 time_sync_quality = NULL,
                 updated_at = %s
             WHERE id = %s
-            """,
+            """ + (" RETURNING *" if return_group_row else ""),
             (
                 region.get("region_type"),
                 region.get("region_center_lat"),
@@ -1087,6 +1091,8 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
                 group_id,
             ),
         )
+        if return_group_row:
+            region["_persisted_group_row"] = fetchone_dict(cursor)
         critical_mark("region_db_saved")
         return region
 
@@ -1336,6 +1342,8 @@ def group_observation_summaries(
     cursor: Any,
     group_ids: list[str],
     is_postgres: bool,
+    *,
+    preserve_empty_devices: bool = False,
 ) -> tuple[dict[str, list[str]], dict[str, list[dict]]]:
     if not group_ids:
         return {}, {}
@@ -1361,7 +1369,7 @@ def group_observation_summaries(
     for row in fetchall_dict(cursor):
         group_id = str(row.get("group_id") or "")
         device_id = str(row.get("device_id") or "")
-        if not group_id or not device_id:
+        if not group_id or (not device_id and not preserve_empty_devices):
             continue
         devices_by_group.setdefault(group_id, []).append(device_id)
         event_time = parse_datetime(row.get("event_timestamp"))

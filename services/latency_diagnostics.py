@@ -222,7 +222,7 @@ class LatencyDiagnostics:
             self._traces.append(trace)
 
     def new_critical_trace(self, event_id: str) -> dict[str, Any]:
-        return {"event_id": str(event_id)[:128], "origin": monotonic(),
+        return {"event_id": str(event_id), "origin": monotonic(),
                 "timestamps_ms": {"backend_event_received": 0.0},
                 "sql_statement_count": {"total": 0, "fusion": 0, "tracking": 0},
                 "stage_samples": {}, "completed": False, "owner": self}
@@ -255,7 +255,6 @@ class LatencyDiagnostics:
             for stage, start, end in (
                 ("first_position_backend", "backend_event_received", "websocket_event_group_sent"),
                 ("fusion_to_position", "fusion_started", "websocket_event_group_sent"),
-                ("post_ingest_queue_wait", "post_ingest_enqueued", "post_ingest_started"),
                 ("tracking_followup", "tracking_started", "websocket_track_update_sent"),
             ):
                 if name == end and start in times and times[end] >= times[start]:
@@ -285,6 +284,8 @@ class LatencyDiagnostics:
             safe = {key: deepcopy(trace[key]) for key in
                     ("event_id", "timestamps_ms", "sql_statement_count", "stage_samples")}
             safe["outcome"] = outcome
+            for section, count in safe["sql_statement_count"].items():
+                safe["sql_statement_count_" + section] = count
             safe["tracking_correlated"] = trace.get("tracking_correlated", True)
             safe["sql_count_scope"] = "inline event path; excludes independent device worker and uncorrelated reorder emissions"
             self._critical_traces.append(safe)
@@ -407,14 +408,14 @@ class CountingCursor:
 
     def execute(self, *args, **kwargs):
         count_sql()
-        self._cursor.execute(*args, **kwargs)
-        return self
+        result = self._cursor.execute(*args, **kwargs)
+        return self if result is self._cursor else result
 
     def executemany(self, *args, **kwargs):
         # Count one API call, not guessed backend wire round trips.
         count_sql()
-        self._cursor.executemany(*args, **kwargs)
-        return self
+        result = self._cursor.executemany(*args, **kwargs)
+        return self if result is self._cursor else result
 
 
 class CountingSQLiteConnection(sqlite3.Connection):

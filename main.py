@@ -420,6 +420,7 @@ class DashboardConnectionManager:
                     websocket.send_json(message),
                     timeout=DASHBOARD_BROADCAST_TIMEOUT_SECONDS,
                 )
+                record_critical_broadcast_send(message)
             except Exception:
                 disconnected.append(websocket)
 
@@ -489,6 +490,22 @@ observation_shadow_executor = ThreadPoolExecutor(
 )
 
 
+def record_critical_broadcast_send(message: dict) -> None:
+    # Called only after an individual send_json succeeds; a concurrent newly
+    # connected client must not masquerade as a recipient of an older broadcast.
+    if critical_trace() is None:
+        return
+    if message.get("type") == "event_group":
+        group = message.get("group") or {}
+        lat, lng = group.get("region_center_lat"), group.get("region_center_lng")
+        if (type(lat) in (int, float) and type(lng) in (int, float)
+                and math.isfinite(lat) and math.isfinite(lng)
+                and -90 <= lat <= 90 and -180 <= lng <= 180):
+            critical_mark("websocket_event_group_sent")
+    elif message.get("type") == "track_update":
+        critical_mark("websocket_track_update_sent")
+
+
 async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
     broadcast_started = monotonic()
     try:
@@ -504,16 +521,6 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
         if trace is not None and message.get("type") in {"event_group", "track_update"}:
             message = {**message, "critical_path": {"event_id": trace["event_id"]}}
         await dashboard_manager.broadcast(message)
-        if message.get("type") == "event_group":
-            group = message.get("group") or {}
-            lat, lng = group.get("region_center_lat"), group.get("region_center_lng")
-            if (isinstance(lat, (int, float)) and isinstance(lng, (int, float))
-                    and math.isfinite(lat) and math.isfinite(lng)
-                    and -90 <= lat <= 90 and -180 <= lng <= 180
-                    and dashboard_manager.active_connections):
-                critical_mark("websocket_event_group_sent")
-        elif message.get("type") == "track_update" and dashboard_manager.active_connections:
-            critical_mark("websocket_track_update_sent")
     except Exception:
         logger.exception(
             "Dashboard broadcast failed context=%s type=%s",
@@ -4208,7 +4215,7 @@ def process_tracking_measurement(
     with tracking_update_lock:
         if close_stale:
             started = monotonic()
-            close_stale_tracks()
+            close_stale_tracks(enrich=False)
             latency_diagnostics.record(
                 "active_tracking_source_load",
                 (monotonic() - started) * 1000.0,
@@ -4366,10 +4373,13 @@ def tracking_reorder_observation_id(measurement: dict) -> str:
 
 
 def process_tracking_reorder_items(items: tuple) -> Optional[dict]:
-    latest_track = None
-    for item in items:
-        latest_track = process_tracking_measurement(item.payload)
-    return latest_track
+    # Reorder emissions may belong to older events, including timer callbacks.
+    # Never attribute their DB work to whichever event caused the flush.
+    with latency_diagnostics.critical_scope(None):
+        latest_track = None
+        for item in items:
+            latest_track = process_tracking_measurement(item.payload)
+        return latest_track
 
 
 def flush_tracking_reorder_key(key: str) -> None:
@@ -5247,7 +5257,7 @@ def enrich_tracks_with_points(tracks: list[dict], limit: int = 20) -> list[dict]
     return enriched_tracks
 
 
-def close_stale_tracks(close_after_seconds: Optional[float] = None) -> list[dict]:
+def close_stale_tracks(close_after_seconds: Optional[float] = None, *, enrich: bool = True) -> list[dict]:
     threshold_seconds = max(
         1.0,
         float(
@@ -5331,7 +5341,7 @@ def close_stale_tracks(close_after_seconds: Optional[float] = None) -> list[dict
 
     if closed:
         invalidate_tracks_cache()
-    return [enrich_track_with_points(track) or track for track in closed]
+    return [enrich_track_with_points(track) or track for track in closed] if enrich else closed
 
 
 def close_track(track_id: str) -> dict:

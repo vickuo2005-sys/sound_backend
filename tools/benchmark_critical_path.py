@@ -95,6 +95,7 @@ async def run(main, directory, iterations):
                     return times[end]-times[start] if start in times and end in times else None
                 rows.append({"event_id":trace["event_id"],"outcome":trace["outcome"],
                     "sql":trace["sql_statement_count"],
+                    "timestamps_ms":trace["timestamps_ms"],"stage_samples":trace["stage_samples"],
                     "first_position_backend_ms":duration("backend_event_received","websocket_event_group_sent"),
                     "fusion_to_position_ms":duration("fusion_started","websocket_event_group_sent"),
                     "queue_wait_ms":duration("post_ingest_enqueued","post_ingest_started"),

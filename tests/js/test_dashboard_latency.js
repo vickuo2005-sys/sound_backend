@@ -58,6 +58,16 @@ assert(html.includes("fetchJson('/runtime-status')"));
 assert(html.includes("setInterval(() => { refreshSnapshot('periodic').catch(() => { state.snapshotInFlight = false; }); }, 30000)"));
 console.log('Latency dashboard: malformed API data, rolling samples, handler preservation, errors and 1000-message burst passed');
 
+// Actual renderHealth calls use the shared diagnostics throttle; runtime refresh bypasses it.
+context.state.runtime={latency_diagnostics:{stages:{event_db_write:good}}};
+writes=0;
+for(let n=0;n<1000;n++){now+=.01;context.renderLatencyDiagnostics(false);}
+assert(writes<=2,'health rendering must not repaint diagnostics on every WS message');
+const previousWrites=writes;
+now+=1001;context.renderLatencyDiagnostics(false);assert.equal(writes,previousWrites+1);
+context.state.runtime={latency_diagnostics:{stages:{event_db_write:good}}};
+context.renderLatencyDiagnostics(false);assert.equal(writes,previousWrites+2,'new runtime snapshot renders immediately');
+
 // Execute the production snapshot loader, including failed runtime requests.
 const requested = [];
 let rejectRuntime = false;
