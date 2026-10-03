@@ -1,0 +1,794 @@
+{
+  "status": "success",
+  "time": "2026-10-03T17:38:43.145831+00:00",
+  "build": {
+    "render_git_commit": "b3ed190738930ca7e9305a4f08cb593120e6912c",
+    "render_git_branch": "feat/latency-diagnostics-staging",
+    "render_service_name": "sound-backend-staging",
+    "render_service_id": "srv-da6kdn61egvs7392r92g",
+    "runtime_marker": "archived-dashboard-alerts-15s-v12"
+  },
+  "database": "postgres",
+  "database_init_error": null,
+  "dashboard_websocket_connections": 0,
+  "node_websocket_connections": 0,
+  "live_node_ids": [],
+  "post_ingest_workers": 2,
+  "device_status_workers": 1,
+  "postgres_pool_min": 1,
+  "postgres_pool_max": 20,
+  "latency_diagnostics": {
+    "sample_window": 256,
+    "stages": {
+      "active_alert_tracking": {
+        "count": 1,
+        "mean_ms": 22.44674599933205,
+        "p50_ms": 22.44674599933205,
+        "p95_ms": 22.44674599933205,
+        "p99_ms": 22.44674599933205,
+        "max_ms": 22.44674599933205,
+        "last_ms": 22.44674599933205
+      },
+      "active_tracking_association": {
+        "count": 1,
+        "mean_ms": 0.1351530008832924,
+        "p50_ms": 0.1351530008832924,
+        "p95_ms": 0.1351530008832924,
+        "p99_ms": 0.1351530008832924,
+        "max_ms": 0.1351530008832924,
+        "last_ms": 0.1351530008832924
+      },
+      "active_tracking_source_load": {
+        "count": 2,
+        "mean_ms": 11.110169994935859,
+        "p50_ms": 11.110169994935859,
+        "p95_ms": 14.625604195316555,
+        "p99_ms": 14.938087235350395,
+        "max_ms": 15.016207995358855,
+        "last_ms": 15.016207995358855
+      },
+      "device_status_broadcast_schedule": {
+        "count": 1,
+        "mean_ms": 0.037580997741315514,
+        "p50_ms": 0.037580997741315514,
+        "p95_ms": 0.037580997741315514,
+        "p99_ms": 0.037580997741315514,
+        "max_ms": 0.037580997741315514,
+        "last_ms": 0.037580997741315514
+      },
+      "device_status_db_upsert": {
+        "count": 1,
+        "mean_ms": 8.467651001410559,
+        "p50_ms": 8.467651001410559,
+        "p95_ms": 8.467651001410559,
+        "p99_ms": 8.467651001410559,
+        "max_ms": 8.467651001410559,
+        "last_ms": 8.467651001410559
+      },
+      "device_status_enrichment": {
+        "count": 1,
+        "mean_ms": 0.025020002794917673,
+        "p50_ms": 0.025020002794917673,
+        "p95_ms": 0.025020002794917673,
+        "p99_ms": 0.025020002794917673,
+        "max_ms": 0.025020002794917673,
+        "last_ms": 0.025020002794917673
+      },
+      "device_status_queue_wait": {
+        "count": 1,
+        "mean_ms": 0.26757599698612466,
+        "p50_ms": 0.26757599698612466,
+        "p95_ms": 0.26757599698612466,
+        "p99_ms": 0.26757599698612466,
+        "max_ms": 0.26757599698612466,
+        "last_ms": 0.26757599698612466
+      },
+      "device_status_worker": {
+        "count": 1,
+        "mean_ms": 24.50047199818073,
+        "p50_ms": 24.50047199818073,
+        "p95_ms": 24.50047199818073,
+        "p99_ms": 24.50047199818073,
+        "max_ms": 24.50047199818073,
+        "last_ms": 24.50047199818073
+      },
+      "event_db_commit": {
+        "count": 1,
+        "mean_ms": 3.6976539995521307,
+        "p50_ms": 3.6976539995521307,
+        "p95_ms": 3.6976539995521307,
+        "p99_ms": 3.6976539995521307,
+        "max_ms": 3.6976539995521307,
+        "last_ms": 3.6976539995521307
+      },
+      "event_db_connection_acquisition": {
+        "count": 1,
+        "mean_ms": 0.058671997976489365,
+        "p50_ms": 0.058671997976489365,
+        "p95_ms": 0.058671997976489365,
+        "p99_ms": 0.058671997976489365,
+        "max_ms": 0.058671997976489365,
+        "last_ms": 0.058671997976489365
+      },
+      "event_db_insert_returning": {
+        "count": 1,
+        "mean_ms": 19.656643002235796,
+        "p50_ms": 19.656643002235796,
+        "p95_ms": 19.656643002235796,
+        "p99_ms": 19.656643002235796,
+        "max_ms": 19.656643002235796,
+        "last_ms": 19.656643002235796
+      },
+      "event_db_write": {
+        "count": 1,
+        "mean_ms": 23.58222199836746,
+        "p50_ms": 23.58222199836746,
+        "p95_ms": 23.58222199836746,
+        "p99_ms": 23.58222199836746,
+        "max_ms": 23.58222199836746,
+        "last_ms": 23.58222199836746
+      },
+      "event_fusion": {
+        "count": 1,
+        "mean_ms": 126.87044800259173,
+        "p50_ms": 126.87044800259173,
+        "p95_ms": 126.87044800259173,
+        "p99_ms": 126.87044800259173,
+        "max_ms": 126.87044800259173,
+        "last_ms": 126.87044800259173
+      },
+      "event_initial_submission": {
+        "count": 1,
+        "mean_ms": 31.97379999619443,
+        "p50_ms": 31.97379999619443,
+        "p95_ms": 31.97379999619443,
+        "p99_ms": 31.97379999619443,
+        "max_ms": 31.97379999619443,
+        "last_ms": 31.97379999619443
+      },
+      "fixed_location_lookup": {
+        "count": 1,
+        "mean_ms": 7.696923006733414,
+        "p50_ms": 7.696923006733414,
+        "p95_ms": 7.696923006733414,
+        "p99_ms": 7.696923006733414,
+        "max_ms": 7.696923006733414,
+        "last_ms": 7.696923006733414
+      },
+      "fusion_compute": {
+        "count": 1,
+        "mean_ms": 5.135065999638755,
+        "p50_ms": 5.135065999638755,
+        "p95_ms": 5.135065999638755,
+        "p99_ms": 5.135065999638755,
+        "max_ms": 5.135065999638755,
+        "last_ms": 5.135065999638755
+      },
+      "fusion_group_cleanup": {
+        "count": 1,
+        "mean_ms": 2.4221350031439215,
+        "p50_ms": 2.4221350031439215,
+        "p95_ms": 2.4221350031439215,
+        "p99_ms": 2.4221350031439215,
+        "max_ms": 2.4221350031439215,
+        "last_ms": 2.4221350031439215
+      },
+      "fusion_group_lookup": {
+        "count": 1,
+        "mean_ms": 3.0139880036585964,
+        "p50_ms": 3.0139880036585964,
+        "p95_ms": 3.0139880036585964,
+        "p99_ms": 3.0139880036585964,
+        "max_ms": 3.0139880036585964,
+        "last_ms": 3.0139880036585964
+      },
+      "fusion_group_save": {
+        "count": 2,
+        "mean_ms": 18.183899501309497,
+        "p50_ms": 18.183899501309497,
+        "p95_ms": 21.861562749472796,
+        "p99_ms": 22.188466149309534,
+        "max_ms": 22.270191999268718,
+        "last_ms": 22.270191999268718
+      },
+      "fusion_lock_wait": {
+        "count": 1,
+        "mean_ms": 8.008459997654427,
+        "p50_ms": 8.008459997654427,
+        "p95_ms": 8.008459997654427,
+        "p99_ms": 8.008459997654427,
+        "max_ms": 8.008459997654427,
+        "last_ms": 8.008459997654427
+      },
+      "fusion_observation_load": {
+        "count": 1,
+        "mean_ms": 5.143966001924127,
+        "p50_ms": 5.143966001924127,
+        "p95_ms": 5.143966001924127,
+        "p99_ms": 5.143966001924127,
+        "max_ms": 5.143966001924127,
+        "last_ms": 5.143966001924127
+      },
+      "fusion_observation_save": {
+        "count": 1,
+        "mean_ms": 12.92728100088425,
+        "p50_ms": 12.92728100088425,
+        "p95_ms": 12.92728100088425,
+        "p99_ms": 12.92728100088425,
+        "max_ms": 12.92728100088425,
+        "last_ms": 12.92728100088425
+      },
+      "fusion_transaction_commit": {
+        "count": 2,
+        "mean_ms": 2.800982998451218,
+        "p50_ms": 2.800982998451218,
+        "p95_ms": 2.800982998451218,
+        "p99_ms": 2.800982998451218,
+        "max_ms": 2.800982998451218,
+        "last_ms": 2.800982998451218
+      },
+      "fusion_transaction_commit_ms": {
+        "count": 1,
+        "mean_ms": 2.800982998451218,
+        "p50_ms": 2.800982998451218,
+        "p95_ms": 2.800982998451218,
+        "p99_ms": 2.800982998451218,
+        "max_ms": 2.800982998451218,
+        "last_ms": 2.800982998451218
+      },
+      "fusion_transaction_idle_ms": {
+        "count": 1,
+        "mean_ms": 27.193121997697745,
+        "p50_ms": 27.193121997697745,
+        "p95_ms": 27.193121997697745,
+        "p99_ms": 27.193121997697745,
+        "max_ms": 27.193121997697745,
+        "last_ms": 27.193121997697745
+      },
+      "fusion_transaction_lock_ms": {
+        "count": 1,
+        "mean_ms": 8.008459997654427,
+        "p50_ms": 8.008459997654427,
+        "p95_ms": 8.008459997654427,
+        "p99_ms": 8.008459997654427,
+        "max_ms": 8.008459997654427,
+        "last_ms": 8.008459997654427
+      },
+      "fusion_transaction_python_ms": {
+        "count": 1,
+        "mean_ms": 5.135065999638755,
+        "p50_ms": 5.135065999638755,
+        "p95_ms": 5.135065999638755,
+        "p99_ms": 5.135065999638755,
+        "max_ms": 5.135065999638755,
+        "last_ms": 5.135065999638755
+      },
+      "fusion_transaction_sql_ms": {
+        "count": 1,
+        "mean_ms": 59.87516901222989,
+        "p50_ms": 59.87516901222989,
+        "p95_ms": 59.87516901222989,
+        "p99_ms": 59.87516901222989,
+        "max_ms": 59.87516901222989,
+        "last_ms": 59.87516901222989
+      },
+      "fusion_unaccounted_ms": {
+        "count": 1,
+        "mean_ms": 53.85175299306866,
+        "p50_ms": 53.85175299306866,
+        "p95_ms": 53.85175299306866,
+        "p99_ms": 53.85175299306866,
+        "max_ms": 53.85175299306866,
+        "last_ms": 53.85175299306866
+      },
+      "post_ingest_pipeline": {
+        "count": 1,
+        "mean_ms": 149.39154500461882,
+        "p50_ms": 149.39154500461882,
+        "p95_ms": 149.39154500461882,
+        "p99_ms": 149.39154500461882,
+        "max_ms": 149.39154500461882,
+        "last_ms": 149.39154500461882
+      },
+      "post_ingest_queue_wait": {
+        "count": 1,
+        "mean_ms": 0.1972739992197603,
+        "p50_ms": 0.1972739992197603,
+        "p95_ms": 0.1972739992197603,
+        "p99_ms": 0.1972739992197603,
+        "max_ms": 0.1972739992197603,
+        "last_ms": 0.1972739992197603
+      },
+      "post_ingest_worker": {
+        "count": 1,
+        "mean_ms": 149.54261900129495,
+        "p50_ms": 149.54261900129495,
+        "p95_ms": 149.54261900129495,
+        "p99_ms": 149.54261900129495,
+        "max_ms": 149.54261900129495,
+        "last_ms": 149.54261900129495
+      },
+      "postgres_connection_hold": {
+        "count": 18,
+        "mean_ms": 15.547136222368055,
+        "p50_ms": 0.025945500965462998,
+        "p95_ms": 90.70404604717622,
+        "p99_ms": 100.55104921397286,
+        "max_ms": 103.01280000567203,
+        "last_ms": 13.812860997859389
+      },
+      "postgres_pool_acquisition": {
+        "count": 18,
+        "mean_ms": 1.344071277546593,
+        "p50_ms": 0.016059995687101036,
+        "p95_ms": 3.6303384018537717,
+        "p99_ms": 19.78408928072891,
+        "max_ms": 23.822527000447735,
+        "last_ms": 0.01741999585647136
+      },
+      "postgres_transaction_commit": {
+        "count": 7,
+        "mean_ms": 2.4704341433659596,
+        "p50_ms": 2.4592660047346726,
+        "p95_ms": 3.4155329980421802,
+        "p99_ms": 3.6289889959152783,
+        "max_ms": 3.682352995383553,
+        "last_ms": 1.8812019989127293
+      },
+      "postgres_transaction_duration": {
+        "count": 18,
+        "mean_ms": 15.547136222368055,
+        "p50_ms": 0.025945500965462998,
+        "p95_ms": 90.70404604717622,
+        "p99_ms": 100.55104921397286,
+        "max_ms": 103.01280000567203,
+        "last_ms": 13.812860997859389
+      },
+      "region_tracking": {
+        "count": 1,
+        "mean_ms": 0.0059200028772465885,
+        "p50_ms": 0.0059200028772465885,
+        "p95_ms": 0.0059200028772465885,
+        "p99_ms": 0.0059200028772465885,
+        "max_ms": 0.0059200028772465885,
+        "last_ms": 0.0059200028772465885
+      },
+      "region_tracking_unaccounted_ms": {
+        "count": 1,
+        "mean_ms": 0.0,
+        "p50_ms": 0.0,
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "max_ms": 0.0,
+        "last_ms": 0.0
+      },
+      "tracking_unaccounted_ms": {
+        "count": 1,
+        "mean_ms": 0.09125300857704133,
+        "p50_ms": 0.09125300857704133,
+        "p95_ms": 0.09125300857704133,
+        "p99_ms": 0.09125300857704133,
+        "max_ms": 0.09125300857704133,
+        "last_ms": 0.09125300857704133
+      },
+      "websocket_broadcast": {
+        "count": 3,
+        "mean_ms": 0.007053667407793304,
+        "p50_ms": 0.005649999366141856,
+        "p95_ms": 0.010051002755062653,
+        "p99_ms": 0.010442203056300059,
+        "max_ms": 0.01054000313160941,
+        "last_ms": 0.005649999366141856
+      },
+      "websocket_broadcast_device_status_update": {
+        "count": 1,
+        "mean_ms": 0.004970999725628644,
+        "p50_ms": 0.004970999725628644,
+        "p95_ms": 0.004970999725628644,
+        "p99_ms": 0.004970999725628644,
+        "max_ms": 0.004970999725628644,
+        "last_ms": 0.004970999725628644
+      },
+      "websocket_broadcast_event_group": {
+        "count": 1,
+        "mean_ms": 0.005649999366141856,
+        "p50_ms": 0.005649999366141856,
+        "p95_ms": 0.005649999366141856,
+        "p99_ms": 0.005649999366141856,
+        "max_ms": 0.005649999366141856,
+        "last_ms": 0.005649999366141856
+      },
+      "websocket_broadcast_event_trigger": {
+        "count": 1,
+        "mean_ms": 0.01054000313160941,
+        "p50_ms": 0.01054000313160941,
+        "p95_ms": 0.01054000313160941,
+        "p99_ms": 0.01054000313160941,
+        "max_ms": 0.01054000313160941,
+        "last_ms": 0.01054000313160941
+      }
+    },
+    "pending_jobs": {
+      "device_status": 0,
+      "post_ingest": 0
+    },
+    "peak_pending_jobs": {
+      "device_status": 1,
+      "post_ingest": 1
+    },
+    "pool": {
+      "acquisitions": 18,
+      "releases": 18,
+      "checked_out": 0,
+      "peak_checked_out": 2,
+      "creation_failures": 0,
+      "acquire_timeouts": 0,
+      "min_size": 1,
+      "max_size": 20,
+      "waiting_requests": 0,
+      "idle_connections": 1,
+      "available_connections": 1,
+      "pool_total_connections": 1
+    },
+    "recent_traces": [
+      {
+        "event_id": "staging-cutover-smoke-20261004-01",
+        "stages": {
+          "postgres_pool_acquisition": 0.01741999585647136,
+          "postgres_transaction_commit": 1.8812019989127293,
+          "fusion_lock_wait": 8.008459997654427,
+          "fusion_observation_load": 5.143966001924127,
+          "fusion_group_lookup": 3.0139880036585964,
+          "fusion_group_save": 22.270191999268718,
+          "fusion_observation_save": 12.92728100088425,
+          "fusion_compute": 5.135065999638755,
+          "fusion_group_cleanup": 2.4221350031439215,
+          "fusion_transaction_commit": 2.800982998451218,
+          "postgres_connection_hold": 13.812860997859389,
+          "postgres_transaction_duration": 13.812860997859389,
+          "event_fusion": 126.87044800259173,
+          "region_tracking": 0.0059200028772465885,
+          "active_tracking_source_load": 15.016207995358855,
+          "active_tracking_association": 0.1351530008832924,
+          "active_alert_tracking": 22.44674599933205,
+          "post_ingest_pipeline": 149.39154500461882,
+          "fusion_unaccounted_ms": 53.85175299306866,
+          "tracking_unaccounted_ms": 0.09125300857704133,
+          "region_tracking_unaccounted_ms": 0.0,
+          "fusion_transaction_sql_ms": 59.87516901222989,
+          "fusion_transaction_lock_ms": 8.008459997654427,
+          "fusion_transaction_python_ms": 5.135065999638755,
+          "fusion_transaction_commit_ms": 2.800982998451218,
+          "fusion_transaction_idle_ms": 27.193121997697745
+        },
+        "stage_samples": {
+          "postgres_pool_acquisition": [
+            23.822527000447735,
+            0.02349999704165384,
+            0.01741999585647136
+          ],
+          "postgres_transaction_commit": [
+            2.733410998189356,
+            2.7929530042456463,
+            1.854371999797877,
+            1.8812019989127293
+          ],
+          "fusion_lock_wait": [
+            8.008459997654427
+          ],
+          "fusion_observation_load": [
+            5.143966001924127
+          ],
+          "fusion_group_lookup": [
+            3.0139880036585964
+          ],
+          "fusion_group_save": [
+            14.097607003350276,
+            22.270191999268718
+          ],
+          "fusion_observation_save": [
+            12.92728100088425
+          ],
+          "fusion_compute": [
+            5.135065999638755
+          ],
+          "fusion_group_cleanup": [
+            2.4221350031439215
+          ],
+          "fusion_transaction_commit": [
+            2.800982998451218
+          ],
+          "postgres_connection_hold": [
+            103.01280000567203,
+            7.100020004145335,
+            13.812860997859389
+          ],
+          "postgres_transaction_duration": [
+            103.01280000567203,
+            7.100020004145335,
+            13.812860997859389
+          ],
+          "event_fusion": [
+            126.87044800259173
+          ],
+          "region_tracking": [
+            0.0059200028772465885
+          ],
+          "active_tracking_source_load": [
+            7.2041319945128635,
+            15.016207995358855
+          ],
+          "active_tracking_association": [
+            0.1351530008832924
+          ],
+          "active_alert_tracking": [
+            22.44674599933205
+          ],
+          "post_ingest_pipeline": [
+            149.39154500461882
+          ],
+          "fusion_unaccounted_ms": [
+            53.85175299306866
+          ],
+          "tracking_unaccounted_ms": [
+            0.09125300857704133
+          ],
+          "region_tracking_unaccounted_ms": [
+            0.0
+          ],
+          "fusion_transaction_sql_ms": [
+            59.87516901222989
+          ],
+          "fusion_transaction_lock_ms": [
+            8.008459997654427
+          ],
+          "fusion_transaction_python_ms": [
+            5.135065999638755
+          ],
+          "fusion_transaction_commit_ms": [
+            2.800982998451218
+          ],
+          "fusion_transaction_idle_ms": [
+            27.193121997697745
+          ]
+        },
+        "postgres_acquisitions": [
+          {
+            "duration_ms": 23.822527000447735,
+            "purpose": "fusion_event_load"
+          },
+          {
+            "duration_ms": 0.02349999704165384,
+            "purpose": "tracking"
+          },
+          {
+            "duration_ms": 0.01741999585647136,
+            "purpose": "tracking"
+          }
+        ],
+        "postgres_holds": [
+          {
+            "duration_ms": 103.01280000567203,
+            "purpose": "fusion_transaction"
+          },
+          {
+            "duration_ms": 7.100020004145335,
+            "purpose": "tracking"
+          },
+          {
+            "duration_ms": 13.812860997859389,
+            "purpose": "tracking"
+          }
+        ],
+        "postgres_pool_acquisition_count": 3,
+        "postgres_pool_wait_total_ms": 23.86344699334586,
+        "postgres_pool_wait_max_ms": 23.822527000447735,
+        "total_ms": 149.39154500461882
+      }
+    ],
+    "note": "Process-local rolling samples; reset on deploy/restart."
+  },
+  "staging_write_freeze": {
+    "configured": false,
+    "active": false,
+    "environment": "staging",
+    "active_write_requests": 0,
+    "pending_post_ingest_jobs": 0,
+    "pending_device_status_jobs": 0,
+    "write_quiescent": true
+  },
+  "device_status_cache_ttl_seconds": 10.0,
+  "tracks_cache_ttl_seconds": 10.0,
+  "device_fixed_location_cache_ttl_seconds": 60.0,
+  "postgres_schema_cache_ttl_seconds": 300.0,
+  "fast_event_ingest_enabled": true,
+  "post_inference_latency_tracing_enabled": true,
+  "staging_db_latency_probe_enabled": true,
+  "classification_v1_enabled": true,
+  "classification_v1_persistence_enabled": true,
+  "classification_v1_websocket_enabled": true,
+  "dashboard_v2_enabled": true,
+  "dashboard_v2_experimental_motion_enabled": false,
+  "dashboard_simulation_enabled": true,
+  "node_websocket_enabled": true,
+  "command_websocket_enabled": true,
+  "live_audio_enabled": false,
+  "motion_shadow_enabled": false,
+  "motion_field_telemetry_enabled": false,
+  "motion_outlier_speed_guard_enabled": false,
+  "motion_max_diagnostic_speed_mps": 200.0,
+  "dashboard_event_order_guard_enabled": true,
+  "tracking_enabled": true,
+  "tracking_reorder_buffer_enabled": false,
+  "tracking_reorder_window_ms": 500.0,
+  "tracking_discard_metrics": {
+    "late_measurement_discarded": 0,
+    "duplicate_measurement_discarded": 0,
+    "outlier_measurement_discarded": 0,
+    "reorder_buffer": {
+      "offered": 0,
+      "emitted": 0,
+      "late_discarded": 0,
+      "duplicate_discarded": 0,
+      "pending": 0,
+      "window_ms": 500.0
+    }
+  },
+  "observation_shadow_enabled": true,
+  "observation_tracking_enabled": true,
+  "observation_replay_policy": {
+    "live_max_age_ms": 5000.0,
+    "live_tracking_max_age_ms": 120000.0,
+    "historical_max_age_ms": 21600000.0,
+    "idempotency_ttl_seconds": 21600.0,
+    "idempotency_max_ids": 50000
+  },
+  "observation_shadow": {
+    "ingest": {
+      "observation_received_count": 0,
+      "observation_uploaded_count": 0,
+      "duplicate_observation_count": 0,
+      "sequence_gap_count": 0,
+      "sequence_gap_filled_count": 0,
+      "sequence_out_of_order_count": 0,
+      "sequence_duplicate_count": 0,
+      "evicted_observation_count": 0,
+      "unretained_sequence_gap_count": 0,
+      "cleanup_count": 0,
+      "expired_count": 0,
+      "expired_stream_count": 0,
+      "forced_stream_eviction_count": 0,
+      "max_entries_seen": 0,
+      "max_streams_seen": 0,
+      "request_payload_bytes": 0,
+      "request_wire_estimate_bytes": 0,
+      "minimum_payload_bytes": 0,
+      "maximum_payload_bytes": 0,
+      "dedup_expired_count": 0,
+      "dedup_evicted_count": 0,
+      "replay_live_count": 0,
+      "replay_late_recoverable_count": 0,
+      "replay_historical_only_count": 0,
+      "replay_expired_count": 0,
+      "tracking_eligible_count": 0,
+      "tracking_historical_suppressed_count": 0,
+      "tracking_expired_suppressed_count": 0,
+      "retained_observation_count": 0,
+      "current_entries": 0,
+      "stream_count": 0,
+      "dedup_cache_size": 0,
+      "idempotency_tombstone_count": 0,
+      "open_sequence_gap_count": 0,
+      "average_payload_bytes": null,
+      "observed_requests_per_minute": null,
+      "ttl_seconds": 3600.0,
+      "max_entries": 10000,
+      "max_streams": 2048,
+      "dedup_ttl_seconds": 21600.0,
+      "max_dedup_ids": 50000,
+      "storage": "bounded_in_memory_shadow_only"
+    },
+    "tracking": {
+      "tracking_measurement_count": 0,
+      "late_discard_count": 0,
+      "duplicate_discard_count": 0,
+      "outlier_discard_count": 0,
+      "sequence_gap_skipped_count": 0,
+      "sequence_gate_pass_count": 0,
+      "fusion_applied_count": 0,
+      "fusion_revision_count": 0,
+      "fusion_late_attach_count": 0,
+      "fusion_late_drop_count": 0,
+      "mailbox_drop_count": 0,
+      "track_cleanup_count": 0,
+      "expired_track_count": 0,
+      "max_tracks_seen": 0,
+      "track_point_count": 0,
+      "track_count": 0,
+      "median_point_interval_ms": null,
+      "p95_point_interval_ms": null,
+      "maximum_track_gap_ms": null,
+      "additional_tracking_latency_p50_ms": null,
+      "additional_tracking_latency_p95_ms": null,
+      "additional_tracking_latency_p99_ms": null,
+      "additional_tracking_latency_max_ms": null,
+      "ordering": {
+        "offered": 0,
+        "emitted": 0,
+        "duplicate_discarded": 0,
+        "late_discarded": 0,
+        "gaps_skipped": 0,
+        "max_pending": 0,
+        "sequence_gap_count": 0,
+        "sequence_out_of_order_count": 0,
+        "sequence_duplicate_count": 0,
+        "sequence_timeout_advance_count": 0,
+        "pending_overflow_discarded": 0,
+        "pending_dropped_on_key_eviction": 0,
+        "cleanup_count": 0,
+        "expired_key_count": 0,
+        "forced_key_eviction_count": 0,
+        "max_keys_seen": 0,
+        "pending": 0,
+        "current_keys": 0,
+        "dedup_cache_size": 0,
+        "max_late_ms": 2000.0,
+        "max_pending_per_key": 1024,
+        "max_keys": 2048,
+        "key_ttl_ms": 3600000.0
+      },
+      "mailbox": {
+        "submitted_count": 0,
+        "completed_count": 0,
+        "failed_count": 0,
+        "timeout_drop_count": 0,
+        "capacity_drop_count": 0,
+        "current_pending": 0,
+        "max_pending": 0,
+        "max_mailbox_depth": 0,
+        "cleanup_count": 0,
+        "expired_key_count": 0,
+        "max_keys_seen": 0,
+        "mailbox_depth": 0,
+        "current_keys": 0,
+        "running_keys": 0,
+        "processing_keys": 0,
+        "mailbox_wait_p50_ms": null,
+        "mailbox_wait_p95_ms": null,
+        "mailbox_wait_p99_ms": null,
+        "mailbox_wait_max_ms": null,
+        "processing_p50_ms": null,
+        "processing_p95_ms": null,
+        "processing_p99_ms": null,
+        "processing_max_ms": null,
+        "max_pending_per_key": 1024,
+        "max_keys": 2048,
+        "key_ttl_ms": 3600000.0
+      },
+      "tracks": {},
+      "retained_fusion_bucket_count": 0,
+      "current_track_entries": 0,
+      "max_tracks": 2048,
+      "state_ttl_ms": 3600000.0,
+      "storage": "bounded_in_memory_shadow_only",
+      "smoothing": "disabled"
+    },
+    "clock_quality": {
+      "stream_count": 0,
+      "sample_count": 0,
+      "estimated_clock_offset_ms": null,
+      "clock_offset_p95_ms": null,
+      "clock_drift_ms_per_min": null,
+      "clock_jump_count": 0,
+      "cleanup_count": 0,
+      "expired_stream_count": 0,
+      "streams": {},
+      "monotonic_comparison_scope": "same_device_process_session_only"
+    }
+  },
+  "localization_enabled": false,
+  "gcs_configured": true,
+  "gcs_bucket_cached": false,
+  "upload_token_configured": true,
+  "diagnostic_device_filter": "(TEST|HEARTBEAT_CHECK|DEPLOY_CHECK|DEBUG|PROBE|CONN_FIX|REMOTE_CONN|AFTER_STOP|PERF|STRESS|SINGLE|CHECK|SMOKE|ANDROID-PHONE|NODE_T\\d+)"
+}

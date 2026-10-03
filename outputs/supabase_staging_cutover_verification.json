@@ -1,61 +1,47 @@
 {
-  "captured_at": "2026-10-02T02:32:59.9577805Z",
-  "controlled_write_smoke": "NOT_RUN",
-  "current_state": {
-    "checksums_match": true,
-    "destination_tables": 12,
-    "final_sync_required": false,
-    "fk_orphans_destination": 0,
-    "fk_orphans_source": 0,
-    "pk_unique": "PASS",
-    "row_counts_match": true,
-    "schema_diff": "PASS",
-    "sequences_match": true,
-    "source_tables": 12,
-    "timestamps_match": true
+  "date": "2026-10-04 Asia/Taipei",
+  "STAGING_CUTOVER": "PASS",
+  "STAGING_RUNNING_ON_SINGAPORE": true,
+  "render_service": "sound-backend-staging",
+  "service_id": "srv-da6kdn61egvs7392r92g",
+  "validated_runtime_commit": "b3ed190738930ca7e9305a4f08cb593120e6912c",
+  "final_settings_deploy": "dep-db0jsnfavr4c73828meg",
+  "TLS_REQUIRE_BOTH_REGIONS": "PASS",
+  "reconciliation": "staging_final_reconciliation_20261004.json",
+  "frozen_quiescent": true,
+  "write_freeze_final": false,
+  "probe_enabled_final": false,
+  "read_checks_200": 9,
+  "dashboard_websocket": "PASS",
+  "synthetic_smoke": {
+    "id": "staging-cutover-smoke-20261004-01",
+    "events_tokyo": 0,
+    "events_singapore": 1,
+    "observations_singapore": 1,
+    "track_points_singapore": 0,
+    "retained_for_audit": true
   },
-  "cutover": "NO-GO",
-  "latency_ab": "NOT_RUN",
-  "post_cutover_health": "NOT_RUN",
+  "fk_orphans_after_smoke": {
+    "Tokyo": 0,
+    "Singapore": 0
+  },
+  "local_tests": {
+    "command": "python -m pytest -q tests/test_staging_write_freeze.py",
+    "passed": 6,
+    "warnings": 1
+  },
+  "android_field_test_this_round": false,
+  "localization_enabled": false,
+  "tracking_persistence_test": "NOT_EXERCISED: no track point created",
+  "formal_latency_AB": "NOT_RUN",
+  "bounded_db_probe": "PASS",
+  "rollback": {
+    "performed": false,
+    "Tokyo_retained": true,
+    "requires_write_freeze_and_reconcile_new_Singapore_writes": true
+  },
   "production_touched": false,
-  "reason": "Tokyo credential repaired and read smoke passed; fresh freeze/TLS/reconciliation still required before Singapore assignment.",
-  "render_database_after": "TOKYO_CREDENTIAL_UPDATED_AND_VERIFIED",
-  "render_database_before": "TOKYO (previously verified; no Render change made)",
-  "rollback_performed": false,
-  "rollback_ready": "TOKYO_UNCHANGED; SINGAPORE_NOT_ASSIGNED",
-  "source_writes_active": "NO_OBSERVED_DURING_METADATA_CAPTURE",
-  "staging_cutover": "NO-GO",
-  "staging_running_on_singapore": false,
-  "staging_write_freeze_available": true,
-  "staging_write_freeze_local_validation": "PASS",
-  "staging_write_freeze_reason": "No existing documented, reversible staging-only mechanism was verified. LIVE_AUDIO_ENABLED does not prevent database writes.",
-  "staging_writes_frozen": "YES_RENDER_OBSERVED_THEN_DISABLED",
-  "render_deployment": {
-    "service": "sound-backend-staging",
-    "service_id": "srv-da6kdn61egvs7392r92g",
-    "branch": "feat/latency-diagnostics-staging",
-    "commit": "b3ed190738930ca7e9305a4f08cb593120e6912c"
-  },
-  "render_read_smoke": {
-    "health": 200,
-    "runtime_status": 200,
-    "events": 200,
-    "event_groups": 200,
-    "tracks": 200,
-    "device_status": 200,
-    "device_locations": 200,
-    "database_status": "SUCCESS"
-  },
-  "tls_preflight": {
-    "psql_select_1": "PASS",
-    "psycopg2_select_1": "PASS",
-    "singapore": "PASS",
-    "sslmode": "require",
-    "tokyo": "PASS"
-  },
-  "credential_repair_20261003": {
-    "result": "PASS",
-    "evidence": "outputs/staging_tokyo_credential_repair_20261003.json",
-    "deploy_id": "dep-db07aevavr4c73eevin0"
-  }
+  "PR_draft": true,
+  "PR_merged": false,
+  "secrets_in_artifacts": false
 }

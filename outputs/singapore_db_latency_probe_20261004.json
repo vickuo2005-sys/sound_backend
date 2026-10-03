@@ -1,0 +1,51 @@
+{
+  "environment": "RENDER_STAGING_HOST",
+  "date": "2026-10-04 Asia/Taipei",
+  "database_region": "Singapore",
+  "samples_per_operation": 10,
+  "unit": "milliseconds",
+  "metrics": {
+    "pool_checkout": {
+      "p50": 0.017,
+      "p95": 0.067
+    },
+    "same_connection_select1": {
+      "p50": 1.967,
+      "p95": 4.705,
+      "mean": 2.269,
+      "min": 1.831,
+      "max": 4.705
+    },
+    "transaction_select1": {
+      "p50": 2.114,
+      "p95": 2.301,
+      "mean": 2.138
+    },
+    "commit": {
+      "p50": 1.964,
+      "p95": 2.297,
+      "mean": 2.046
+    },
+    "physical_connect": {
+      "p50": 25.05,
+      "p95": 91.409,
+      "mean": 42.638
+    },
+    "tcp_connect": {
+      "n": 20,
+      "p50": 3.832,
+      "p95": 41.076
+    }
+  },
+  "explain_select1": {
+    "planning_ms": 0.021,
+    "execution_ms": 0.027,
+    "client_ms": 9.059
+  },
+  "probe_total_ms": 702.58,
+  "source": "Sanitized summary of authenticated staging diagnostic response",
+  "historical_tokyo_select1_approx_ms": 73,
+  "paired_A_B_test": false,
+  "android_field_test": false,
+  "interpretation": "Small bounded probe supports substantially lower network round-trip latency; does not establish Android pipeline percentiles."
+}
