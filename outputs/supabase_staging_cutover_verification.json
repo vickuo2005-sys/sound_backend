@@ -18,8 +18,8 @@
   "latency_ab": "NOT_RUN",
   "post_cutover_health": "NOT_RUN",
   "production_touched": false,
-  "reason": "Render freeze activation/quiescence passed, but existing Tokyo DATABASE_URL failed password authentication during read checks; cutover stopped before any DATABASE_URL change.",
-  "render_database_after": "UNCHANGED",
+  "reason": "Tokyo credential repaired and read smoke passed; fresh freeze/TLS/reconciliation still required before Singapore assignment.",
+  "render_database_after": "TOKYO_CREDENTIAL_UPDATED_AND_VERIFIED",
   "render_database_before": "TOKYO (previously verified; no Render change made)",
   "rollback_performed": false,
   "rollback_ready": "TOKYO_UNCHANGED; SINGAPORE_NOT_ASSIGNED",
@@ -39,12 +39,12 @@
   "render_read_smoke": {
     "health": 200,
     "runtime_status": 200,
-    "event_groups": 500,
     "events": 200,
+    "event_groups": 200,
     "tracks": 200,
     "device_status": 200,
     "device_locations": 200,
-    "database_status": "DEGRADED_PASSWORD_AUTH_FAILED"
+    "database_status": "SUCCESS"
   },
   "tls_preflight": {
     "psql_select_1": "PASS",
@@ -52,5 +52,10 @@
     "singapore": "PASS",
     "sslmode": "require",
     "tokyo": "PASS"
+  },
+  "credential_repair_20261003": {
+    "result": "PASS",
+    "evidence": "outputs/staging_tokyo_credential_repair_20261003.json",
+    "deploy_id": "dep-db07aevavr4c73eevin0"
   }
 }

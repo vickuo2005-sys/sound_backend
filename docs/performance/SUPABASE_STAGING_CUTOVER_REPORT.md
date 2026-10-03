@@ -56,3 +56,11 @@ Machine-readable status is in `outputs/supabase_staging_cutover_verification.jso
 
 Provide or reset the Tokyo staging database credential in Supabase, then verify it once the pooler circuit breaker clears. Rerun read checks, TLS, and final reconciliation while the freeze is active. Do not assign Singapore until all gates pass.
 
+
+## 2026-10-03 credential repair: PASS
+
+This update supersedes the credential failure and required-next-step statements above. After the user reset the Tokyo password, the Render staging DATABASE_URL was filled again and its exact intended value was verified privately before saving. The masked Render field initially loads its old value on interaction; previous attempts did not reliably verify the replacement. Therefore the earlier conclusion that both password candidates were rejected is not reliable evidence about those candidates.
+
+Render deploy `dep-db07aevavr4c73eevin0` is Live on commit `b3ed190738930ca7e9305a4f08cb593120e6912c`. `/database-status` returned `success`; `/health`, `/runtime-status`, `/events`, `/event-groups`, `/tracks`, `/device-status`, and `/device-locations` all returned HTTP 200 with healthy/success status and no error. Write freeze is false. Singapore was not assigned and production was not touched.
+
+The credential gate is now PASS. Cutover remains pending fresh freeze/quiescence, TLS, and source/destination reconciliation. Historical reconciliation results must not be treated as current. Sanitized evidence: `outputs/staging_tokyo_credential_repair_20261003.json`.
