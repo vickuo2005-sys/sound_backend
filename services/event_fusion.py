@@ -1,9 +1,11 @@
+from services.latency_diagnostics import CountingCursor, critical_mark
 import json
+from time import monotonic
 import re
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from services.device_location_service import location_map, resolve_effective_location
 from services.region_localization import REGION_METHOD, estimate_region
@@ -294,6 +296,8 @@ def execute(cursor: Any, is_postgres: bool, sql: str, params: tuple = ()) -> Any
 @contextmanager
 def open_cursor(connection: Any):
     cursor = connection.cursor()
+    if not getattr(cursor, "_critical_counted", False):
+        cursor = CountingCursor(cursor)
     try:
         yield cursor
     finally:
@@ -757,15 +761,19 @@ def update_group_rollup(
         """,
         tuple(params),
     )
-    region = update_group_region(cursor, group_id, is_postgres)
-    execute(
-        cursor,
-        is_postgres,
-        "SELECT * FROM event_groups WHERE id = %s LIMIT 1",
-        (group_id,),
+    region = update_group_region(cursor, group_id, is_postgres, return_group_row=True)
+    row = region.pop("_persisted_group_row", None)
+    if row is None:
+        # SQLite retains its existing SELECT compatibility path.
+        execute(cursor, is_postgres, "SELECT * FROM event_groups WHERE id = %s LIMIT 1", (group_id,))
+        row = fetchone_dict(cursor) or {"id": group_id}
+    devices, relative_times = group_observation_summaries(
+        cursor, [group_id], is_postgres, preserve_empty_devices=True,
     )
-    row = fetchone_dict(cursor) or {"id": group_id}
-    return {**group_payload(cursor, row, is_postgres), "reporting_nodes": region.get("reporting_nodes", [])}
+    return {**group_payload(cursor, row, is_postgres,
+                           devices_override=devices.get(group_id, []),
+                           device_relative_times_override=relative_times.get(group_id, [])),
+            "reporting_nodes": region.get("reporting_nodes", [])}
 
 
 def load_group_row(cursor: Any, group_id: str, is_postgres: bool) -> Optional[dict]:
@@ -1034,8 +1042,9 @@ def fixed_locations_for_devices(
     return location_map(fetchall_dict(cursor))
 
 
-def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
+def update_group_region(cursor: Any, group_id: str, is_postgres: bool, *, return_group_row: bool = False) -> dict:
     region = estimate_region(group_region_observations(cursor, group_id, is_postgres))
+    critical_mark("region_ready")
     now = datetime.now(timezone.utc)
     geojson = (
         json.dumps(region.get("region_geojson"), separators=(",", ":"))
@@ -1065,7 +1074,7 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
                 time_sync_quality = NULL,
                 updated_at = %s
             WHERE id = %s
-            """,
+            """ + (" RETURNING *" if return_group_row else ""),
             (
                 region.get("region_type"),
                 region.get("region_center_lat"),
@@ -1082,6 +1091,9 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
                 group_id,
             ),
         )
+        if return_group_row:
+            region["_persisted_group_row"] = fetchone_dict(cursor)
+        critical_mark("region_db_saved")
         return region
 
     cursor.execute(
@@ -1121,6 +1133,7 @@ def update_group_region(cursor: Any, group_id: str, is_postgres: bool) -> dict:
             group_id,
         ),
     )
+    critical_mark("region_db_saved")
     return region
 
 
@@ -1329,6 +1342,8 @@ def group_observation_summaries(
     cursor: Any,
     group_ids: list[str],
     is_postgres: bool,
+    *,
+    preserve_empty_devices: bool = False,
 ) -> tuple[dict[str, list[str]], dict[str, list[dict]]]:
     if not group_ids:
         return {}, {}
@@ -1354,7 +1369,7 @@ def group_observation_summaries(
     for row in fetchall_dict(cursor):
         group_id = str(row.get("group_id") or "")
         device_id = str(row.get("device_id") or "")
-        if not group_id or not device_id:
+        if not group_id or (not device_id and not preserve_empty_devices):
             continue
         devices_by_group.setdefault(group_id, []).append(device_id)
         event_time = parse_datetime(row.get("event_timestamp"))
@@ -1485,7 +1500,12 @@ def process_event(
     event_record: dict,
     is_postgres: bool,
     window_seconds: float = 3.0,
+    latency_recorder: Optional[Callable[[str, float], None]] = None,
 ) -> Optional[dict]:
+    def measure(stage: str, started: float) -> None:
+        if latency_recorder is not None:
+            latency_recorder(stage, (monotonic() - started) * 1000.0)
+
     event_id = event_record.get("event_id")
     if not event_id:
         return None
@@ -1497,13 +1517,25 @@ def process_event(
     episode_hold_seconds = max(DEFAULT_EPISODE_HOLD_SECONDS, late_attach_seconds)
 
     with open_cursor(connection) as cursor:
+        started = monotonic()
         lock_fusion_label(cursor, label, is_postgres)
+        measure("fusion_lock_wait", started)
 
+        started = monotonic()
         existing_group = observation_group_for_event(cursor, event_id, is_postgres)
+        measure("fusion_observation_load", started)
         if existing_group:
+            critical_mark("fusion_group_resolved")
+            started = monotonic()
             update_existing_observation_snapshot(cursor, event_record, is_postgres)
-            return update_group_rollup(cursor, existing_group["id"], is_postgres)
+            measure("fusion_observation_save", started)
+            critical_mark("fusion_observation_saved")
+            started = monotonic()
+            result = update_group_rollup(cursor, existing_group["id"], is_postgres)
+            measure("fusion_group_save", started)
+            return result
 
+        started = monotonic()
         group = find_candidate_group(
             cursor,
             label,
@@ -1512,7 +1544,9 @@ def process_event(
             is_postgres,
             late_attach_seconds=late_attach_seconds,
         )
+        measure("fusion_group_lookup", started)
         if not group:
+            started = monotonic()
             close_stale_groups(
                 cursor,
                 label,
@@ -1521,7 +1555,10 @@ def process_event(
                 is_postgres,
             )
             group = create_group(cursor, label, event_time, is_postgres)
+            measure("fusion_group_save", started)
 
+        critical_mark("fusion_group_resolved")
+        started = monotonic()
         inserted = insert_observation(
             cursor=cursor,
             group_id=group["id"],
@@ -1530,29 +1567,41 @@ def process_event(
             event_time=event_time,
             is_postgres=is_postgres,
         )
+        measure("fusion_observation_save", started)
+        critical_mark("fusion_observation_saved")
         if not inserted:
-            return observation_group_for_event(cursor, event_id, is_postgres)
+            started = monotonic()
+            result = observation_group_for_event(cursor, event_id, is_postgres)
+            measure("fusion_observation_load", started)
+            return result
 
+        started = monotonic()
         updated_group = update_group_rollup(
             cursor,
             group["id"],
             is_postgres,
             mark_active=True,
         )
+        measure("fusion_group_save", started)
+        started = monotonic()
         merged_group_ids = merge_nearby_groups(
             cursor=cursor,
             group_id=group["id"],
             label=label,
             is_postgres=is_postgres,
         )
+        measure("fusion_compute", started)
         if merged_group_ids:
+            started = monotonic()
             updated_group = update_group_rollup(
                 cursor,
                 group["id"],
                 is_postgres,
                 mark_active=True,
             )
+            measure("fusion_group_save", started)
             updated_group["merged_group_ids"] = merged_group_ids
+        started = monotonic()
         close_stale_groups(
             cursor,
             label,
@@ -1561,6 +1610,7 @@ def process_event(
             is_postgres,
             exclude_group_id=group["id"],
         )
+        measure("fusion_group_cleanup", started)
         return updated_group
 
 

@@ -229,6 +229,7 @@ class ObservationShadowRegistry:
                 stream_key,
                 {
                     "highest": 0,
+                    "initialized": False,
                     "seen": set(),
                     "missing": set(),
                     "last_activity_ms": received_ms,
@@ -241,10 +242,20 @@ class ObservationShadowRegistry:
             missing: set[int] = stream["missing"]
             gap_detected = 0
             gap_filled = False
-            out_of_order = sequence < highest
+            # A backend restart loses the in-memory stream state while an
+            # Android process may continue its sequence.  The first sample
+            # establishes a baseline; subsequent samples retain real gap
+            # detection for this device/process session.
+            if not stream.get("initialized"):
+                stream["initialized"] = True
+                stream["highest"] = sequence
+                highest = sequence
+                out_of_order = False
+            else:
+                out_of_order = sequence < highest
             if sequence in seen:
                 self._metrics["sequence_duplicate_count"] += 1
-            elif sequence > highest:
+            elif stream.get("initialized") and sequence > highest:
                 if sequence > highest + 1:
                     gap_detected = sequence - highest - 1
                     retained_gap_start = max(
@@ -599,6 +610,7 @@ class ShadowTrackingPipeline:
             max_pending_per_key=max_pending_per_key,
             max_keys=max_sequence_keys,
             key_ttl_ms=self.state_ttl_ms,
+            baseline_on_first=True,
         )
         self.mailbox = PerKeySerializedMailbox(
             max_workers=mailbox_workers,

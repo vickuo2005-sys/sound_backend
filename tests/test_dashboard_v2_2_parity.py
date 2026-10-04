@@ -33,8 +33,10 @@ def test_region_preview_uses_backend_coordinates_and_optional_uncertainty() -> N
     assert "group?.region_center_lat ?? group?.estimated_lat" in html
     assert "group?.region_center_lng ?? group?.estimated_lng" in html
     assert "finite(estimate.uncertainty_radius_m)" in html
-    assert "estimateMarker = new google.maps.Marker" in html
-    assert "estimateCircle = new google.maps.Circle" in html
+    assert "estimateMarker=new google.maps.Marker(estimateOptions)" in html
+    assert "estimateCircle=new google.maps.Circle(circleOptions)" in html
+    assert "position:estimateLocation" in html
+    assert "center:estimateLocation,radius" in html
     assert "now - time <= 15000" in html
     assert "!['closed','expired'].includes(status)" in html
 
@@ -43,7 +45,10 @@ def test_historical_replay_reveals_recorded_points_without_interpolation() -> No
     html = dashboard_html()
     assert "function startTrackReplay(id)" in html
     assert "path:path.slice(0,i+1)" in html
-    assert "historyLine.setPath(f.path)" in html
+    # Optional smooth display is explicitly labelled; recorded observations stay intact.
+    assert "const displayPath=f.interpolated?[...f.path,f.displayPoint]:f.path" in html
+    assert "historyLine.setPath(displayPath)" in html
+    assert "平滑過場（示意）" in html
     assert "interpolateTrack" not in html
 
 
@@ -122,10 +127,14 @@ def test_live_map_restores_v2_2_sensor_region_and_track_presence() -> None:
     assert "function freshBackendMultiNodeEvidence(now=Date.now())" in html
     assert "function freshBackendLocatedGroup(now=Date.now())" in html
     assert "const liveGroups=geometryFallback?[...state.groups.values(),geometryFallback]:[...state.groups.values()]" in html
-    assert "const current = selectedOrLatestMapEstimate()" in html
+    assert "const estimate = selectedOrLatestGroup(),estimateLocation=groupLocation(estimate)" in html
+    assert "estimate && estimateLocation && !hasFreshDroneTrack" in html
 
     # Preserve the current Dashboard icon language while restoring V2.2 behavior.
-    assert "return {...common, path:google.maps.SymbolPath.CIRCLE};" in html
+    marker = html[html.index("function nodeMarkerIcon("):html.index("window.initOperationalMap")]
+    assert "path:google.maps.SymbolPath.CIRCLE" in marker
+    assert "fillColor:visual.fill" in marker
+    assert "scale:visual.scale" in marker
     assert "id.endsWith('A01')" not in html
     assert "id.endsWith('A02')" not in html
     assert "activeReportingNodeIds.has(device.device_id)" in html
@@ -183,8 +192,12 @@ def test_live_map_visual_hierarchy_keeps_node_identity_separate_from_state() -> 
 
 def test_operational_target_reuses_v2_2_uav_icon() -> None:
     operations = (ROOT / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
-    assert "window.v22DroneTargetIcon?window.v22DroneTargetIcon(target.heading??0)" in operations
-    assert "label:{text:'UAV'" in operations
+    html = dashboard_html()
+    # The live-map renderer owns the UAV, avoiding a duplicate operations marker.
+    assert "if(targetMarker){targetMarker.setMap(null);targetMarker=null;}" in operations
+    assert "targetMarker=new" not in operations[operations.index("function mapObjects(target)"):operations.index("function render()")]
+    assert "icon:v22DroneTargetIcon(heading??0),label:{text:'UAV'" in html
+    assert "trackMarkers.set(id,marker)" in html
 
 
 
@@ -205,9 +218,10 @@ def test_live_map_avoids_marker_redraw_flicker() -> None:
     html = dashboard_html()
     geometry_js = (ROOT / "static" / "dashboard_node_geometry.js").read_text(encoding="utf-8")
     assert "const PULSE_FRAME_MS = Visuals.PULSE_INTERVAL_MS" in geometry_js
-    assert "publishPulse(pulse)" not in geometry_js
-    assert "entry.shape?.setOptions" not in geometry_js
-    assert "now-lastPulseAt>=PULSE_FRAME_MS" in geometry_js
+    animation = geometry_js[geometry_js.index("function animate()"):geometry_js.index("function ensureAnimation()")]
+    assert "publishPulse(" not in animation
+    assert "entry.shape?.setOptions" not in animation
+    assert "now-lastPulseAt>=PULSE_FRAME_MS" in animation
     assert "marker.__dashboardRenderKey" in html
     assert "marker.__dashboardAlertKey" in html
     assert "marker.__dashboardRenderKey!==renderKey" in html
@@ -224,7 +238,9 @@ def test_operational_site_overlay_is_persistent_and_does_not_flicker() -> None:
     assert "const zoneKey=JSON.stringify" in block
     assert "siteMarker.__dashboardRenderKey" in block
     assert "zoneCircle.__dashboardRenderKey" in block
-    assert "targetMarker.__dashboardRenderKey" in block
+    # Target ownership moved to the live-map renderer; operations must not duplicate it.
+    assert "targetMarker=new" not in block
+    assert "if(targetMarker){targetMarker.setMap(null);targetMarker=null;}" in block
     assert "else setOverlayVisible(siteMarker,operationalVisible)" in block
     assert "else setOverlayVisible(zoneCircle,operationalVisible)" in block
     # Clearing is allowed only when the site/target is actually removed; the

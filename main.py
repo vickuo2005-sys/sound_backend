@@ -4,6 +4,7 @@ import math
 import os
 import re
 import sqlite3
+import socket
 import asyncio
 import csv
 import secrets
@@ -14,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from time import monotonic, sleep
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import (
     FastAPI,
@@ -80,9 +81,72 @@ from services.tracking.tracking_service import (
 )
 from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
+from services.latency_diagnostics import latency_diagnostics
+from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
+from services.staging_write_freeze import (
+    RouteClass,
+    classify_route,
+    freeze_is_active,
+    write_quiescent,
+)
 
 
 app = FastAPI()
+
+
+APP_ENV = os.getenv("APP_ENV", "").strip().lower()
+STAGING_WRITE_FREEZE_CONFIGURED = (
+    os.getenv("STAGING_WRITE_FREEZE", "false").lower() == "true"
+)
+STAGING_WRITE_FREEZE_ACTIVE = freeze_is_active(
+    APP_ENV,
+    STAGING_WRITE_FREEZE_CONFIGURED,
+)
+_active_write_requests = 0
+_active_write_requests_lock = threading.Lock()
+
+
+def staging_write_freeze_active() -> bool:
+    """Return the startup-evaluated, staging-guarded freeze state."""
+
+    return STAGING_WRITE_FREEZE_ACTIVE
+
+
+def staging_write_request_started() -> None:
+    global _active_write_requests
+    with _active_write_requests_lock:
+        _active_write_requests += 1
+
+
+def staging_write_request_finished() -> None:
+    global _active_write_requests
+    with _active_write_requests_lock:
+        _active_write_requests = max(0, _active_write_requests - 1)
+
+
+def staging_active_write_request_count() -> int:
+    with _active_write_requests_lock:
+        return _active_write_requests
+
+
+@app.middleware("http")
+async def staging_write_freeze_middleware(request: Request, call_next):
+    """Reject classified mutating routes while preserving diagnostic reads."""
+
+    route_class = classify_route(request.method, request.url.path)
+    if route_class != RouteClass.WRITE_BLOCKED_DURING_FREEZE:
+        return await call_next(request)
+    staging_write_request_started()
+    try:
+        if staging_write_freeze_active():
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": "staging_write_freeze_active"},
+                headers={"Retry-After": "60"},
+            )
+        return await call_next(request)
+    finally:
+        staging_write_request_finished()
 
 
 def _json_safe_validation_detail(value: Any) -> Any:
@@ -321,6 +385,7 @@ DASHBOARD_BROADCAST_TIMEOUT_SECONDS = float(
     os.getenv("DASHBOARD_BROADCAST_TIMEOUT_SECONDS", "1.5") or 1.5
 )
 POST_INGEST_WORKERS = max(1, int(os.getenv("POST_INGEST_WORKERS", "2") or 2))
+DEVICE_STATUS_WORKERS = max(1, int(os.getenv("DEVICE_STATUS_WORKERS", "1") or 1))
 GCS_UPLOAD_RETRY_ATTEMPTS = max(
     1,
     int(os.getenv("GCS_UPLOAD_RETRY_ATTEMPTS", "3") or 3),
@@ -355,6 +420,7 @@ class DashboardConnectionManager:
                     websocket.send_json(message),
                     timeout=DASHBOARD_BROADCAST_TIMEOUT_SECONDS,
                 )
+                record_critical_broadcast_send(message)
             except Exception:
                 disconnected.append(websocket)
 
@@ -414,13 +480,34 @@ post_ingest_executor = ThreadPoolExecutor(
     max_workers=POST_INGEST_WORKERS,
     thread_name_prefix="post-ingest",
 )
+device_status_executor = ThreadPoolExecutor(
+    max_workers=DEVICE_STATUS_WORKERS,
+    thread_name_prefix="device-status",
+)
 observation_shadow_executor = ThreadPoolExecutor(
     max_workers=2,
     thread_name_prefix="observation-shadow",
 )
 
 
+def record_critical_broadcast_send(message: dict) -> None:
+    # Called only after an individual send_json succeeds; a concurrent newly
+    # connected client must not masquerade as a recipient of an older broadcast.
+    if critical_trace() is None:
+        return
+    if message.get("type") == "event_group":
+        group = message.get("group") or {}
+        lat, lng = group.get("region_center_lat"), group.get("region_center_lng")
+        if (type(lat) in (int, float) and type(lng) in (int, float)
+                and math.isfinite(lat) and math.isfinite(lng)
+                and -90 <= lat <= 90 and -180 <= lng <= 180):
+            critical_mark("websocket_event_group_sent")
+    elif message.get("type") == "track_update":
+        critical_mark("websocket_track_update_sent")
+
+
 async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
+    broadcast_started = monotonic()
     try:
         if (
             POST_INFERENCE_LATENCY_TRACING_ENABLED
@@ -430,6 +517,9 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
             latency_trace = dict(message.get("latency_trace") or {})
             latency_trace["ws_sent_at"] = utc_wall_time_ms()
             message["latency_trace"] = latency_trace
+        trace = critical_trace()
+        if trace is not None and message.get("type") in {"event_group", "track_update"}:
+            message = {**message, "critical_path": {"event_id": trace["event_id"]}}
         await dashboard_manager.broadcast(message)
     except Exception:
         logger.exception(
@@ -437,6 +527,10 @@ async def safe_dashboard_broadcast(message: dict, context: str = "dashboard") ->
             context,
             message.get("type"),
         )
+    finally:
+        duration_ms = (monotonic() - broadcast_started) * 1000.0
+        latency_diagnostics.record("websocket_broadcast", duration_ms)
+        latency_diagnostics.record(f"websocket_broadcast_{context}", duration_ms)
 
 
 def schedule_dashboard_broadcast(message: dict, context: str = "dashboard") -> None:
@@ -1056,11 +1150,14 @@ class PooledPostgresConnection:
         pool: Any,
         connection: Any,
         gate: Optional[threading.BoundedSemaphore] = None,
+        purpose: Optional[str] = None,
     ) -> None:
         self._pool = pool
         self._connection = connection
         self._gate = gate
         self._returned = False
+        self._checked_out_at = monotonic()
+        self._purpose = purpose or latency_diagnostics.trace_context() or "unknown"
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._connection, name)
@@ -1070,10 +1167,23 @@ class PooledPostgresConnection:
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Any:
-        return self._connection.__exit__(exc_type, exc, tb)
+        started = monotonic()
+        try:
+            return self._connection.__exit__(exc_type, exc, tb)
+        finally:
+            latency_diagnostics.record(
+                "postgres_transaction_commit",
+                (monotonic() - started) * 1000.0,
+            )
+            if self._purpose == "fusion_transaction":
+                latency_diagnostics.record(
+                    "fusion_transaction_commit",
+                    (monotonic() - started) * 1000.0,
+                )
 
     def cursor(self, *args: Any, **kwargs: Any) -> Any:
-        return self._connection.cursor(*args, **kwargs)
+        cursor = self._connection.cursor(*args, **kwargs)
+        return CountingCursor(cursor) if critical_trace() is not None else cursor
 
     def close(self) -> None:
         if self._returned:
@@ -1092,6 +1202,10 @@ class PooledPostgresConnection:
         try:
             self._pool.putconn(self._connection, close=should_close)
         finally:
+            latency_diagnostics.record_pool_release(
+                (monotonic() - self._checked_out_at) * 1000.0,
+                self._purpose,
+            )
             if self._gate is not None:
                 self._gate.release()
 
@@ -1126,12 +1240,14 @@ def get_postgres_pool() -> Any:
 
 
 def get_postgres_connection() -> PooledPostgresConnection:
+    started = monotonic()
     pool = get_postgres_pool()
     last_error: Optional[Exception] = None
     with _postgres_pool_lock:
         gate = _postgres_pool_gate if pool is _postgres_pool else None
 
     if gate is None or not gate.acquire(timeout=POSTGRES_POOL_ACQUIRE_TIMEOUT_SECONDS):
+        latency_diagnostics.record_pool_timeout()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database connection pool is temporarily busy",
@@ -1148,15 +1264,21 @@ def get_postgres_connection() -> PooledPostgresConnection:
                     continue
 
                 connection.rollback()
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                    cursor.fetchone()
-                connection.rollback()
-                wrapped = PooledPostgresConnection(pool, connection, gate)
+                wrapped = PooledPostgresConnection(
+                    pool,
+                    connection,
+                    gate,
+                    latency_diagnostics.trace_context(),
+                )
                 gate = None
+                latency_diagnostics.record_pool_acquisition(
+                    (monotonic() - started) * 1000.0,
+                    latency_diagnostics.trace_context(),
+                )
                 return wrapped
             except Exception as exc:
                 last_error = exc
+                latency_diagnostics.record_pool_creation_failure()
                 if connection is not None:
                     try:
                         pool.putconn(connection, close=True)
@@ -1180,7 +1302,7 @@ def get_postgres_connection() -> PooledPostgresConnection:
 
 
 def get_sqlite_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_NAME)
+    connection = sqlite3.connect(DB_NAME, factory=CountingSQLiteConnection)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -2918,9 +3040,15 @@ def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> t
         )
         for column in update_columns
     )
+    connection_started = monotonic()
     connection = get_postgres_connection()
+    latency_diagnostics.record(
+        "event_db_connection_acquisition",
+        (monotonic() - connection_started) * 1000.0,
+    )
     try:
         with connection:
+            query_started = monotonic()
             with connection.cursor() as cursor:
                 cursor.execute(
                     f"""
@@ -2933,12 +3061,22 @@ def upsert_event_postgres_with_inserted(event: SoundEvent, created_at: str) -> t
                     event_values(event, created_at),
                 )
                 row = cursor.fetchone()
-                inserted_value = row.get("inserted")
-                if isinstance(inserted_value, bool):
-                    inserted = inserted_value
-                else:
-                    inserted = str(inserted_value).lower() in {"1", "t", "true", "yes"}
-                return int(row["id"]), inserted
+            latency_diagnostics.record(
+                "event_db_insert_returning",
+                (monotonic() - query_started) * 1000.0,
+            )
+            commit_started = monotonic()
+        latency_diagnostics.record(
+            "event_db_commit",
+            (monotonic() - commit_started) * 1000.0,
+        )
+        inserted_value = row.get("inserted")
+        if isinstance(inserted_value, bool):
+            inserted = inserted_value
+        else:
+            inserted = str(inserted_value).lower() in {"1", "t", "true", "yes"}
+        result = (int(row["id"]), inserted)
+        return result
     finally:
         connection.close()
 
@@ -2967,7 +3105,13 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
         for column in update_columns
     )
     values = event_values(event, created_at)
+    started = monotonic()
     with get_sqlite_connection() as connection:
+        latency_diagnostics.record(
+            "event_db_connection_acquisition",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
         existing = connection.execute(
             "SELECT id FROM events WHERE event_id = ? LIMIT 1",
             (event.event_id,),
@@ -3000,7 +3144,16 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
             db_id = int(cursor.lastrowid)
             inserted = True
 
+        latency_diagnostics.record(
+            "event_db_insert_returning",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
         connection.commit()
+        latency_diagnostics.record(
+            "event_db_commit",
+            (monotonic() - started) * 1000.0,
+        )
         return db_id, inserted
 
 
@@ -3137,9 +3290,10 @@ def list_recent_events(limit: int = 50) -> list[dict]:
     return enrich_event_location_rows([dict(row) for row in rows])
 
 
-def get_event_by_event_id(event_id: str) -> Optional[dict]:
+def get_event_by_event_id(event_id: str, connection: Any = None) -> Optional[dict]:
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -3156,7 +3310,8 @@ def get_event_by_event_id(event_id: str) -> Optional[dict]:
                     row = cursor.fetchone()
                     event_row = dict(row) if row else None
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
         return enrich_event_location_row(event_row) if event_row else None
 
     with get_sqlite_connection() as connection:
@@ -3259,30 +3414,40 @@ def delete_event_by_event_id(event_id: str) -> dict:
 
 
 def process_event_fusion_for_event(event_id: str) -> Optional[dict]:
-    event_record = get_event_by_event_id(event_id)
-    if not event_record:
-        return None
+    latency_diagnostics.set_trace_context("fusion_event_load")
+    connection = None
+    try:
+        if use_postgres():
+            connection = get_postgres_connection()
+        event_record = get_event_by_event_id(event_id, connection=connection)
+        if not event_record:
+            return None
 
-    if use_postgres():
-        connection = get_postgres_connection()
-        try:
+        latency_diagnostics.set_trace_context("fusion")
+        if connection is not None:
+            connection._purpose = "fusion_transaction"
+        if use_postgres():
             with connection:
                 return process_fusion_event(
                     connection=connection,
                     event_record=event_record,
                     is_postgres=True,
                     window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                    latency_recorder=latency_diagnostics.record,
                 )
-        finally:
-            connection.close()
 
-    with get_sqlite_connection() as connection:
-        return process_fusion_event(
-            connection=connection,
-            event_record=event_record,
-            is_postgres=False,
-            window_seconds=EVENT_FUSION_WINDOW_SECONDS,
-        )
+        with get_sqlite_connection() as connection:
+            return process_fusion_event(
+                connection=connection,
+                event_record=event_record,
+                is_postgres=False,
+                window_seconds=EVENT_FUSION_WINDOW_SECONDS,
+                latency_recorder=latency_diagnostics.record,
+            )
+    finally:
+        if connection is not None:
+            connection.close()
+        latency_diagnostics.set_trace_context(None)
 
 
 def list_event_fusion_groups(
@@ -3860,13 +4025,21 @@ def process_event_group_localization(
 ) -> Optional[dict]:
     if not LOCALIZATION_ENABLED:
         return None
+
+    pipeline_started = monotonic()
+    group_load_started = monotonic()
     group = get_event_fusion_group(group_id)
+    latency_diagnostics.record(
+        "localization_group_load",
+        (monotonic() - group_load_started) * 1000.0,
+    )
     if not group:
         return None
     observations = group.get("observations") or []
     if not observations:
         return None
 
+    compute_started = monotonic()
     result = localize_observations(
         observations,
         clip_loader=load_tdoa_clip_bytes_for_observation if GCC_PHAT_ENABLED else None,
@@ -3876,22 +4049,42 @@ def process_event_group_localization(
         max_sync_age_ms=TDOA_MAX_SYNC_AGE_SECONDS * 1000.0,
         min_correlation_score=GCC_MIN_CORRELATION_SCORE,
     )
+    latency_diagnostics.record(
+        "localization_compute",
+        (monotonic() - compute_started) * 1000.0,
+    )
     result["label"] = group.get("label") or group.get("group_label")
+
+    save_started = monotonic()
     saved = save_localization_result(group, result)
-    track = (
-        process_tracking_for_localization(
+    latency_diagnostics.record(
+        "localization_db_save",
+        (monotonic() - save_started) * 1000.0,
+    )
+
+    track = None
+    if TRACKING_ENABLED:
+        tracking_started = monotonic()
+        track = process_tracking_for_localization(
             saved,
             post_ingest_reorder=post_ingest_reorder,
         )
-        if TRACKING_ENABLED
-        else None
+        latency_diagnostics.record(
+            "localization_tracking",
+            (monotonic() - tracking_started) * 1000.0,
+        )
+
+    latency_diagnostics.record(
+        "localization_pipeline",
+        (monotonic() - pipeline_started) * 1000.0,
     )
     return {"localization": saved, "track": track}
 
 
-def active_tracks_for_label(label: str) -> list[dict]:
+def active_tracks_for_label(label: str, connection: Any = None) -> list[dict]:
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -3908,7 +4101,8 @@ def active_tracks_for_label(label: str) -> list[dict]:
                     )
                     return [serialize_db_row(dict(row)) for row in cursor.fetchall()]
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
 
     with get_sqlite_connection() as connection:
         rows = connection.execute(
@@ -3925,12 +4119,13 @@ def active_tracks_for_label(label: str) -> list[dict]:
         return [serialize_db_row(dict(row)) for row in rows]
 
 
-def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
+def find_active_track_for_group(group_id: Optional[str], connection: Any = None) -> Optional[dict]:
     if not group_id:
         return None
 
     if use_postgres():
-        connection = get_postgres_connection()
+        owns_connection = connection is None
+        connection = connection or get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
@@ -3949,7 +4144,8 @@ def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
                     row = cursor.fetchone()
                     return serialize_db_row(dict(row)) if row else None
         finally:
-            connection.close()
+            if owns_connection:
+                connection.close()
 
     with get_sqlite_connection() as connection:
         row = connection.execute(
@@ -3967,13 +4163,19 @@ def find_active_track_for_group(group_id: Optional[str]) -> Optional[dict]:
         return serialize_db_row(dict(row)) if row else None
 
 
-def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
-    group_track = find_active_track_for_group(measurement.get("group_id"))
+def choose_track_for_measurement(measurement: dict, connection: Any = None) -> Optional[dict]:
+    started = monotonic()
+    group_track = find_active_track_for_group(measurement.get("group_id"), connection=connection)
+    latency_diagnostics.record(
+        "active_tracking_track_lookup",
+        (monotonic() - started) * 1000.0,
+    )
     if group_track:
         return group_track
 
+    started = monotonic()
     best: Optional[tuple[float, dict]] = None
-    for track in active_tracks_for_label(str(measurement.get("label") or "")):
+    for track in active_tracks_for_label(str(measurement.get("label") or ""), connection=connection):
         ok, details = can_associate_track(
             track,
             measurement,
@@ -3986,6 +4188,10 @@ def choose_track_for_measurement(measurement: dict) -> Optional[dict]:
         score = float(details.get("distance_m") or 0.0)
         if best is None or score < best[0]:
             best = (score, track)
+    latency_diagnostics.record(
+        "active_tracking_association",
+        (monotonic() - started) * 1000.0,
+    )
     return best[1] if best else None
 
 
@@ -4008,7 +4214,12 @@ def process_tracking_measurement(
 ) -> Optional[dict]:
     with tracking_update_lock:
         if close_stale:
-            close_stale_tracks()
+            started = monotonic()
+            close_stale_tracks(enrich=False)
+            latency_diagnostics.record(
+                "active_tracking_source_load",
+                (monotonic() - started) * 1000.0,
+            )
         lat_lng = tracking_lat_lng(
             measurement.get("estimated_lat"),
             measurement.get("estimated_lng"),
@@ -4027,7 +4238,20 @@ def process_tracking_measurement(
                 "Motion-field tracking measurement rejected: canonical event_time_ms is required"
             )
             return None
-        track = choose_track_for_measurement(measurement)
+        lookup_connection = None
+        if use_postgres():
+            latency_diagnostics.set_trace_context("tracking_track_lookup")
+            lookup_connection = get_postgres_connection()
+        try:
+            track = choose_track_for_measurement(
+                measurement,
+                connection=lookup_connection,
+            )
+        finally:
+            if lookup_connection is not None:
+                lookup_connection._purpose = "tracking_track_lookup"
+                lookup_connection.close()
+            latency_diagnostics.set_trace_context("tracking")
         if track is not None:
             last_time_ms = parse_tracking_time_ms(track.get("last_event_time_ms"))
             if (
@@ -4059,7 +4283,14 @@ def process_tracking_measurement(
                         {**measurement, "tracking_discard_reason": metric},
                         state,
                     )
-                return enrich_track_with_points(track)
+                started = monotonic()
+                enriched_track = enrich_track_with_points(track)
+                latency_diagnostics.record(
+                    "active_tracking_point_load",
+                    (monotonic() - started) * 1000.0,
+                )
+                return enriched_track
+        critical_mark("tracking_association_done")
         state = update_track_from_measurement(
             track,
             measurement,
@@ -4077,9 +4308,33 @@ def process_tracking_measurement(
             )
             if MOTION_FIELD_TELEMETRY_ENABLED and track is not None:
                 save_rejected_track_point(track, measurement, state)
-            return enrich_track_with_points(track) if track else None
+            if not track:
+                return None
+            started = monotonic()
+            enriched_track = enrich_track_with_points(track)
+            latency_diagnostics.record(
+                "active_tracking_point_load",
+                (monotonic() - started) * 1000.0,
+            )
+            return enriched_track
+        started = monotonic()
+        latency_diagnostics.set_trace_context("tracking_save")
         saved_track = save_track_point(track, measurement, state)
-    return enrich_track_with_points(saved_track)
+        critical_mark("tracking_db_saved")
+        latency_diagnostics.set_trace_context("tracking")
+        latency_diagnostics.record(
+            "active_tracking_db_save",
+            (monotonic() - started) * 1000.0,
+        )
+    started = monotonic()
+    latency_diagnostics.set_trace_context("tracking_point_load")
+    enriched_track = enrich_track_with_points(saved_track)
+    latency_diagnostics.set_trace_context("tracking")
+    latency_diagnostics.record(
+        "active_tracking_point_load",
+        (monotonic() - started) * 1000.0,
+    )
+    return enriched_track
 
 
 TRACKING_REORDER_BUFFERED_RESULT = {"_tracking_reorder_status": "buffered"}
@@ -4118,10 +4373,13 @@ def tracking_reorder_observation_id(measurement: dict) -> str:
 
 
 def process_tracking_reorder_items(items: tuple) -> Optional[dict]:
-    latest_track = None
-    for item in items:
-        latest_track = process_tracking_measurement(item.payload)
-    return latest_track
+    # Reorder emissions may belong to older events, including timer callbacks.
+    # Never attribute their DB work to whichever event caused the flush.
+    with latency_diagnostics.critical_scope(None):
+        latest_track = None
+        for item in items:
+            latest_track = process_tracking_measurement(item.payload)
+        return latest_track
 
 
 def flush_tracking_reorder_key(key: str) -> None:
@@ -4171,6 +4429,9 @@ def schedule_tracking_reorder_tail_flush(key: str) -> None:
 def process_post_ingest_tracking_measurement(measurement: dict) -> Optional[dict]:
     if not TRACKING_REORDER_BUFFER_ENABLED:
         return process_tracking_measurement(measurement)
+    trace = critical_trace()
+    if trace is not None:
+        trace["tracking_correlated"] = False
 
     event_time_ms = parse_tracking_time_ms(measurement.get("event_time_ms"))
     if event_time_ms is None:
@@ -4201,7 +4462,11 @@ def process_post_ingest_tracking_measurement(measurement: dict) -> Optional[dict
     if tracking_reorder_buffer.pending_count(key):
         schedule_tracking_reorder_tail_flush(key)
     if result.ready:
-        return process_tracking_reorder_items(result.ready)
+        trace = critical_trace()
+        if trace is not None:
+            trace["tracking_correlated"] = False
+        with latency_diagnostics.critical_scope(None):
+            return process_tracking_reorder_items(result.ready)
     return dict(TRACKING_REORDER_BUFFERED_RESULT)
 
 
@@ -4317,6 +4582,7 @@ def process_tracking_for_event_group_region(
         "reporting_nodes": event_group.get("reporting_nodes"),
         "region_geojson": event_group.get("region_geojson"),
     }
+    latency_diagnostics.set_trace_context("tracking_source_load")
     if post_ingest_reorder:
         return process_post_ingest_tracking_measurement(measurement)
     return process_tracking_measurement(measurement, close_stale=close_stale)
@@ -4434,20 +4700,40 @@ def process_tracking_for_active_alert_region(
 ) -> Optional[dict]:
     if not TRACKING_ENABLED:
         return None
-    trigger_event = get_event_by_event_id(trigger_event_id)
-    if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
-        return None
-    reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
-    measurement = build_active_alert_region_measurement(
-        list_recent_events(100),
-        reference_time=reference_time,
-        window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
-    )
-    if measurement is None:
-        return None
-    if post_ingest_reorder:
-        return process_post_ingest_tracking_measurement(measurement)
-    return process_tracking_measurement(measurement)
+    latency_diagnostics.set_trace_context("tracking")
+    try:
+        started = monotonic()
+        trigger_event = get_event_by_event_id(trigger_event_id)
+        latency_diagnostics.record(
+            "active_tracking_source_load",
+            (monotonic() - started) * 1000.0,
+        )
+        if not trigger_event or not is_alert_event_label(trigger_event.get("label")):
+            return None
+        reference_time = event_observed_time(trigger_event) or datetime.now(timezone.utc)
+        started = monotonic()
+        recent_events = list_recent_events(100)
+        latency_diagnostics.record(
+            "active_tracking_source_load",
+            (monotonic() - started) * 1000.0,
+        )
+        started = monotonic()
+        measurement = build_active_alert_region_measurement(
+            recent_events,
+            reference_time=reference_time,
+            window_seconds=LIVE_ALERT_REGION_WINDOW_SECONDS,
+        )
+        latency_diagnostics.record(
+            "active_tracking_association",
+            (monotonic() - started) * 1000.0,
+        )
+        if measurement is None:
+            return None
+        if post_ingest_reorder:
+            return process_post_ingest_tracking_measurement(measurement)
+        return process_tracking_measurement(measurement)
+    finally:
+        latency_diagnostics.set_trace_context(None)
 
 
 def tracking_point_diagnostics(measurement: dict) -> dict:
@@ -4971,7 +5257,7 @@ def enrich_tracks_with_points(tracks: list[dict], limit: int = 20) -> list[dict]
     return enriched_tracks
 
 
-def close_stale_tracks(close_after_seconds: Optional[float] = None) -> list[dict]:
+def close_stale_tracks(close_after_seconds: Optional[float] = None, *, enrich: bool = True) -> list[dict]:
     threshold_seconds = max(
         1.0,
         float(
@@ -5055,7 +5341,7 @@ def close_stale_tracks(close_after_seconds: Optional[float] = None) -> list[dict
 
     if closed:
         invalidate_tracks_cache()
-    return [enrich_track_with_points(track) or track for track in closed]
+    return [enrich_track_with_points(track) or track for track in closed] if enrich else closed
 
 
 def close_track(track_id: str) -> dict:
@@ -6461,6 +6747,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     if not device_id:
         return None
 
+    started = monotonic()
     effective_location = resolve_effective_location(
         device_id=device_id,
         event_latitude=event.latitude,
@@ -6469,6 +6756,10 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
     )
     if not effective_location:
         return None
+    latency_diagnostics.record(
+        "device_status_enrichment",
+        (monotonic() - started) * 1000.0,
+    )
     status_latitude = effective_location["latitude"]
     status_longitude = effective_location["longitude"]
 
@@ -6485,6 +6776,7 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
 
     if not use_postgres():
         now = current_time_iso()
+        started = monotonic()
         with get_sqlite_connection() as connection:
             connection.execute(
                 """
@@ -6558,9 +6850,15 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                 """,
                 (device_id,),
             ).fetchone()
-            return serialize_db_row(dict(row))
+            result = serialize_db_row(dict(row))
+        latency_diagnostics.record(
+            "device_status_db_upsert",
+            (monotonic() - started) * 1000.0,
+        )
+        return result
 
     connection = get_postgres_connection()
+    started = monotonic()
     try:
         with connection:
             with connection.cursor() as cursor:
@@ -6631,7 +6929,12 @@ def upsert_device_event_status(event: SoundEvent) -> Optional[dict]:
                     ),
                 )
                 row = cursor.fetchone()
-                return serialize_db_row(dict(row))
+                result = serialize_db_row(dict(row))
+        latency_diagnostics.record(
+            "device_status_db_upsert",
+            (monotonic() - started) * 1000.0,
+        )
+        return result
     finally:
         connection.close()
 
@@ -9291,16 +9594,19 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         latency_trace["db_start"] = db_started_at
     db_id, inserted = save_event_with_inserted(event, created_at)
     db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
+    latency_diagnostics.record("event_db_write", db_duration_ms)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
         db_committed_at = utc_wall_time_ms()
         latency_trace["db_committed_at"] = db_committed_at
         latency_trace["db_complete"] = db_committed_at
+    critical_mark("event_db_write_done")
     is_existing_event = not inserted
     fixed_location_started_monotonic = monotonic()
     fixed_location_rows, fixed_location_cache_stale = (
         list_device_fixed_locations_for_ingest()
     )
     fixed_location_duration_ms = (monotonic() - fixed_location_started_monotonic) * 1000.0
+    latency_diagnostics.record("fixed_location_lookup", fixed_location_duration_ms)
     fixed_locations = location_map(fixed_location_rows)
     saved_event = enrich_event_location_row(
         fast_saved_event_payload(event, db_id, created_at),
@@ -9329,39 +9635,66 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
 
 
 def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_event: bool) -> dict:
+    post_ingest_started = monotonic()
+    latency_diagnostics.begin_trace(event_id)
     event_group = None
     region_track = None
     active_alert_track = None
     localization_package = None
 
+    fusion_started = monotonic()
+    critical_mark("fusion_started")
     try:
-        event_group = process_event_fusion_for_event(event_id)
+        with latency_diagnostics.critical_scope(section="fusion"):
+            event_group = process_event_fusion_for_event(event_id)
     except Exception:
         logger.exception("Event fusion failed for event_id=%s", event_id)
+    finally:
+        latency_diagnostics.record(
+            "event_fusion",
+            (monotonic() - fusion_started) * 1000.0,
+        )
 
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
+        region_tracking_started = monotonic()
         try:
-            region_track = process_tracking_for_event_group_region(
-                event_group,
-                post_ingest_reorder=True,
-            )
+            critical_mark("tracking_started")
+            with latency_diagnostics.critical_scope(section="tracking"):
+                region_track = process_tracking_for_event_group_region(
+                    event_group,
+                    post_ingest_reorder=True,
+                )
         except Exception:
             logger.exception(
                 "Region tracking failed for event_group=%s",
                 event_group.get("id"),
             )
+        finally:
+            latency_diagnostics.record(
+                "region_tracking",
+                (monotonic() - region_tracking_started) * 1000.0,
+            )
 
     if is_alert and not is_existing_event and region_track is None:
+        active_tracking_started = monotonic()
         try:
-            active_alert_track = process_tracking_for_active_alert_region(
-                event_id,
-                post_ingest_reorder=True,
-            )
+            critical_mark("tracking_started")
+            with latency_diagnostics.critical_scope(section="tracking"):
+                active_alert_track = process_tracking_for_active_alert_region(
+                    event_id,
+                    post_ingest_reorder=True,
+                )
         except Exception:
             logger.exception("Active alert region tracking failed for event_id=%s", event_id)
+        finally:
+            latency_diagnostics.record(
+                "active_alert_tracking",
+                (monotonic() - active_tracking_started) * 1000.0,
+            )
 
     if event_group and LOCALIZATION_ENABLED and is_alert and not is_existing_event:
+        localization_started = monotonic()
         try:
             localization_package = process_event_group_localization(
                 event_group["id"],
@@ -9372,8 +9705,17 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
                 "Localization failed for event_group=%s",
                 event_group.get("id"),
             )
+        finally:
+            latency_diagnostics.record(
+                "post_ingest_localization",
+                (monotonic() - localization_started) * 1000.0,
+            )
 
+    critical_mark("post_ingest_done")
     event_group = with_realtime_alert_timing(event_group)
+    post_ingest_duration_ms = (monotonic() - post_ingest_started) * 1000.0
+    latency_diagnostics.record("post_ingest_pipeline", post_ingest_duration_ms)
+    latency_diagnostics.finish_trace(post_ingest_duration_ms)
 
     return {
         "event_group": event_group,
@@ -9384,6 +9726,15 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
 
 
 async def broadcast_event_post_ingest_result(result: dict) -> None:
+    trace = result.get("_critical_trace")
+    with latency_diagnostics.critical_scope(trace):
+        try:
+            await _broadcast_event_post_ingest_result(result)
+        finally:
+            latency_diagnostics.finish_critical_trace(trace)
+
+
+async def _broadcast_event_post_ingest_result(result: dict) -> None:
     event_group = result.get("event_group")
     region_track = result.get("region_track")
     active_alert_track = result.get("active_alert_track")
@@ -9449,7 +9800,15 @@ async def broadcast_device_status_update(row: Optional[dict]) -> None:
 def run_device_event_status_worker(
     loop: asyncio.AbstractEventLoop,
     event: SoundEvent,
+    enqueued_at_monotonic: Optional[float] = None,
 ) -> None:
+    worker_started = monotonic()
+    # Direct callers did not enqueue a job and must not consume someone else's pending count.
+    if enqueued_at_monotonic is not None:
+        latency_diagnostics.job_started(
+            "device_status",
+            (worker_started - enqueued_at_monotonic) * 1000.0,
+        )
     try:
         device_row = upsert_device_event_status(event)
         enriched_device_row = (
@@ -9464,21 +9823,50 @@ def run_device_event_status_worker(
             event.event_id,
             event.device_id,
         )
+        latency_diagnostics.job_finished(
+            "device_status",
+            (monotonic() - worker_started) * 1000.0,
+        )
         return
 
     try:
+        schedule_started = monotonic()
         loop.call_soon_threadsafe(
             lambda: asyncio.create_task(broadcast_device_status_update(enriched_device_row))
         )
+        latency_diagnostics.record(
+            "device_status_broadcast_schedule",
+            (monotonic() - schedule_started) * 1000.0,
+        )
     except RuntimeError:
         logger.warning("Event loop closed before device status broadcast for %s", event.event_id)
+    finally:
+        latency_diagnostics.job_finished(
+            "device_status",
+            (monotonic() - worker_started) * 1000.0,
+        )
 
 
 def schedule_device_event_status_update(event: SoundEvent) -> None:
+    if staging_write_freeze_active():
+        logger.info("Device status write skipped during staging freeze")
+        return
     loop = asyncio.get_running_loop()
+    enqueued_at_monotonic = monotonic()
+    latency_diagnostics.job_enqueued("device_status")
     try:
-        post_ingest_executor.submit(run_device_event_status_worker, loop, event)
+        future = device_status_executor.submit(
+            run_device_event_status_worker,
+            loop,
+            event,
+            enqueued_at_monotonic,
+        )
+        future.add_done_callback(
+            lambda job: latency_diagnostics.job_cancelled("device_status")
+            if job.cancelled() else None
+        )
     except Exception:
+        latency_diagnostics.job_cancelled("device_status")
         logger.exception(
             "Failed to schedule device event status update for event_id=%s",
             event.event_id,
@@ -9490,11 +9878,27 @@ def run_event_post_ingest_worker(
     event_id: str,
     label: Optional[str],
     is_existing_event: bool,
+    enqueued_at_monotonic: float,
+    event_trace: Optional[dict] = None,
 ) -> None:
+    worker_started = monotonic()
+    latency_diagnostics.critical_mark("post_ingest_started", event_trace)
+    latency_diagnostics.job_started(
+        "post_ingest",
+        (worker_started - enqueued_at_monotonic) * 1000.0,
+    )
     try:
-        result = process_event_post_ingest(event_id, label, is_existing_event)
+        with latency_diagnostics.critical_scope(event_trace):
+            result = process_event_post_ingest(event_id, label, is_existing_event)
+        if event_trace is not None:
+            result["_critical_trace"] = event_trace
     except Exception:
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="worker_failed")
         logger.exception("Event post-ingest failed for event_id=%s", event_id)
+        latency_diagnostics.job_finished(
+            "post_ingest",
+            (monotonic() - worker_started) * 1000.0,
+        )
         return
 
     try:
@@ -9502,7 +9906,19 @@ def run_event_post_ingest_worker(
             lambda: asyncio.create_task(broadcast_event_post_ingest_result(result))
         )
     except RuntimeError:
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="broadcast_schedule_failed")
         logger.warning("Event loop closed before post-ingest broadcast for %s", event_id)
+    finally:
+        latency_diagnostics.job_finished(
+            "post_ingest",
+            (monotonic() - worker_started) * 1000.0,
+        )
+
+
+def finish_cancelled_post_ingest(job: Any, trace: Optional[dict]) -> None:
+    if job.cancelled():
+        latency_diagnostics.job_cancelled("post_ingest")
+        latency_diagnostics.finish_critical_trace(trace, outcome="cancelled")
 
 
 def schedule_event_post_ingest(
@@ -9510,18 +9926,32 @@ def schedule_event_post_ingest(
     label: Optional[str],
     is_existing_event: bool,
 ) -> None:
+    if staging_write_freeze_active():
+        logger.info("Post-ingest write skipped during staging freeze event_id=%s", event_id)
+        return
     global tracking_reorder_event_loop
     loop = asyncio.get_running_loop()
     tracking_reorder_event_loop = loop
+    event_trace = critical_trace()
+    critical_mark("post_ingest_enqueued")
+    enqueued_at_monotonic = monotonic()
+    latency_diagnostics.job_enqueued("post_ingest")
     try:
-        post_ingest_executor.submit(
+        future = post_ingest_executor.submit(
             run_event_post_ingest_worker,
             loop,
             event_id,
             label,
             is_existing_event,
+            enqueued_at_monotonic,
+            event_trace,
+        )
+        future.add_done_callback(
+            lambda job: finish_cancelled_post_ingest(job, event_trace)
         )
     except Exception:
+        latency_diagnostics.job_cancelled("post_ingest")
+        latency_diagnostics.finish_critical_trace(event_trace, outcome="submit_failed")
         logger.exception("Failed to schedule event post-ingest for event_id=%s", event_id)
 
 
@@ -9582,6 +10012,21 @@ async def health():
 @app.get("/runtime-status")
 async def runtime_status():
     live_nodes = node_manager.live_states()
+    pool_min = max(1, int(os.getenv("POSTGRES_POOL_MIN", "1") or 1))
+    pool_max = max(pool_min, int(os.getenv("POSTGRES_POOL_MAX", "20") or 20))
+    pool = None
+    if use_postgres():
+        try:
+            pool = get_postgres_pool()
+        except Exception:
+            pool = None
+    latency_snapshot = latency_diagnostics.snapshot()
+    if use_postgres():
+        latency_snapshot["pool"] = latency_diagnostics.pool_snapshot(
+            pool, min_size=pool_min, max_size=pool_max
+        )
+    pending_jobs = latency_snapshot.get("pending_jobs", {})
+    active_write_requests = staging_active_write_request_count()
     return {
         "status": "success",
         "time": current_time_iso(),
@@ -9596,6 +10041,23 @@ async def runtime_status():
             if node.get("device_id") and not is_diagnostic_device_id(node.get("device_id"))
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
+        "device_status_workers": DEVICE_STATUS_WORKERS,
+        "postgres_pool_min": pool_min,
+        "postgres_pool_max": pool_max,
+        "latency_diagnostics": latency_snapshot,
+        "critical_path_diagnostics_enabled": (os.getenv("APP_ENV", "").lower() == "staging" and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true"),
+        "staging_write_freeze": {
+            "configured": STAGING_WRITE_FREEZE_CONFIGURED,
+            "active": staging_write_freeze_active(),
+            "environment": APP_ENV or "unknown",
+            "active_write_requests": active_write_requests,
+            "pending_post_ingest_jobs": int(pending_jobs.get("post_ingest", 0) or 0),
+            "pending_device_status_jobs": int(pending_jobs.get("device_status", 0) or 0),
+            "write_quiescent": write_quiescent(
+                active_write_requests=active_write_requests,
+                pending_jobs=pending_jobs,
+            ),
+        },
         "device_status_cache_ttl_seconds": DEVICE_STATUS_CACHE_TTL_SECONDS,
         "tracks_cache_ttl_seconds": TRACKS_CACHE_TTL_SECONDS,
         "device_fixed_location_cache_ttl_seconds": DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS,
@@ -9747,8 +10209,9 @@ async def time_sync():
 def measure_staging_database_latency(
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+    samples: int = Query(default=50, ge=10, le=50),
 ) -> dict:
-    """Measure Render pool acquisition and one Supabase SELECT round trip.
+    """Measure bounded staging pool, warm SELECT, transaction, and connect timings.
 
     This probe is disabled by default and still requires the normal upload token.
     It is intended only for bounded staging validation runs.
@@ -9763,34 +10226,153 @@ def measure_staging_database_latency(
             detail="postgres_required",
         )
 
+    def summarize(values: list[float]) -> dict[str, float | int]:
+        ordered = sorted(float(value) for value in values)
+        if not ordered:
+            return {"count": 0}
+        def percentile(fraction: float) -> float:
+            index = min(len(ordered) - 1, max(0, int(math.ceil(fraction * len(ordered))) - 1))
+            return round(ordered[index], 3)
+        return {
+            "count": len(ordered),
+            "min_ms": round(ordered[0], 3),
+            "mean_ms": round(sum(ordered) / len(ordered), 3),
+            "p50_ms": percentile(0.50),
+            "p90_ms": percentile(0.90),
+            "p95_ms": percentile(0.95),
+            "p99_ms": percentile(0.99),
+            "max_ms": round(ordered[-1], 3),
+        }
+
     total_started = monotonic()
-    acquire_started = monotonic()
+    acquire_samples: list[float] = []
+    for _ in range(min(30, samples)):
+        acquire_started = monotonic()
+        connection = get_postgres_connection()
+        acquire_samples.append((monotonic() - acquire_started) * 1000.0)
+        connection.close()
+
+    warm_select_samples: list[float] = []
+    transaction_select_samples: list[float] = []
+    commit_samples: list[float] = []
     connection = get_postgres_connection()
-    acquire_duration_ms = (monotonic() - acquire_started) * 1000.0
     try:
-        query_started = monotonic()
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1 AS ok")
-            row = cursor.fetchone()
-        query_duration_ms = (monotonic() - query_started) * 1000.0
+        for _ in range(samples):
+            query_started = monotonic()
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 AS ok")
+                row = cursor.fetchone()
+            warm_select_samples.append((monotonic() - query_started) * 1000.0)
+            if not row or int(row.get("ok") if isinstance(row, dict) else row[0]) != 1:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="db_probe_failed")
+        for _ in range(min(30, samples)):
+            with connection.cursor() as cursor:
+                cursor.execute("BEGIN")
+                select_started = monotonic()
+                cursor.execute("SELECT 1 AS ok")
+                row = cursor.fetchone()
+                select_ms = (monotonic() - select_started) * 1000.0
+                commit_started = monotonic()
+                cursor.execute("COMMIT")
+                commit_ms = (monotonic() - commit_started) * 1000.0
+            transaction_select_samples.append(select_ms)
+            commit_samples.append(commit_ms)
+            if not row:
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="db_probe_failed")
     finally:
         connection.close()
-    total_duration_ms = (monotonic() - total_started) * 1000.0
-    if not row or int(row.get("ok") if isinstance(row, dict) else row[0]) != 1:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="db_probe_failed",
-        )
 
+    physical_samples: list[float] = []
+    connect_timeout_seconds = max(1, int(os.getenv("POSTGRES_CONNECT_TIMEOUT_SECONDS", "10") or 10))
+    try:
+        import psycopg2
+        database_url = get_database_url()
+        if database_url:
+            for _ in range(10):
+                started = monotonic()
+                physical = psycopg2.connect(database_url, connect_timeout=connect_timeout_seconds)
+                physical.close()
+                physical_samples.append((monotonic() - started) * 1000.0)
+    except Exception:
+        physical_samples = []
+
+    network: dict[str, Any] = {"status": "not_available"}
+    explain: dict[str, Any] = {"status": "not_available"}
+    database_url = get_database_url()
+    if database_url:
+        try:
+            parsed = urlsplit(database_url)
+            host = parsed.hostname or ""
+            port = parsed.port or 5432
+            dns_started = monotonic()
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            dns_ms = (monotonic() - dns_started) * 1000.0
+            addresses = sorted({info[4][0] for info in infos})
+            tcp_samples: list[float] = []
+            for _ in range(20):
+                started = monotonic()
+                with socket.create_connection((host, port), timeout=connect_timeout_seconds):
+                    pass
+                tcp_samples.append((monotonic() - started) * 1000.0)
+            network = {
+                "status": "success",
+                "hostname_suffix": ".".join(host.split(".")[-3:]) if host else "",
+                "port": port,
+                "dns_resolution_ms": round(dns_ms, 3),
+                "resolved_addresses": addresses,
+                "tcp_connect_ms": summarize(tcp_samples),
+                "tls_postgresql_split": "not_available_with_current_probe",
+            }
+        except Exception as exc:
+            network = {"status": "failed", "error_type": type(exc).__name__}
+
+    try:
+        connection = get_postgres_connection()
+        try:
+            started = monotonic()
+            with connection.cursor() as cursor:
+                cursor.execute("EXPLAIN (ANALYZE, TIMING, BUFFERS) SELECT 1")
+                rows = cursor.fetchall() if hasattr(cursor, "fetchall") else []
+            client_ms = (monotonic() - started) * 1000.0
+            text_rows = [str(row) for row in rows]
+            planning_ms = next(
+                (float(match.group(1)) for row in text_rows if (match := re.search(r"Planning Time: ([0-9.]+) ms", row))),
+                None,
+            )
+            execution_ms = next(
+                (float(match.group(1)) for row in text_rows if (match := re.search(r"Execution Time: ([0-9.]+) ms", row))),
+                None,
+            )
+            explain = {
+                "status": "success" if execution_ms is not None else "not_available",
+                "planning_ms": planning_ms,
+                "execution_ms": execution_ms,
+                "client_wall_ms": round(client_ms, 3),
+                "difference_ms": round(client_ms - execution_ms, 3) if execution_ms is not None else None,
+                "query": "EXPLAIN (ANALYZE, TIMING, BUFFERS) SELECT 1",
+            }
+        finally:
+            connection.close()
+    except Exception as exc:
+        explain = {"status": "failed", "error_type": type(exc).__name__}
+
+    total_duration_ms = (monotonic() - total_started) * 1000.0
     response.headers["Server-Timing"] = (
-        f"db_acquire;dur={acquire_duration_ms:.2f}, "
-        f"db_ping;dur={query_duration_ms:.2f}, "
+        f"db_acquire;dur={summarize(acquire_samples)['p50_ms']:.2f}, "
+        f"db_ping;dur={summarize(warm_select_samples)['p50_ms']:.2f}, "
         f"db_probe_total;dur={total_duration_ms:.2f}"
     )
     return {
         "status": "success",
-        "db_acquire_ms": round(acquire_duration_ms, 2),
-        "db_ping_ms": round(query_duration_ms, 2),
+        "samples_requested": samples,
+        "pool_checkout_ms": summarize(acquire_samples),
+        "same_connection_select_1_ms": summarize(warm_select_samples),
+        "transaction_select_1_ms": summarize(transaction_select_samples),
+        "transaction_commit_ms": summarize(commit_samples),
+        "physical_connect_ms": summarize(physical_samples),
+        "indexed_select": {"status": "not_run", "reason": "requires a known staging primary-key fixture"},
+        "network": network,
+        "server_side_select_1": explain,
         "db_probe_total_ms": round(total_duration_ms, 2),
     }
 
@@ -9953,6 +10535,25 @@ async def create_event(
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
+    enabled = (os.getenv("APP_ENV", "").lower() == "staging"
+               and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true")
+    trace = latency_diagnostics.new_critical_trace(event.event_id) if enabled else None
+    with latency_diagnostics.critical_scope(trace):
+        try:
+            return await _create_event(event, response, upload_token)
+        except BaseException:
+            latency_diagnostics.finish_critical_trace(trace, outcome="ingestion_failed")
+            raise
+        finally:
+            if trace is not None and "post_ingest_enqueued" not in trace["timestamps_ms"]:
+                latency_diagnostics.finish_critical_trace(trace, outcome="no_post_ingest")
+
+
+async def _create_event(
+    event: SoundEvent,
+    response: Response,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
     request_started_monotonic = monotonic()
     backend_received_at = utc_wall_time_ms()
     verify_upload_token(upload_token)
@@ -9980,6 +10581,10 @@ async def create_event(
             detail="db_event_write_error",
         ) from exc
 
+    latency_diagnostics.record(
+        "event_initial_submission",
+        (monotonic() - request_started_monotonic) * 1000.0,
+    )
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
@@ -10291,7 +10896,9 @@ def tracks(
         if cached is not None:
             return cached
 
-        closed_tracks = close_stale_tracks()
+        # The staging freeze keeps this read endpoint available while
+        # preventing its normal stale-track cleanup write side effect.
+        closed_tracks = [] if staging_write_freeze_active() else close_stale_tracks()
         rows = list_tracks(status_filter=status_filter, label=label, limit=limit)
         if points_limit:
             rows = enrich_tracks_with_points(rows, limit=points_limit)
@@ -11032,6 +11639,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type == "command_ack":
+                if staging_write_freeze_active():
+                    await websocket.send_json(
+                        build_envelope(
+                            message_type="write_freeze_active",
+                            device_id=device_id,
+                            payload={"error": "staging_write_freeze_active"},
+                        )
+                    )
+                    continue
                 command_id = command_id_from_payload(envelope.payload)
                 if command_id is not None:
                     row = set_device_command_status(
@@ -11052,6 +11668,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type == "command_result":
+                if staging_write_freeze_active():
+                    await websocket.send_json(
+                        build_envelope(
+                            message_type="write_freeze_active",
+                            device_id=device_id,
+                            payload={"error": "staging_write_freeze_active"},
+                        )
+                    )
+                    continue
                 command_id = command_id_from_payload(envelope.payload)
                 raw_status = str(envelope.payload.get("status") or "").lower()
                 if raw_status in {"running", "started"}:
@@ -11107,6 +11732,15 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
 @app.websocket("/ws/audio/{device_id}")
 async def audio_stream_websocket(websocket: WebSocket, device_id: str):
     await websocket.accept()
+    if staging_write_freeze_active():
+        await websocket.send_json(
+            {
+                "type": "audio_stream_rejected",
+                "reason": "staging_write_freeze_active",
+            }
+        )
+        await websocket.close(code=1013)
+        return
     if not LIVE_AUDIO_ENABLED:
         await websocket.send_json(
             {

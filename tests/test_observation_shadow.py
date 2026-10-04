@@ -141,6 +141,30 @@ def test_sequence_gap_and_out_of_order_fill_are_measured(monkeypatch) -> None:
     assert metrics["open_sequence_gap_count"] == 0
 
 
+def test_first_post_restart_sequence_establishes_baseline(monkeypatch) -> None:
+    client = prepare_shadow(monkeypatch)
+    headers = {"x-upload-token": "shadow-token"}
+    response = client.post(
+        "/observations/shadow",
+        headers=headers,
+        json=observation_payload(observation_id="restart-obs-54", sequence=54),
+    )
+    assert response.status_code == 202
+    metrics = main.observation_shadow_registry.metrics()
+    assert metrics["sequence_gap_count"] == 0
+    assert metrics["open_sequence_gap_count"] == 0
+
+    response = client.post(
+        "/observations/shadow",
+        headers=headers,
+        json=observation_payload(observation_id="restart-obs-56", sequence=56),
+    )
+    assert response.status_code == 202
+    metrics = main.observation_shadow_registry.metrics()
+    assert metrics["sequence_gap_count"] == 1
+    assert metrics["open_sequence_gap_count"] == 1
+
+
 def test_shadow_schema_rejects_audio_metadata(monkeypatch) -> None:
     client = prepare_shadow(monkeypatch)
     payload = observation_payload()

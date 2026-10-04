@@ -1,0 +1,28 @@
+{
+  "captured_at": "2026-10-02T01:46:36.9426187Z",
+  "local_current_network": {
+    "tokyo_tcp": "PASS",
+    "singapore_tcp": "PASS",
+    "tokyo_sslrequest": "S",
+    "singapore_sslrequest": "S",
+    "tokyo_tls": "PASS_TLSv1.3",
+    "singapore_tls": "PASS_TLSv1.3",
+    "tokyo_psql_sslmode_require": "PASS",
+    "singapore_psql_sslmode_require": "PASS",
+    "tokyo_psycopg2_sslmode_require": "PASS",
+    "singapore_psycopg2_sslmode_require": "PASS"
+  },
+  "independent_network": {
+    "tested": false,
+    "reason": "No second network or trusted host with PostgreSQL client was available"
+  },
+  "render_staging_host": {
+    "tested": false,
+    "reason": "No Render shell/SSH PostgreSQL client access available"
+  },
+  "previous_failure": "Intermittent TLS peer reset; recovered on current retest",
+  "root_cause_direction": "UNRESOLVED",
+  "confirmed_root_cause": false,
+  "data_migration_preflight_ready": true,
+  "migration_started": false
+}

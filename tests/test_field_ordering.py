@@ -64,6 +64,18 @@ def test_sequence_recovery_and_duplicate_diagnostics() -> None:
     assert metrics["sequence_duplicate_count"] == 1
 
 
+def test_restart_baseline_then_later_gap_is_real() -> None:
+    gate = PerKeySequenceExecutor(max_late_ms=500, baseline_on_first=True)
+    first = offer(gate, "A01:continued", 54, 0)
+    later = offer(gate, "A01:continued", 56, 100)
+    assert [item.item.sequence for item in first.ready] == [54]
+    assert later.ready == ()
+    assert gate.metrics()["sequence_gap_count"] == 1
+    flushed = gate.flush_expired("A01:continued", now_ms=700)
+    assert [item.item.sequence for item in flushed.ready] == [56]
+    assert flushed.gaps_skipped == 1
+
+
 def test_process_session_restart_sequence_one_is_not_old_duplicate() -> None:
     gate = PerKeySequenceExecutor()
 

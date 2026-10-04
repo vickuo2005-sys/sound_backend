@@ -1,0 +1,82 @@
+{
+  "columns": {
+    "match": true,
+    "singapore_count": 322,
+    "tokyo_count": 322
+  },
+  "constraints": {
+    "match": true,
+    "singapore_count": 26,
+    "tokyo_count": 26
+  },
+  "extensions": {
+    "match": true,
+    "singapore_count": 5,
+    "tokyo_count": 5
+  },
+  "functions": {
+    "match": true,
+    "singapore_count": 0,
+    "tokyo_count": 0
+  },
+  "indexes": {
+    "match": true,
+    "singapore_count": 51,
+    "tokyo_count": 51
+  },
+  "policies": {
+    "match": true,
+    "singapore_count": 0,
+    "tokyo_count": 0
+  },
+  "runtime_data_migrated": false,
+  "schemas": {
+    "match": true,
+    "singapore_count": 8,
+    "tokyo_count": 8
+  },
+  "sequences": {
+    "match": true,
+    "singapore_count": 2,
+    "tokyo_count": 2
+  },
+  "singapore_row_counts": {
+    "audio_stream_sessions": 0,
+    "device_commands": 0,
+    "device_connections": 0,
+    "device_locations": 0,
+    "device_status": 0,
+    "event_group_observations": 0,
+    "event_groups": 0,
+    "events": 0,
+    "localization_pair_results": 0,
+    "localization_results": 0,
+    "target_track_points": 0,
+    "target_tracks": 0
+  },
+  "status": "PASS",
+  "tables": {
+    "match": true,
+    "singapore_count": 14,
+    "tokyo_count": 14
+  },
+  "tokyo_row_counts": {
+    "audio_stream_sessions": 0,
+    "device_commands": 13,
+    "device_connections": 0,
+    "device_locations": 4,
+    "device_status": 4,
+    "event_group_observations": 372,
+    "event_groups": 183,
+    "events": 375,
+    "localization_pair_results": 0,
+    "localization_results": 0,
+    "target_track_points": 90,
+    "target_tracks": 17
+  },
+  "triggers": {
+    "match": true,
+    "singapore_count": 0,
+    "tokyo_count": 0
+  }
+}

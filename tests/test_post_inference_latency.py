@@ -186,7 +186,7 @@ def test_staging_db_latency_probe_reports_pool_and_query_timing(monkeypatch) -> 
             return None
 
         def execute(self, query: str) -> None:
-            assert query == "SELECT 1 AS ok"
+            assert query in {"SELECT 1 AS ok", "BEGIN", "COMMIT"}
 
         def fetchone(self) -> dict:
             return {"ok": 1}
@@ -210,5 +210,9 @@ def test_staging_db_latency_probe_reports_pool_and_query_timing(monkeypatch) -> 
 
     assert response.status_code == 200
     assert response.json()["status"] == "success"
+    payload = response.json()
+    assert payload["same_connection_select_1_ms"]["count"] == 50
+    assert payload["transaction_commit_ms"]["count"] == 30
+    assert payload["indexed_select"]["status"] == "not_run"
     assert response.headers["server-timing"].startswith("db_acquire;dur=")
     assert "db_ping;dur=" in response.headers["server-timing"]

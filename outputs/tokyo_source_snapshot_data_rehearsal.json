@@ -1,0 +1,579 @@
+{
+  "captured_at": "2026-10-02T02:00:54Z",
+  "fk_orphans": {
+    "event_group_observations.event_db_id->events.id": 0,
+    "event_group_observations.event_id->events.event_id": 0,
+    "event_group_observations.group_id->event_groups.id": 0,
+    "localization_pair_results.group_id->event_groups.id": 0,
+    "localization_pair_results.localization_result_id->localization_results.id": 0,
+    "localization_results.group_id->event_groups.id": 0,
+    "target_track_points.group_id->event_groups.id": 0,
+    "target_track_points.localization_result_id->localization_results.id": 0,
+    "target_track_points.track_id->target_tracks.id": 0
+  },
+  "relationship_aggregates": {
+    "event_group_observations.group_id": "ef26114e08b378629aa53ccb86dd76a872613f9ba88e96686629bf25c313c26b",
+    "target_track_points.group_id": "ffa9fbb1dabdfffe4e2dc4b73fb364acdf92f2802bf13aeecfa64d1e5efcb9a0",
+    "target_track_points.track_id": "025ed04114221d40060b8ae096a945424ff857cb89dfb9948ce33d40531018c4"
+  },
+  "sequences": {
+    "device_commands_id_seq": {
+      "increment_by": 1,
+      "last_value": 13,
+      "start_value": 1
+    },
+    "events_id_seq": {
+      "increment_by": 1,
+      "last_value": 532,
+      "start_value": 1
+    }
+  },
+  "tables": {
+    "audio_stream_sessions": {
+      "columns": [
+        "stream_id",
+        "device_id",
+        "connection_id",
+        "codec",
+        "sample_rate_hz",
+        "channel_count",
+        "frame_duration_ms",
+        "started_at",
+        "stopped_at",
+        "last_frame_at",
+        "received_frames",
+        "dropped_frames",
+        "sequence_gaps",
+        "out_of_order_frames",
+        "malformed_frames",
+        "bytes_received",
+        "subscriber_count",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "created_at": {
+        "max": null,
+        "min": null
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "stream_id"
+      ],
+      "row_checksum": null,
+      "row_count": 0,
+      "started_at": {
+        "max": null,
+        "min": null
+      },
+      "updated_at": {
+        "max": null,
+        "min": null
+      }
+    },
+    "device_commands": {
+      "columns": [
+        "id",
+        "device_id",
+        "command",
+        "value",
+        "status",
+        "issued_by",
+        "created_at",
+        "executed_at",
+        "ack_message",
+        "command_type",
+        "args_json",
+        "issued_at_ms",
+        "expires_at_ms",
+        "idempotency_key",
+        "acked_at",
+        "result_at",
+        "result_message",
+        "delivery_channel",
+        "delivery_attempts"
+      ],
+      "created_at": {
+        "max": "2026-09-08 14:51:25.535813+00:00",
+        "min": "2026-09-01 14:17:58.578887+00:00"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "a8891175daa9929af59e266d92a5cfe2",
+      "row_count": 13
+    },
+    "device_connections": {
+      "columns": [
+        "id",
+        "device_id",
+        "connection_id",
+        "protocol_version",
+        "connected_at",
+        "last_heartbeat_at",
+        "disconnected_at",
+        "disconnect_reason",
+        "availability_status",
+        "websocket_connected",
+        "recording",
+        "detection_enabled",
+        "streaming",
+        "battery_percent",
+        "gps_available",
+        "network_type",
+        "app_version",
+        "reconnect_count",
+        "generation",
+        "created_at",
+        "updated_at"
+      ],
+      "created_at": {
+        "max": null,
+        "min": null
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": null,
+      "row_count": 0,
+      "updated_at": {
+        "max": null,
+        "min": null
+      }
+    },
+    "device_locations": {
+      "columns": [
+        "device_id",
+        "latitude",
+        "longitude",
+        "location_source",
+        "accuracy_m",
+        "created_at",
+        "updated_at"
+      ],
+      "created_at": {
+        "max": "2026-09-22 03:21:15.067285+00:00",
+        "min": "2026-09-08 14:50:27.930114+00:00"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "device_id"
+      ],
+      "row_checksum": "390503b9302b65f8dbb3b3cc8f63bb64",
+      "row_count": 4,
+      "updated_at": {
+        "max": "2026-09-22 03:21:15.067285+00:00",
+        "min": "2026-09-16 03:23:59.870294+00:00"
+      }
+    },
+    "device_status": {
+      "columns": [
+        "device_id",
+        "latitude",
+        "longitude",
+        "last_seen",
+        "status",
+        "is_listening",
+        "upload_mode",
+        "battery",
+        "ai_status",
+        "backend_status",
+        "app_status",
+        "last_ai_label",
+        "last_upload_status",
+        "last_event_id",
+        "last_event_at",
+        "last_command_id",
+        "updated_at",
+        "time_sync_offset_ms",
+        "time_sync_rtt_ms",
+        "time_sync_quality",
+        "time_sync_at",
+        "last_time_sync_at",
+        "gps_speed_mps",
+        "gps_heading_deg",
+        "gps_accuracy_m",
+        "backend_http_status",
+        "node_websocket_status",
+        "metadata_upload_status",
+        "audio_upload_status",
+        "gps_upload_status",
+        "last_location_upload_at"
+      ],
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "device_id"
+      ],
+      "row_checksum": "69b13b5edf6f1ba6cc9c95a7f20bdc77",
+      "row_count": 4,
+      "updated_at": {
+        "max": "2026-09-29 17:34:18.457823+00:00",
+        "min": "2026-09-29 17:33:23.427201+00:00"
+      }
+    },
+    "event_group_observations": {
+      "columns": [
+        "id",
+        "group_id",
+        "event_db_id",
+        "event_id",
+        "device_id",
+        "label",
+        "event_timestamp",
+        "latitude",
+        "longitude",
+        "rms_peak",
+        "ai_probability",
+        "aircraft_probability",
+        "audio_path",
+        "created_at",
+        "observation_kind",
+        "weight",
+        "corrected_arrival_time_ms",
+        "time_sync_rtt_ms",
+        "tdoa_used",
+        "tdoa_residual_m",
+        "timing_version",
+        "timing_source",
+        "capture_start_time_ms",
+        "event_start_sample",
+        "event_end_sample",
+        "rms_peak_sample",
+        "sample_rate_hz",
+        "channel_count",
+        "audio_duration_ms",
+        "device_event_time_ms",
+        "event_end_time_ms",
+        "rms_peak_time_ms",
+        "audio_format",
+        "audio_size_bytes",
+        "source_pcm_size_bytes",
+        "audio_encoding_status",
+        "tdoa_clip_path",
+        "tdoa_clip_format",
+        "tdoa_clip_size_bytes",
+        "tdoa_clip_start_sample",
+        "tdoa_clip_end_sample",
+        "tdoa_clip_peak_sample",
+        "tdoa_clip_duration_ms",
+        "tdoa_clip_source",
+        "time_sync_version",
+        "time_sync_offset_ms",
+        "time_sync_quality",
+        "time_sync_synced_at_ms",
+        "time_sync_age_ms",
+        "avg_db",
+        "peak_db",
+        "estimated_avg_db",
+        "estimated_peak_db"
+      ],
+      "created_at": {
+        "max": "2026-09-29 17:08:52.475881+00:00",
+        "min": "2026-08-25 15:49:57.141126+00:00"
+      },
+      "event_timestamp": {
+        "max": "2026-09-29 17:08:37.140000+00:00",
+        "min": "2026-08-25 15:49:52.672000+00:00"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "7861300adf0c4203bc76ca507646e55c",
+      "row_count": 372
+    },
+    "event_groups": {
+      "columns": [
+        "id",
+        "group_kind",
+        "label",
+        "group_label",
+        "status",
+        "created_at",
+        "updated_at",
+        "first_event_time",
+        "last_event_time",
+        "start_time",
+        "end_time",
+        "node_count",
+        "estimated_lat",
+        "estimated_lng",
+        "localization_method",
+        "method",
+        "confidence",
+        "uncertainty_radius_m",
+        "tdoa_residual_rmse_m",
+        "tdoa_node_count",
+        "time_sync_quality",
+        "localization_status",
+        "localization_version",
+        "residual_m",
+        "geometry_quality",
+        "reference_device_id",
+        "localization_node_count",
+        "localized_at",
+        "region_type",
+        "region_center_lat",
+        "region_center_lng",
+        "region_geojson",
+        "reporting_node_count",
+        "reporting_device_ids",
+        "region_updated_at"
+      ],
+      "created_at": {
+        "max": "2026-09-29 17:08:26.143270+00:00",
+        "min": "2026-08-25 15:49:57.065884+00:00"
+      },
+      "last_event_time": {
+        "max": "2026-09-29 17:08:37.140000+00:00",
+        "min": "2026-08-25 15:49:52.672000+00:00"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "c66fca52f208126d8fecc33c88855979",
+      "row_count": 183,
+      "updated_at": {
+        "max": "2026-09-29 17:08:52.849307+00:00",
+        "min": "2026-08-25 15:50:27.281027+00:00"
+      }
+    },
+    "events": {
+      "columns": [
+        "id",
+        "event_id",
+        "device_id",
+        "timestamp",
+        "latitude",
+        "longitude",
+        "duration_s",
+        "rms_peak",
+        "avg_db",
+        "peak_db",
+        "estimated_avg_db",
+        "estimated_peak_db",
+        "gps_speed_mps",
+        "gps_heading_deg",
+        "gps_accuracy_m",
+        "label",
+        "audio_file_name",
+        "local_audio_path",
+        "audio_path",
+        "audio_format",
+        "audio_size_bytes",
+        "source_pcm_size_bytes",
+        "audio_encoding_status",
+        "tdoa_clip_path",
+        "tdoa_clip_format",
+        "tdoa_clip_size_bytes",
+        "tdoa_clip_start_sample",
+        "tdoa_clip_end_sample",
+        "tdoa_clip_peak_sample",
+        "tdoa_clip_duration_ms",
+        "tdoa_clip_source",
+        "note",
+        "created_at",
+        "timing_version",
+        "timing_source",
+        "capture_start_time_ms",
+        "event_start_sample",
+        "event_end_sample",
+        "rms_peak_sample",
+        "sample_rate_hz",
+        "channel_count",
+        "device_event_time_ms",
+        "event_start_time_ms",
+        "event_end_time_ms",
+        "rms_peak_time_ms",
+        "rms_peak_offset_ms",
+        "sample_rate",
+        "audio_duration_ms",
+        "time_sync_version",
+        "time_sync_offset_ms",
+        "time_sync_rtt_ms",
+        "time_sync_quality",
+        "time_sync_synced_at_ms",
+        "time_sync_age_ms",
+        "corrected_arrival_time_ms",
+        "timing_quality",
+        "classification_schema_version",
+        "model_id",
+        "model_version",
+        "model_label",
+        "model_confidence",
+        "operational_class",
+        "aircraft_probability",
+        "drone_subtype",
+        "class_scores_json"
+      ],
+      "created_at": {
+        "max": "2026-09-29T17:08:42.539004+00:00",
+        "min": "2026-08-25T15:49:54.504076+00:00"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "4836a5e91344bee8ad39f0d264fb9aa1",
+      "row_count": 375
+    },
+    "localization_pair_results": {
+      "columns": [
+        "id",
+        "localization_result_id",
+        "group_id",
+        "device_a",
+        "device_b",
+        "lag_samples",
+        "lag_seconds",
+        "correlation_score",
+        "accepted",
+        "rejection_reason",
+        "max_physical_lag_seconds",
+        "created_at"
+      ],
+      "created_at": {
+        "max": null,
+        "min": null
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": null,
+      "row_count": 0
+    },
+    "localization_results": {
+      "columns": [
+        "id",
+        "group_id",
+        "method",
+        "version",
+        "status",
+        "label",
+        "estimated_lat",
+        "estimated_lng",
+        "confidence",
+        "residual_m",
+        "uncertainty_radius_m",
+        "geometry_quality",
+        "reference_device_id",
+        "node_count",
+        "event_time_ms",
+        "input_signature",
+        "diagnostics_json",
+        "created_at"
+      ],
+      "created_at": {
+        "max": null,
+        "min": null
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": null,
+      "row_count": 0
+    },
+    "target_track_points": {
+      "columns": [
+        "id",
+        "track_id",
+        "group_id",
+        "localization_result_id",
+        "measurement_time_ms",
+        "measured_lat",
+        "measured_lng",
+        "filtered_lat",
+        "filtered_lng",
+        "predicted_lat",
+        "predicted_lng",
+        "velocity_east_mps",
+        "velocity_north_mps",
+        "speed_mps",
+        "heading_deg",
+        "uncertainty_radius_m",
+        "confidence",
+        "rejected_as_outlier",
+        "innovation_m",
+        "state_json",
+        "covariance_json",
+        "diagnostics_json",
+        "created_at"
+      ],
+      "created_at": {
+        "max": "2026-09-29 17:08:52.759870+00:00",
+        "min": "2026-09-21 15:32:25.279379+00:00"
+      },
+      "measurement_time_ms": {
+        "max": "1790701717140.0",
+        "min": "1790004712941.0"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "920396c92af6dc2098fd59fbda224d51",
+      "row_count": 90
+    },
+    "target_tracks": {
+      "closed_at": {
+        "max": "2026-09-29 17:13:03.968543+00:00",
+        "min": "2026-09-21 15:47:15.086698+00:00"
+      },
+      "columns": [
+        "id",
+        "label",
+        "status",
+        "origin_lat",
+        "origin_lng",
+        "created_at",
+        "updated_at",
+        "first_event_time_ms",
+        "last_event_time_ms",
+        "point_count",
+        "last_lat",
+        "last_lng",
+        "last_speed_mps",
+        "last_heading_deg",
+        "last_confidence",
+        "velocity_east_mps",
+        "velocity_north_mps",
+        "closed_at"
+      ],
+      "created_at": {
+        "max": "2026-09-29 17:08:34.391086+00:00",
+        "min": "2026-09-21 15:32:25.279379+00:00"
+      },
+      "last_event_time_ms": {
+        "max": "1790701717140.0",
+        "min": "1790004722772.0"
+      },
+      "pk_duplicate_groups": 0,
+      "pk_null_count": 0,
+      "primary_key": [
+        "id"
+      ],
+      "row_checksum": "2b914cc41bf44500e591fd0dce2a8e6c",
+      "row_count": 17,
+      "updated_at": {
+        "max": "2026-09-29 17:13:03.968543+00:00",
+        "min": "2026-09-21 15:47:15.086698+00:00"
+      }
+    }
+  }
+}

@@ -67,6 +67,30 @@ def test_fusion_group_updates_region_fields_and_dedupes_devices() -> None:
     assert duplicate_device_group["estimated_lng"] == duplicate_device_group["region_center_lng"]
 
 
+def test_fusion_breakdown_instrumentation_preserves_result() -> None:
+    connection = make_connection()
+    base = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    samples: list[tuple[str, float]] = []
+    result = process_event(
+        connection,
+        event_record("evt_breakdown", "node_breakdown", "aircraft", base),
+        is_postgres=False,
+        window_seconds=3,
+        latency_recorder=lambda name, value: samples.append((name, value)),
+    )
+    assert result is not None
+    assert result["label"] == "aircraft"
+    assert {name for name, _ in samples} >= {
+        "fusion_lock_wait",
+        "fusion_group_lookup",
+        "fusion_compute",
+        "fusion_group_save",
+        "fusion_observation_save",
+        "fusion_group_cleanup",
+    }
+    assert all(value >= 0 for _, value in samples)
+
+
 def test_events_outside_episode_hold_are_not_grouped() -> None:
     connection = make_connection()
     base = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
