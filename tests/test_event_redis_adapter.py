@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import MagicMock
 import pytest
 from services.events.redis_streams import RedisStreamsEventBus, RedisDelivery
 from services.events.result import ProcessingResult, ProcessingStatus
@@ -6,7 +6,8 @@ from test_event_envelope import envelope
 
 
 def client():
-    obj=Mock(); obj.xadd.return_value=b'1-0'; obj.xpending_range.return_value=[{'times_delivered':1}]
+    obj=MagicMock(); obj.pipeline.return_value.__enter__.return_value=obj.pipeline.return_value
+    obj.xadd.return_value=b'1-0'; obj.xpending_range.return_value=[{'times_delivered':1}]
     return obj
 
 
@@ -35,6 +36,14 @@ def test_reconnect_is_bounded_and_shutdown():
     bus.close(); assert bus.consume()==[]
     with pytest.raises(RuntimeError): bus.publish(envelope())
     c.close.assert_called_once()
+
+
+def test_dlq_transaction_reconstructed_after_connection_failure():
+    c=client(); pipe=c.pipeline.return_value; pipe.execute.side_effect=[ConnectionError(),None]
+    bus=RedisStreamsEventBus(c)
+    bus.process(RedisDelivery('bad',None,'ValueError'),lambda e:None)
+    assert c.pipeline.call_count==2
+    assert pipe.xadd.call_count==pipe.xack.call_count==2
 
 
 def test_malformed_retryable_permanent_exhausted_and_ack_semantics():

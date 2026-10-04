@@ -57,3 +57,12 @@ def test_unknown_subscriber_and_invalid_envelope():
     with pytest.raises(ValueError): bus.publish({})
     bus.publish(envelope()); bus.drain()
     assert bus.snapshot()['failures']==1
+
+
+def test_concurrent_duplicate_publication_is_atomic():
+    bus=InMemoryEventBus(); event=envelope(); effects=[]
+    bus.subscribe(event.event_type,lambda e:effects.append(e.event_id))
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        accepted=list(pool.map(lambda _:bus.publish(event),range(100)))
+    assert sum(accepted)==1
+    bus.drain(); assert effects==['e'] and bus.snapshot()['duplicates']==99

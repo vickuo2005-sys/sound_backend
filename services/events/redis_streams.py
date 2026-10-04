@@ -123,12 +123,15 @@ class RedisStreamsEventBus:
         if result.status == ProcessingStatus.RETRYABLE_FAILURE and attempts < self.max_attempts:
             return result # Redis PEL remains authoritative; recovery is explicit/bounded.
         # Atomic within Redis only. No distributed DB transaction implied.
-        pipe = self.client.pipeline(transaction=True)
-        pipe.xadd(self.stream+':dlq', {'source_id':delivery.message_id,
-            'event_id':delivery.event.event_id if delivery.event else '',
-            'error_class':result.error_class or 'ProcessingFailure'})
-        pipe.xack(self.stream, self.group, delivery.message_id)
-        self._call(pipe.execute)
+        def terminal_transaction():
+            # redis-py resets a Pipeline after execute errors; reconstruct commands on retry.
+            with self.client.pipeline(transaction=True) as pipe:
+                pipe.xadd(self.stream+':dlq', {'source_id':delivery.message_id,
+                    'event_id':delivery.event.event_id if delivery.event else '',
+                    'error_class':result.error_class or 'ProcessingFailure'})
+                pipe.xack(self.stream, self.group, delivery.message_id)
+                return pipe.execute()
+        self._call(terminal_transaction)
         return result
 
     def close(self):

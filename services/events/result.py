@@ -13,6 +13,9 @@ class ProcessingResult:
     status: ProcessingStatus = ProcessingStatus.SUCCESS
     error_class: str | None = None
 
+    def __post_init__(self):
+        object.__setattr__(self, 'status', ProcessingStatus(self.status))
+
 
 def classify_error(error: Exception) -> ProcessingResult:
     # No blanket replay of Fusion/tracking logic exceptions: commit state may be ambiguous.

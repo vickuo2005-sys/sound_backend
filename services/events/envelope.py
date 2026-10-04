@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 from .types import EventType
 
 SECRET_KEYS = frozenset({'password', 'authorization', 'credentials', 'token', 'api_key',
-                         'database_url', 'redis_stream_url', 'dsn', 'secret', 'private_key'})
+                         'database_url', 'redis_stream_url', 'dsn', 'secret', 'private_key',
+                         'raw_audio', 'audio_samples', 'audio_base64', 'audio_data', 'pcm_data'})
 
 
 def freeze(value):

@@ -33,7 +33,7 @@ def test_deep_immutability_and_copy():
 
 @pytest.mark.parametrize('change',[{'schema_version':2},{'schema_version':True},{'event_id':''},
     {'event_type':'unknown'},{'event_time_ms':-1},{'received_at_ms':True},{'payload':[]},
-    {'payload':{'raw_audio':b'abc'}},{'payload':{'x':math.nan}},
+    {'payload':{'raw_audio':b'abc'}},{'payload':{'audio_base64':'YWJj'}},{'payload':{'x':math.nan}},
     {'metadata':{'authorization':'secret'}},{'payload':{'nested':{'upload_token':'secret'}}},
     {'payload':{'audio_path':'https://user:password@example.com/a'}}])
 def test_invalid_schema_and_sensitive_data(change):

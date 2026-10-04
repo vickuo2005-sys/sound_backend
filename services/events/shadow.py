@@ -3,6 +3,7 @@ from collections import OrderedDict
 from threading import RLock
 from time import monotonic, time_ns
 import os
+import math
 
 from .envelope import EventEnvelope, thaw
 from .types import EventType
@@ -27,13 +28,27 @@ class ShadowPipeline:
         self.errors = 0
         self.comparisons = 0
         self.context_evictions = 0
+        self.ordering_violations = 0
         self.bus = InMemoryEventBus(capacity=capacity, recorder=sampler.record)
         self._received = OrderedDict()
+        self._phases = OrderedDict()
         for kind in EventType:
             self.bus.subscribe(kind, self._observe_delivery)
 
     def _observe_delivery(self, event):
         start = monotonic()
+        previous = self._phases.get(event.event_id)
+        required = {EventType.EVENT_PERSISTED:EventType.ACOUSTIC_EVENT_RECEIVED,
+                    EventType.EVENT_FUSED:EventType.EVENT_PERSISTED,
+                    EventType.POSITION_UPDATED:EventType.EVENT_FUSED,
+                    EventType.TRACK_UPDATED:EventType.POSITION_UPDATED}
+        if event.event_type in required and previous != required[event.event_type]:
+            self.ordering_violations += 1
+            raise ValueError('Invalid shadow stage order')
+        self._phases[event.event_id] = event.event_type
+        self._phases.move_to_end(event.event_id)
+        while len(self._phases) > self.capacity:
+            self._phases.popitem(last=False)
         handler_name = {EventType.ACOUSTIC_EVENT_RECEIVED:'persistence', EventType.EVENT_PERSISTED:'fusion',
                         EventType.EVENT_FUSED:'fusion', EventType.POSITION_UPDATED:'tracking',
                         EventType.TRACK_UPDATED:'realtime', EventType.EVENT_PROCESSING_FAILED:'failure'}[event.event_type]
@@ -50,17 +65,23 @@ class ShadowPipeline:
             self.bus.publish(event)
         self.bus.drain()
 
-    def observe_persistence(self, event_data, result):
+    def observe_persistence(self, event_data, result, received_at_ms=None):
         with self._lock, self.sampler.critical_scope(None):
-            now = time_ns() // 1_000_000
+            now = received_at_ms if received_at_ms is not None else time_ns() // 1_000_000
             event_time = event_data.get('device_event_time_ms')
-            if type(event_time) is not int or event_time < 0:
-                event_time = now # explicit fallback, not claimed as an Android event timestamp
+            event_time_source = 'device_event_time_ms'
+            if type(event_time) not in (int,float) or not math.isfinite(event_time) or event_time < 0:
+                from services.event_fusion import parse_datetime
+                timestamp = parse_datetime(event_data.get('timestamp'))
+                event_time = int(timestamp.timestamp()*1000) if timestamp else now
+                event_time_source = 'legacy_timestamp' if timestamp else 'observation_wall_clock_fallback'
+            else:
+                event_time = int(event_time)
             original = EventEnvelope(event_id=event_data['event_id'], correlation_id=event_data['event_id'],
                 event_type=EventType.ACOUSTIC_EVENT_RECEIVED, device_id=event_data.get('device_id'),
                 trace_id=event_data.get('trace_id'), event_time_ms=event_time, received_at_ms=now,
                 payload=event_data, metadata={'label': event_data.get('label'), 'shadow':True,
-                    'event_time_source':'device_event_time_ms' if event_time != now else 'observation_wall_clock_fallback'})
+                    'event_time_source':event_time_source})
             from dataclasses import replace
             original = replace(original, partition_key=derive_partition_key(original))
             persisted = PersistenceHandler().observe(original, result['saved_event'])
@@ -101,6 +122,7 @@ class ShadowPipeline:
         with self._lock:
             return {**self.bus.snapshot(), 'shadow_errors':self.errors, 'comparisons':self.comparisons,
                     'context_evictions':self.context_evictions, 'context_count':len(self._contexts),
+                    'ordering_violations':self.ordering_violations,
                     'event_bus_retry_count':self.bus.snapshot()['retries'],
                     'event_bus_duplicate_count':self.bus.snapshot()['duplicates'],
                     'mode':'canonical-result projection only; no independent algorithm recomputation'}

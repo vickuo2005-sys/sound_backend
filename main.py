@@ -10602,7 +10602,7 @@ async def _create_event(
     saved_event = result.get("saved_event") or {}
     if event_driven_shadow.flags()[1]:
         event_driven_shadow.observe(
-            latency_diagnostics, "persistence", event.model_dump(mode="json"), result,
+            latency_diagnostics, "persistence", event.model_dump(mode="json"), result, backend_received_at,
         )
 
     if device_row:

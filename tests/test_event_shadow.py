@@ -61,11 +61,25 @@ def test_no_mutation_ordering_errors_and_separate_metrics(monkeypatch):
     assert [key[1] for key in pipeline._received]==['acoustic_event_received','event_persisted','event_fused','position_updated','track_updated']
     assert pipeline.snapshot()['published']==pipeline.snapshot()['consumed']==5
     assert pipeline.comparisons==3
+    assert pipeline.snapshot()['ordering_violations']==0
     assert all(key.startswith('event_bus_') for key in sampler.snapshot()['stages'])
     assert not sampler.snapshot()['critical_path_traces']
     monkeypatch.setenv('EVENT_DRIVEN_SHADOW_ENABLED','true')
     shadow.observe(sampler,'persistence',{}, {})
     assert shadow.snapshot()['shadow_errors']==1
+
+
+def test_invalid_shadow_order_and_timestamp_provenance():
+    sampler=LatencyDiagnostics(); pipeline=shadow.ShadowPipeline(sampler)
+    pipeline.bus.publish(envelope(event_type=EventType.TRACK_UPDATED))
+    pipeline.bus.drain()
+    assert pipeline.snapshot()['ordering_violations']==pipeline.snapshot()['failures']==1
+    pipeline.observe_persistence({'event_id':'fresh','timestamp':'2026-10-04T00:00:00Z'},
+        {'saved_event':{'event_id':'fresh'}}, received_at_ms=1791090000000)
+    captured=pipeline._contexts['fresh']
+    assert captured.received_at_ms==1791090000000
+    assert captured.event_time_ms==1791072000000
+    assert captured.metadata['event_time_source']=='legacy_timestamp'
 
 
 def test_feature_off_and_shadow_on_legacy_post_ingest_parity(monkeypatch):
@@ -106,3 +120,51 @@ def test_context_bounds_and_missing_result(monkeypatch):
     with pytest.raises(ValueError): pipeline.observe_post_ingest('0',{})
     pipeline.observe_post_ingest('2',{})
     assert any(key[1]=='event_processing_failed' for key in pipeline._received)
+
+
+def test_shadow_preserves_actual_fusion_db_and_payload():
+    from datetime import datetime,timezone
+    from tools.test_event_fusion import make_connection
+    from tests.test_event_fusion_region import event_record
+    from services.event_fusion import process_event
+    connection=make_connection()
+    try:
+        record=event_record('e','node_A01','aircraft',datetime(2026,10,4,tzinfo=timezone.utc))
+        persisted=envelope(event_type=EventType.EVENT_PERSISTED,payload=record)
+        # Explicit local adapter invokes the unchanged real Fusion service once.
+        handler=FusionHandler(lambda event_id:process_event(connection,record,is_postgres=False,window_seconds=3))
+        fused=handler.execute_for_test(persisted)
+        before=list(connection.iterdump())
+        observed=handler.observe(persisted,fused.to_dict()['payload'])
+        assert observed==fused
+        assert list(connection.iterdump())==before
+        assert connection.execute("SELECT COUNT(*) FROM event_group_observations").fetchone()[0]==1
+    finally:
+        connection.close()
+
+
+def test_actual_ingest_response_parity_with_shadow(monkeypatch):
+    import main
+    from fastapi.testclient import TestClient
+    sampler=LatencyDiagnostics(); monkeypatch.setattr(main,'latency_diagnostics',sampler)
+    # Identical clocks let us compare the entire API body, including existing timing fields.
+    monkeypatch.setattr(main,'utc_wall_time_ms',lambda:1791090000000)
+    monkeypatch.setattr(main,'monotonic',lambda:1000.0)
+    monkeypatch.setattr(main,'verify_upload_token',lambda token:None)
+    monkeypatch.setattr(main,'staging_write_freeze_active',lambda:False)
+    calls=[]
+    saved={'event_id':'api-test','label':'non_aircraft','device_id':'node'}
+    def initial(event):
+        calls.append(event.event_id)
+        return {'db_id':7,'is_existing_event':True,'device_row':None,'saved_event':saved}
+    monkeypatch.setattr(main,'process_event_initial_submission',initial)
+    client=TestClient(main.app)
+    payload={'event_id':'api-test','device_id':'node','timestamp':'2026-10-04T00:00:00Z',
+        'latitude':25,'longitude':121,'rms_peak':.5,'label':'non_aircraft'}
+    first=client.post('/events',json=payload)
+    assert first.status_code==200 and shadow._pipeline is None
+    monkeypatch.setenv('EVENT_DRIVEN_SHADOW_ENABLED','true')
+    second=client.post('/events',json=payload)
+    assert second.status_code==first.status_code and second.json()==first.json()
+    assert calls==['api-test','api-test']
+    assert shadow.snapshot()['published']==2
