@@ -1,0 +1,14 @@
+{
+  "inline_scripts": [
+    {
+      "script": 0,
+      "exit_code": 0
+    },
+    {
+      "script": 1,
+      "exit_code": 0
+    }
+  ],
+  "python_compileall": "PASS",
+  "git_diff_check": "PASS"
+}

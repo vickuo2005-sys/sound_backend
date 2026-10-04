@@ -37,6 +37,15 @@ class ShadowPipeline:
 
     def _observe_delivery(self, event):
         start = monotonic()
+        handler_name = {EventType.ACOUSTIC_EVENT_RECEIVED:'persistence', EventType.EVENT_PERSISTED:'fusion',
+                        EventType.EVENT_FUSED:'fusion', EventType.POSITION_UPDATED:'tracking',
+                        EventType.TRACK_UPDATED:'realtime', EventType.EVENT_PROCESSING_FAILED:'failure'}[event.event_type]
+        try:
+            return self._validate_delivery(event)
+        finally:
+            self.sampler.record('event_bus_' + handler_name + '_handler_duration', (monotonic()-start)*1000)
+
+    def _validate_delivery(self, event):
         previous = self._phases.get(event.event_id)
         required = {EventType.EVENT_PERSISTED:EventType.ACOUSTIC_EVENT_RECEIVED,
                     EventType.EVENT_FUSED:EventType.EVENT_PERSISTED,
@@ -49,15 +58,11 @@ class ShadowPipeline:
         self._phases.move_to_end(event.event_id)
         while len(self._phases) > self.capacity:
             self._phases.popitem(last=False)
-        handler_name = {EventType.ACOUSTIC_EVENT_RECEIVED:'persistence', EventType.EVENT_PERSISTED:'fusion',
-                        EventType.EVENT_FUSED:'fusion', EventType.POSITION_UPDATED:'tracking',
-                        EventType.TRACK_UPDATED:'realtime', EventType.EVENT_PROCESSING_FAILED:'failure'}[event.event_type]
         # Validate serialized envelope equivalence without recomputing domain mutations.
         assert EventEnvelope.from_json(event.to_json()) == event
         self._received[event.idempotency_key] = event.to_json()
         while len(self._received) > self.capacity:
             self._received.popitem(last=False)
-        self.sampler.record('event_bus_' + handler_name + '_handler_duration', (monotonic()-start)*1000)
         return ProcessingResult()
 
     def _publish(self, events):

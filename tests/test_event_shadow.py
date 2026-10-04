@@ -74,6 +74,7 @@ def test_invalid_shadow_order_and_timestamp_provenance():
     pipeline.bus.publish(envelope(event_type=EventType.TRACK_UPDATED))
     pipeline.bus.drain()
     assert pipeline.snapshot()['ordering_violations']==pipeline.snapshot()['failures']==1
+    assert sampler.snapshot()['stages']['event_bus_realtime_handler_duration']['count']==1
     pipeline.observe_persistence({'event_id':'fresh','timestamp':'2026-10-04T00:00:00Z'},
         {'saved_event':{'event_id':'fresh'}}, received_at_ms=1791090000000)
     captured=pipeline._contexts['fresh']

@@ -1,0 +1,107 @@
+[
+  {
+    "output": "Critical path browser: event correlation, unchanged payload/render, bounded timing and production-off passed",
+    "file": "test_critical_path.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Audio analysis: tone frequency, dBFS amplitude, silence, time order and bounds passed",
+    "file": "test_dashboard_audio_analysis.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Audio viewer: playback, decode failures, stale requests and resource cleanup passed",
+    "file": "test_dashboard_audio_viewer.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Event context loading: selection races, deduplication, errors and retry passed",
+    "file": "test_dashboard_event_context_loading.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Event context: historical times, coordinate provenance and missing-data semantics passed",
+    "file": "test_dashboard_event_context.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Event synchronization: delayed snapshot, live updates, deduplication, enrichment, failure recovery and bounded ordering passed",
+    "file": "test_dashboard_event_sync.js",
+    "exit_code": 0
+  },
+  {
+    "output": "History replay: provenance, context overlays, fallback, smooth display, steps, single point, cleanup and request races passed",
+    "file": "test_dashboard_history_replay.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Latency dashboard: malformed API data, rolling samples, handler preservation, errors and 1000-message burst passed\nCoincident 5s/30s polling, coalescing and failure recovery passed\nRuntime snapshot API loading and failure recovery passed",
+    "file": "test_dashboard_latency.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Live/lab parity: same tracker + raw ETA + stabilized ETA, duplicate snapshots, uncertainty, stale/future data, provenance and alert episodes passed",
+    "file": "test_dashboard_live_prediction.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Location picker coordinates, request source and busy guard passed",
+    "file": "test_dashboard_location_picker.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Location synchronization: null-device DELETE/WS, both snapshot races, fresh refresh and replay-close cleanup passed",
+    "file": "test_dashboard_location_sync.js",
+    "exit_code": 0
+  },
+  {
+    "output": "shared dashboard map visuals passed",
+    "file": "test_dashboard_map_visuals.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Dashboard node geometry: fixed-node persistence, explicit participation, freshness, hull, and renderer lifecycle passed",
+    "file": "test_dashboard_node_geometry.js",
+    "exit_code": 0
+  },
+  {
+    "output": "dashboard operations: geometry, freshness, provenance, alert episodes and timed replay passed",
+    "file": "test_dashboard_operations.js",
+    "exit_code": 0
+  },
+  {
+    "output": "monitor overview: live/stale/failed/empty snapshots, node health and recent-event counts passed\noverview API degradation and shared live-map node icons passed",
+    "file": "test_dashboard_overview.js",
+    "exit_code": 0
+  },
+  {
+    "output": "simulation ETA: A-L stability, deterministic time, no-future-leak and fitted-state tests passed",
+    "file": "test_dashboard_simulation_eta.js",
+    "exit_code": 0
+  },
+  {
+    "output": "PASS idle: clear-targets permits two consecutive additions and map placements\nPASS idle: clear-all permits two consecutive additions and map placements\nPASS idle: clear-nodes permits two consecutive additions and map placements\nPASS idle: clear-history permits two consecutive additions and map placements\nPASS playing: clear-targets permits two consecutive additions and map placements\nPASS playing: clear-all permits two consecutive additions and map placements\nPASS playing: clear-nodes permits two consecutive additions and map placements\nPASS playing: clear-history permits two consecutive additions and map placements\nPASS replaying: clear-targets permits two consecutive additions and map placements\nPASS replaying: clear-all permits two consecutive additions and map placements\nPASS replaying: clear-nodes permits two consecutive additions and map placements\nPASS replaying: clear-history permits two consecutive additions and map placements\nPASS paused replay: clear-targets permits two consecutive additions and map placements\nPASS paused replay: clear-all permits two consecutive additions and map placements\nPASS paused replay: clear-nodes permits two consecutive additions and map placements\nPASS paused replay: clear-history permits two consecutive additions and map placements\nPASS clear-targets resets stale sound and invalid motion inputs\nPASS clear-all resets stale sound and invalid motion inputs\nPASS creating drone never produces a hidden setup target\nPASS creating car never produces a hidden setup target\nPASS creating airplane never produces a hidden setup target\nPASS creating rainfall never produces a hidden setup target\nPASS creating electric_saw never produces a hidden setup target\nPASS invalid speed=-1 shows nearby feedback and focuses the invalid field\nPASS invalid speed=101 shows nearby feedback and focuses the invalid field\nPASS invalid heading=-1 shows nearby feedback and focuses the invalid field\nPASS invalid heading=360 shows nearby feedback and focuses the invalid field\nPASS newly added drone stays selected despite an existing warning\nPASS editing a start position exits active replay and updates the visible current scene\nPASS route points stay attached to the edited drone when alert selection changes\nPASS a removed target cannot produce a false successful placement\nPASS node placement continues past twelve and enforces the new 100-node capacity\nPASS adding an unplaced drone keeps SVG nodes inactive until a covered position is chosen\nsimulation lab controls: clear/recreate, visible targets, validation, edit isolation and node capacity passed",
+    "file": "test_dashboard_simulation_lab_controls.js",
+    "exit_code": 0
+  },
+  {
+    "output": "simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed",
+    "file": "test_dashboard_simulation_lab.js",
+    "exit_code": 0
+  },
+  {
+    "output": "dashboard_simulation_prediction: all assertions passed",
+    "file": "test_dashboard_simulation_prediction.js",
+    "exit_code": 0
+  },
+  {
+    "output": "simulation alpha-beta tracker tests passed",
+    "file": "test_dashboard_simulation_tracker.js",
+    "exit_code": 0
+  },
+  {
+    "output": "Dashboard status scenarios passed",
+    "file": "test_dashboard_status.js",
+    "exit_code": 0
+  }
+]
