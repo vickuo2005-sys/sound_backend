@@ -83,6 +83,7 @@ from services.tracking.reorder_buffer import TrackingReorderBuffer
 from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandService
 from services.latency_diagnostics import latency_diagnostics
 from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
+from services.events import shadow as event_driven_shadow
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -9717,12 +9718,15 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     latency_diagnostics.record("post_ingest_pipeline", post_ingest_duration_ms)
     latency_diagnostics.finish_trace(post_ingest_duration_ms)
 
-    return {
+    result = {
         "event_group": event_group,
         "region_track": region_track,
         "active_alert_track": active_alert_track,
         "localization_package": localization_package,
     }
+    if event_driven_shadow.flags()[1]:
+        event_driven_shadow.observe(latency_diagnostics, "post_ingest", event_id, result)
+    return result
 
 
 async def broadcast_event_post_ingest_result(result: dict) -> None:
@@ -10027,6 +10031,12 @@ async def runtime_status():
         )
     pending_jobs = latency_snapshot.get("pending_jobs", {})
     active_write_requests = staging_active_write_request_count()
+    event_bus_snapshot = event_driven_shadow.snapshot()
+    if event_bus_snapshot is not None:
+        event_bus_snapshot["metrics"] = {
+            key: value for key, value in latency_snapshot.get("stages", {}).items()
+            if key.startswith("event_bus_")
+        }
     return {
         "status": "success",
         "time": current_time_iso(),
@@ -10045,6 +10055,7 @@ async def runtime_status():
         "postgres_pool_min": pool_min,
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
+        **({"event_bus": event_bus_snapshot} if event_bus_snapshot is not None else {}),
         "critical_path_diagnostics_enabled": (os.getenv("APP_ENV", "").lower() == "staging" and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true"),
         "staging_write_freeze": {
             "configured": STAGING_WRITE_FREEZE_CONFIGURED,
@@ -10589,6 +10600,10 @@ async def _create_event(
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
     saved_event = result.get("saved_event") or {}
+    if event_driven_shadow.flags()[1]:
+        event_driven_shadow.observe(
+            latency_diagnostics, "persistence", event.model_dump(mode="json"), result,
+        )
 
     if device_row:
         alert_timing = realtime_alert_timing(saved_event)
