@@ -1,0 +1,547 @@
+{
+  "trials": [
+    {
+      "nodes": 50,
+      "consumer_count": 1,
+      "handler_delay_ms": 5.0,
+      "offered_rate_eps": 50,
+      "producer_rate_eps": 49.996183624691824,
+      "consumer_rate_during_production_eps": 49.996183624691824,
+      "consumer_rate_with_drain_eps": 49.97907542679232,
+      "published": 150,
+      "processed": 150,
+      "stream_length_retained_after_ack": 150,
+      "pending_final": 0,
+      "lag_final": 0,
+      "backlog_at_producer_stop": 0,
+      "backlog_peak": 1,
+      "pending_peak": 1,
+      "backlog_growth_eps_latter_half": 0.0,
+      "processing_lag_ms": {
+        "p50": 6.359999999999999,
+        "p95": 6.971469999999999,
+        "p99": 11.719641999999991
+      },
+      "drain_time_ms": 1.0270000202581286,
+      "overload": false,
+      "duplicates": 0,
+      "retry_count": 0,
+      "retry_rate": 0,
+      "duplicate_rate": 0,
+      "distribution": {
+        "load-0": 150
+      },
+      "same_partition_completion_inversions": 0,
+      "redis_cpu_seconds": 0.2030000000000003,
+      "redis_cpu_one_core_percent": 6.763834874425903,
+      "redis_memory_before_bytes": 1155904,
+      "redis_memory_after_bytes": 1173873,
+      "samples": [
+        {
+          "elapsed_s": 0.01302350009791553,
+          "published": 1,
+          "completed": 0,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1159492
+        },
+        {
+          "elapsed_s": 0.2218613000586629,
+          "published": 12,
+          "completed": 11,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1132705
+        },
+        {
+          "elapsed_s": 0.4221904000733048,
+          "published": 22,
+          "completed": 21,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1137670
+        },
+        {
+          "elapsed_s": 0.6411561000859365,
+          "published": 33,
+          "completed": 32,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1141591
+        },
+        {
+          "elapsed_s": 0.8412796000484377,
+          "published": 43,
+          "completed": 42,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1145512
+        },
+        {
+          "elapsed_s": 1.060006899992004,
+          "published": 53,
+          "completed": 52,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1149457
+        },
+        {
+          "elapsed_s": 1.261275100056082,
+          "published": 64,
+          "completed": 63,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1157297
+        },
+        {
+          "elapsed_s": 1.481294000055641,
+          "published": 75,
+          "completed": 74,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1161242
+        },
+        {
+          "elapsed_s": 1.701395699987188,
+          "published": 86,
+          "completed": 85,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1165163
+        },
+        {
+          "elapsed_s": 1.9216636000201106,
+          "published": 97,
+          "completed": 96,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1169084
+        },
+        {
+          "elapsed_s": 2.141277600079775,
+          "published": 108,
+          "completed": 107,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1173029
+        },
+        {
+          "elapsed_s": 2.36131180007942,
+          "published": 119,
+          "completed": 118,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1180912
+        },
+        {
+          "elapsed_s": 2.5614094000775367,
+          "published": 129,
+          "completed": 128,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1184860
+        },
+        {
+          "elapsed_s": 2.7814915000926703,
+          "published": 140,
+          "completed": 139,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1188832
+        }
+      ],
+      "scope": "synthetic transport + 5ms simulated handler; not Fusion/Tracking capacity",
+      "overload_observation": {
+        "overload": false,
+        "ingest_eps": 49.9955652033147,
+        "consume_eps": 49.9955652033147,
+        "backlog_growth_eps": 0.0,
+        "window_seconds": 1.0800958001054823,
+        "noise_guard": "net >2 entries and >1 eps"
+      },
+      "producer_duration_s": 3.000228999997489
+    },
+    {
+      "nodes": 50,
+      "consumer_count": 1,
+      "handler_delay_ms": 5.0,
+      "offered_rate_eps": 150,
+      "producer_rate_eps": 149.97733842620397,
+      "consumer_rate_during_production_eps": 148.31092355480172,
+      "consumer_rate_with_drain_eps": 148.31554574256333,
+      "published": 450,
+      "processed": 450,
+      "stream_length_retained_after_ack": 450,
+      "pending_final": 0,
+      "lag_final": 0,
+      "backlog_at_producer_stop": 5,
+      "backlog_peak": 6,
+      "pending_peak": 1,
+      "backlog_growth_eps_latter_half": 0.8147481804824703,
+      "processing_lag_ms": {
+        "p50": 21.76275,
+        "p95": 35.9687,
+        "p99": 37.743396000000004
+      },
+      "drain_time_ms": 33.618399989791214,
+      "overload": false,
+      "duplicates": 0,
+      "retry_count": 0,
+      "retry_rate": 0,
+      "duplicate_rate": 0,
+      "distribution": {
+        "load-0": 450
+      },
+      "same_partition_completion_inversions": 0,
+      "redis_cpu_seconds": 0.46899999999999986,
+      "redis_cpu_one_core_percent": 15.457775767391594,
+      "redis_memory_before_bytes": 1155904,
+      "redis_memory_after_bytes": 1304183,
+      "samples": [
+        {
+          "elapsed_s": 0.013473899918608367,
+          "published": 1,
+          "completed": 0,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1159492
+        },
+        {
+          "elapsed_s": 0.21426549996249378,
+          "published": 33,
+          "completed": 30,
+          "pending": 0,
+          "lag": 3,
+          "backlog": 3,
+          "used_memory_bytes": 1140537
+        },
+        {
+          "elapsed_s": 0.4145352999912575,
+          "published": 63,
+          "completed": 59,
+          "pending": 1,
+          "lag": 3,
+          "backlog": 4,
+          "used_memory_bytes": 1153362
+        },
+        {
+          "elapsed_s": 0.6146500000031665,
+          "published": 93,
+          "completed": 90,
+          "pending": 0,
+          "lag": 3,
+          "backlog": 3,
+          "used_memory_bytes": 1169056
+        },
+        {
+          "elapsed_s": 0.8147555999457836,
+          "published": 123,
+          "completed": 120,
+          "pending": 0,
+          "lag": 3,
+          "backlog": 3,
+          "used_memory_bytes": 1180878
+        },
+        {
+          "elapsed_s": 1.0211937999119982,
+          "published": 154,
+          "completed": 151,
+          "pending": 1,
+          "lag": 2,
+          "backlog": 3,
+          "used_memory_bytes": 1196691
+        },
+        {
+          "elapsed_s": 1.2282894999952987,
+          "published": 185,
+          "completed": 182,
+          "pending": 0,
+          "lag": 3,
+          "backlog": 3,
+          "used_memory_bytes": 1208530
+        },
+        {
+          "elapsed_s": 1.4346767999231815,
+          "published": 216,
+          "completed": 212,
+          "pending": 1,
+          "lag": 3,
+          "backlog": 4,
+          "used_memory_bytes": 1220385
+        },
+        {
+          "elapsed_s": 1.6408962999703363,
+          "published": 247,
+          "completed": 243,
+          "pending": 1,
+          "lag": 3,
+          "backlog": 4,
+          "used_memory_bytes": 1236190
+        },
+        {
+          "elapsed_s": 1.8414023999357596,
+          "published": 277,
+          "completed": 272,
+          "pending": 1,
+          "lag": 5,
+          "backlog": 6,
+          "used_memory_bytes": 1247962
+        },
+        {
+          "elapsed_s": 2.0481293000048026,
+          "published": 308,
+          "completed": 302,
+          "pending": 1,
+          "lag": 5,
+          "backlog": 6,
+          "used_memory_bytes": 1263844
+        },
+        {
+          "elapsed_s": 2.2546593999722973,
+          "published": 339,
+          "completed": 334,
+          "pending": 1,
+          "lag": 5,
+          "backlog": 6,
+          "used_memory_bytes": 1275606
+        },
+        {
+          "elapsed_s": 2.4612188999308273,
+          "published": 370,
+          "completed": 365,
+          "pending": 0,
+          "lag": 5,
+          "backlog": 5,
+          "used_memory_bytes": 1291484
+        },
+        {
+          "elapsed_s": 2.6612606999697164,
+          "published": 400,
+          "completed": 395,
+          "pending": 0,
+          "lag": 5,
+          "backlog": 5,
+          "used_memory_bytes": 1303346
+        },
+        {
+          "elapsed_s": 2.8682693999726325,
+          "published": 431,
+          "completed": 426,
+          "pending": 0,
+          "lag": 5,
+          "backlog": 5,
+          "used_memory_bytes": 1315198
+        }
+      ],
+      "scope": "synthetic transport + 5ms simulated handler; not Fusion/Tracking capacity",
+      "overload_observation": {
+        "overload": false,
+        "ingest_eps": 149.91366520877455,
+        "consume_eps": 149.09891702829208,
+        "backlog_growth_eps": 0.8147481804824703,
+        "window_seconds": 1.2273731000022963,
+        "noise_guard": "net >2 entries and >1 eps"
+      },
+      "producer_duration_s": 3.0004532999591906
+    },
+    {
+      "nodes": 50,
+      "consumer_count": 1,
+      "handler_delay_ms": 5.0,
+      "offered_rate_eps": 400,
+      "producer_rate_eps": 399.9928001368612,
+      "consumer_rate_during_production_eps": 147.66400871719128,
+      "consumer_rate_with_drain_eps": 148.2248755664832,
+      "published": 1200,
+      "processed": 1200,
+      "stream_length_retained_after_ack": 1200,
+      "pending_final": 0,
+      "lag_final": 0,
+      "backlog_at_producer_stop": 757,
+      "backlog_peak": 757,
+      "pending_peak": 1,
+      "backlog_growth_eps_latter_half": 251.16697628741582,
+      "processing_lag_ms": {
+        "p50": 2546.0466,
+        "p95": 4837.96299,
+        "p99": 5039.7919090000005
+      },
+      "drain_time_ms": 5095.7531000021845,
+      "overload": true,
+      "duplicates": 0,
+      "retry_count": 0,
+      "retry_rate": 0,
+      "duplicate_rate": 0,
+      "distribution": {
+        "load-0": 1200
+      },
+      "same_partition_completion_inversions": 0,
+      "redis_cpu_seconds": 1.4529999999999998,
+      "redis_cpu_one_core_percent": 17.94756201650834,
+      "redis_memory_before_bytes": 1155904,
+      "redis_memory_after_bytes": 1635176,
+      "samples": [
+        {
+          "elapsed_s": 0.016738799982704222,
+          "published": 1,
+          "completed": 0,
+          "pending": 1,
+          "lag": 0,
+          "backlog": 1,
+          "used_memory_bytes": 1159492
+        },
+        {
+          "elapsed_s": 0.2184011999052018,
+          "published": 88,
+          "completed": 30,
+          "pending": 1,
+          "lag": 57,
+          "backlog": 58,
+          "used_memory_bytes": 1164105
+        },
+        {
+          "elapsed_s": 0.41879849997349083,
+          "published": 168,
+          "completed": 60,
+          "pending": 1,
+          "lag": 107,
+          "backlog": 108,
+          "used_memory_bytes": 1200590
+        },
+        {
+          "elapsed_s": 0.6206698999740183,
+          "published": 249,
+          "completed": 90,
+          "pending": 1,
+          "lag": 158,
+          "backlog": 159,
+          "used_memory_bytes": 1236102
+        },
+        {
+          "elapsed_s": 0.8212567999726161,
+          "published": 329,
+          "completed": 120,
+          "pending": 0,
+          "lag": 209,
+          "backlog": 209,
+          "used_memory_bytes": 1271628
+        },
+        {
+          "elapsed_s": 1.023695299983956,
+          "published": 410,
+          "completed": 150,
+          "pending": 1,
+          "lag": 259,
+          "backlog": 260,
+          "used_memory_bytes": 1307167
+        },
+        {
+          "elapsed_s": 1.2259615999646485,
+          "published": 491,
+          "completed": 181,
+          "pending": 1,
+          "lag": 309,
+          "backlog": 310,
+          "used_memory_bytes": 1342698
+        },
+        {
+          "elapsed_s": 1.428191400016658,
+          "published": 572,
+          "completed": 209,
+          "pending": 1,
+          "lag": 362,
+          "backlog": 363,
+          "used_memory_bytes": 1378216
+        },
+        {
+          "elapsed_s": 1.6281981999054551,
+          "published": 652,
+          "completed": 239,
+          "pending": 1,
+          "lag": 412,
+          "backlog": 413,
+          "used_memory_bytes": 1413728
+        },
+        {
+          "elapsed_s": 1.8290753999026492,
+          "published": 732,
+          "completed": 269,
+          "pending": 1,
+          "lag": 462,
+          "backlog": 463,
+          "used_memory_bytes": 1449254
+        },
+        {
+          "elapsed_s": 2.031200399971567,
+          "published": 813,
+          "completed": 298,
+          "pending": 1,
+          "lag": 514,
+          "backlog": 515,
+          "used_memory_bytes": 1484780
+        },
+        {
+          "elapsed_s": 2.2312291999114677,
+          "published": 893,
+          "completed": 328,
+          "pending": 1,
+          "lag": 564,
+          "backlog": 565,
+          "used_memory_bytes": 1520308
+        },
+        {
+          "elapsed_s": 2.433918199967593,
+          "published": 974,
+          "completed": 359,
+          "pending": 1,
+          "lag": 614,
+          "backlog": 615,
+          "used_memory_bytes": 1555834
+        },
+        {
+          "elapsed_s": 2.6358111000154167,
+          "published": 1055,
+          "completed": 388,
+          "pending": 1,
+          "lag": 666,
+          "backlog": 667,
+          "used_memory_bytes": 1591502
+        },
+        {
+          "elapsed_s": 2.8385483999736607,
+          "published": 1136,
+          "completed": 419,
+          "pending": 0,
+          "lag": 717,
+          "backlog": 717,
+          "used_memory_bytes": 1627274
+        }
+      ],
+      "scope": "synthetic transport + 5ms simulated handler; not Fusion/Tracking capacity",
+      "overload_observation": {
+        "overload": true,
+        "ingest_eps": 399.8842648786489,
+        "consume_eps": 148.71728859123306,
+        "backlog_growth_eps": 251.16697628741582,
+        "window_seconds": 1.2103502000682056,
+        "noise_guard": "net >2 entries and >1 eps"
+      },
+      "producer_duration_s": 3.0000539999455214
+    }
+  ]
+}

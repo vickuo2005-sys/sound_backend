@@ -128,6 +128,7 @@ class RedisStreamsEventBus:
             with self.client.pipeline(transaction=True) as pipe:
                 pipe.xadd(self.stream+':dlq', {'source_id':delivery.message_id,
                     'event_id':delivery.event.event_id if delivery.event else '',
+                    'trace_id':delivery.event.trace_id or '' if delivery.event else '',
                     'error_class':result.error_class or 'ProcessingFailure'})
                 pipe.xack(self.stream, self.group, delivery.message_id)
                 return pipe.execute()
