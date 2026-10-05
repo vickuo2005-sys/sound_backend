@@ -64,6 +64,18 @@
         const lng=Number(group?.region_center_lng??group?.estimated_lng);
         return Number.isFinite(lat)&&Number.isFinite(lng);
     }
+    function trackHasLocation(track){
+        const directLat=Number(track?.last_lat??track?.filtered_lat??track?.estimated_lat??track?.latitude);
+        const directLng=Number(track?.last_lng??track?.filtered_lng??track?.estimated_lng??track?.longitude);
+        if(Number.isFinite(directLat)&&Number.isFinite(directLng))return true;
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        return points.some(point=>{
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false)return false;
+            const lat=Number(point.measured_lat??point.filtered_lat??point.estimated_lat??point.latitude);
+            const lng=Number(point.measured_lng??point.filtered_lng??point.estimated_lng??point.longitude);
+            return Number.isFinite(lat)&&Number.isFinite(lng);
+        });
+    }
     function associatedGroupId(track){
         const direct=track?.group_id??track?.last_group_id??track?.event_group_id;
         if(direct!==null&&direct!==undefined&&String(direct))return String(direct);
@@ -167,23 +179,29 @@
             };
         }
 
-        // Keep the existing synchronous metric, then add two browser-side milestones:
-        // (1) two requestAnimationFrame boundaries after the WS handler, and
-        // (2) the first two-frame boundary after the configured marker interpolation.
-        // These are deliberately named "eligible" because browsers do not expose an
-        // exact user-visible paint timestamp for Google Maps overlays.
+        // Keep the existing synchronous metric, then add browser-side visual milestones
+        // for both event-group and track updates. These are deliberately named
+        // "eligible" because browsers/Google Maps do not expose an exact operator-visible
+        // paint timestamp for overlays.
         if(typeof handleWebSocketMessage==='function'){
             const baseHandle=handleWebSocketMessage;
             handleWebSocketMessage=function(data){
-                const measure=data?.type==='event_group'&&groupHasLocation(data.group||data)&&
-                    state.runtime?.critical_path_diagnostics_enabled===true;
+                const messageType=String(data?.type||'');
+                const entity=messageType==='event_group'?(data.group||data):messageType==='track_update'?(data.track||data):null;
+                const hasPosition=messageType==='event_group'?groupHasLocation(entity):messageType==='track_update'?trackHasLocation(entity):false;
+                const measure=Boolean(entity&&hasPosition&&state.runtime?.critical_path_diagnostics_enabled===true);
                 const receivedAt=measure?(root.performance?.now?.()||0):null;
                 const result=baseHandle(data);
                 if(!measure||!Number.isFinite(receivedAt))return result;
                 const eventId=String(data?.critical_path?.event_id||'');
-                const samples=state.browserGroupVisualSamples||(state.browserGroupVisualSamples=[]);
-                const sample={event_id:eventId,dashboard_event_group_received:receivedAt};
-                pushBounded(samples,sample);
+                const entityId=String(messageType==='event_group'?(entity?.id??entity?.group_id??''):(entity?.id??entity?.track_id??''));
+                const allSamples=state.browserMapVisualSamples||(state.browserMapVisualSamples=[]);
+                const typedSamples=messageType==='event_group'
+                    ? (state.browserGroupVisualSamples||(state.browserGroupVisualSamples=[]))
+                    : (state.browserTrackVisualSamples||(state.browserTrackVisualSamples=[]));
+                const sample={message_type:messageType,entity_id:entityId,event_id:eventId,dashboard_ws_visual_received:receivedAt};
+                pushBounded(allSamples,sample);
+                pushBounded(typedSamples,sample);
                 afterTwoFrames(frameAt=>{
                     sample.dashboard_next_paint_eligible=frameAt;
                     sample.next_paint_eligible_ms=Math.max(0,frameAt-receivedAt);
@@ -201,9 +219,12 @@
             renderLatencyDiagnostics=function(){
                 const result=baseRenderLatency.apply(this,arguments);
                 if(state.runtime?.critical_path_diagnostics_enabled===true){
-                    const samples=state.browserGroupVisualSamples||[];
-                    metricRow('browserNextPaintEligibleLatency','Browser group map next-paint eligible',percentileText(samples,'next_paint_eligible_ms'));
-                    metricRow('browserMarkerSettleEligibleLatency','Browser group marker settle eligible',percentileText(samples,'marker_settle_eligible_ms'));
+                    const groupSamples=state.browserGroupVisualSamples||[];
+                    const trackSamples=state.browserTrackVisualSamples||[];
+                    metricRow('browserGroupNextPaintEligibleLatency','Browser group map next-paint eligible',percentileText(groupSamples,'next_paint_eligible_ms'));
+                    metricRow('browserGroupMarkerSettleEligibleLatency','Browser group marker settle eligible',percentileText(groupSamples,'marker_settle_eligible_ms'));
+                    metricRow('browserTrackNextPaintEligibleLatency','Browser track map next-paint eligible',percentileText(trackSamples,'next_paint_eligible_ms'));
+                    metricRow('browserTrackMarkerSettleEligibleLatency','Browser track marker settle eligible',percentileText(trackSamples,'marker_settle_eligible_ms'));
                 }
                 return result;
             };
@@ -213,7 +234,7 @@
 
     const api=Object.freeze({
         FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
-        associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
+        groupHasLocation,trackHasLocation,associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
     else{
