@@ -41,6 +41,7 @@ const staleTrack = {
     }]
 };
 assert.equal(patch.associatedGroupId(staleTrack), 'g-late');
+assert.equal(patch.trackHasLocation(staleTrack), true);
 assert.equal(patch.groupIsNewerThanAssociatedTrack(staleTrack, group), true);
 assert.equal(patch.groupIsNewerThanAssociatedTrack({...staleTrack,points:[{...staleTrack.points[0],group_id:'other'}]}, group), false,
     'unrelated tracks must never be suppressed by a different group');
@@ -113,10 +114,21 @@ assert.equal(context.isFreshLiveTrack({...staleTrack,points:[{...staleTrack.poin
 
 context.handleWebSocketMessage({type:'event_group',group,critical_path:{event_id:'event-late'}});
 assert.equal(state.browserGroupVisualSamples.length, 1);
-const sample = state.browserGroupVisualSamples[0];
-assert.equal(sample.event_id, 'event-late');
-assert.equal(sample.next_paint_eligible_ms, 32);
-assert.equal(sample.marker_settle_eligible_ms, 264);
-assert.match(patch.percentileText([sample], 'marker_settle_eligible_ms'), /P95 264\.0/);
+assert.equal(state.browserMapVisualSamples.length, 1);
+const groupSample = state.browserGroupVisualSamples[0];
+assert.equal(groupSample.message_type, 'event_group');
+assert.equal(groupSample.event_id, 'event-late');
+assert.equal(groupSample.next_paint_eligible_ms, 32);
+assert.equal(groupSample.marker_settle_eligible_ms, 264);
+assert.match(patch.percentileText([groupSample], 'marker_settle_eligible_ms'), /P95 264\.0/);
 
-console.log('Dashboard live-map patch: freshness, source arbitration and browser visual milestones passed');
+context.handleWebSocketMessage({type:'track_update',track:staleTrack,critical_path:{event_id:'event-late'}});
+assert.equal(state.browserTrackVisualSamples.length, 1);
+assert.equal(state.browserMapVisualSamples.length, 2);
+const trackSample = state.browserTrackVisualSamples[0];
+assert.equal(trackSample.message_type, 'track_update');
+assert.equal(trackSample.entity_id, 'track-1');
+assert.equal(trackSample.next_paint_eligible_ms, 32);
+assert.equal(trackSample.marker_settle_eligible_ms, 264);
+
+console.log('Dashboard live-map patch: freshness, source arbitration and group/track visual milestones passed');
