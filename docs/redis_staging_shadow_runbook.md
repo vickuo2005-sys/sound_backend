@@ -92,6 +92,20 @@ or real database to simulate Redis failure. A disposable managed test namespace
 may be used for controlled transport failure/crash before ACK, without any domain
 handler. Do not claim an Android outage test without actual Android traffic.
 
+An opt-in `REDIS_SHADOW_TRANSPORT_PROBE=true` runs once before the primary audit
+consumer starts. It creates a separate `staging:shadow-probe:<uuid>` stream/group,
+ACKs a synthetic received phase, disconnects after reading a synthetic persisted
+phase without ACK, then claims/ACKs with a new consumer connection. It retains both
+entries and exposes sanitized results under redis_shadow.transport_probe. It uses
+a separate sampler and no Android API/DB/WS. This validates managed abandoned-PEL
+recovery, not an OS process kill or Android outage. Disable the flag after exporting
+evidence. Failure is recorded without affecting primary startup or legacy traffic.
+
+Use `tools/collect_redis_shadow.py --expected-commit <full-sha> --samples 120
+--interval 2 --output outputs/<unique-name>.jsonl` for read-only collection during
+each real run. The collector refuses another build/service, connection URLs and
+overwriting evidence. It does not generate traffic or claim physical test results.
+
 Primary rollback: set REDIS_SHADOW_ENABLED=false and redeploy the same staging
 commit; remove the shadow URL only if needed. Legacy remains the sole system of
 record. Code rollback if necessary: restore prior staging branch/build command and

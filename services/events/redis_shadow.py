@@ -162,6 +162,8 @@ class RedisShadow:
         self.audit=Audit(config.audit_capacity,config.lifecycle_timeout_s)
         self.threads=[]; self.buses=set(); self.connected=False; self.last_error_class=None
         self.pending=0; self.lag=0; self.stream_length=0; self.memory_bytes=None
+        self.transport_probe=None
+        self.last_rejection=None
 
     def inc(self,name,n=1):
         with self.lock: self.counts[name]+=n
@@ -253,7 +255,10 @@ class RedisShadow:
                     size=len(e.to_json().encode('utf-8'))
                     if size>self.config.max_bytes:
                         self.inc('oversize_rejected')
-                        with self.lock: self.counts['last_rejected_size_bytes']=size
+                        with self.lock:
+                            self.counts['last_rejected_size_bytes']=size
+                            self.last_rejection={'event_id':e.event_id[:128],
+                                'event_type':kind.value,'serialized_size_bytes':size}
                         continue
                     if transport is None: transport=self.connect('publisher')
                     started=monotonic_ns(); transport.publish(e); t2=monotonic_ns()
@@ -296,6 +301,12 @@ class RedisShadow:
 
     def consumer(self):
         transport=None; next_status=0; history_loaded=False
+        if os.getenv('REDIS_SHADOW_TRANSPORT_PROBE','false').lower()=='true':
+            # Staging-only runtime already gated at start(). Separate namespace
+            # and sampler: synthetic rehearsal must not contaminate canary data.
+            from .redis_shadow_probe import run
+            from services.latency_diagnostics import LatencyDiagnostics
+            self.transport_probe=run(self.config,LatencyDiagnostics())
         while not self.stop_event.is_set():
             try:
                 if transport is None: transport=self.connect(self.config.consumer)
@@ -363,6 +374,8 @@ class RedisShadow:
                 'queue_depth':self.queue.qsize(),'queue_max':self.config.capacity,'max_event_bytes':self.config.max_bytes,
                 'pending':self.pending,'consumer_lag':self.lag,'stream_length':self.stream_length,
                 'redis_memory_bytes':self.memory_bytes,'last_error_class':self.last_error_class,
+                'transport_probe':self.transport_probe,
+                'last_oversize_rejection':self.last_rejection,
                 'legacy_authoritative':True,'redis_authoritative_processing':False,
                 'consumer_db_writes':False,'consumer_ws_broadcast':False,**values,**self.audit.snapshot()}
 

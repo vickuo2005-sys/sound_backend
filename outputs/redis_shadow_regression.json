@@ -1,10 +1,10 @@
 {
   "python": {
-    "tests": 416,
+    "tests": 422,
     "failures": 0,
     "errors": 0,
     "skipped": 1,
-    "passed": 415
+    "passed": 421
   },
   "js": [
     {

@@ -210,3 +210,19 @@ def test_pending_persisted_phase_restores_previously_acked_received_phase(real_s
     assert current.snapshot()['ack_success']==1
     assert current.audit.snapshot()['consume_success']==1
     assert current.audit.snapshot()['recent_observations'][-1]['stream_id']==pending.message_id
+
+
+def test_isolated_transport_probe_recovers_and_retains_only_synthetic_entries(real_shadow):
+    from services.events.redis_shadow_probe import run
+    current,client,url=real_shadow
+    result=run(current.config,LatencyDiagnostics())
+    assert result['status']=='PASS'
+    assert result['pending_before_disconnect']==1 and result['pending_final']==0
+    assert result['ordering_violations']==0 and result['history_replayed']==1
+    assert result['domain_db_writes'] is False and result['websocket_broadcasts'] is False
+    assert result['os_process_killed'] is False
+    assert result['stream']!=current.config.stream
+    assert client.xlen(result['stream'])==2
+    assert client.xlen(current.config.stream)==0
+    assert 'redis://' not in json.dumps(result)
+    client.delete(result['stream'])
