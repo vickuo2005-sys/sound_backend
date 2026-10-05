@@ -98,5 +98,25 @@
   ],
   "compileall": true,
   "diff_check": true,
-  "real_redis_url_logged": false
+  "real_redis_url_logged": false,
+  "commit_under_test": "ae2b81b07cddf32e9a2df7c88979696c591e06c1",
+  "python_command": "python -m pytest -q (full configured tests/tools suite; disposable real Redis configured)",
+  "skip_reason": "isolated local PostgreSQL parameter skipped in broad suite; separately tested: 3 passed",
+  "warnings": "3 pre-existing FastAPI/Pydantic deprecation warnings",
+  "new_tests": {
+    "shadow": 14,
+    "read_only_collector": 5
+  },
+  "failed_attempts": [
+    {
+      "cause": "EventEnvelope rejected observation_token metadata due secret-key suffix guard",
+      "fix": "Use observation_id for a non-secret correlation marker; retain secret guard"
+    },
+    {
+      "cause": "Oversize fixture expected two rejections while persisted fixture was small",
+      "fix": "Use actual oversized canonical saved_event fixture; keep two-rejection assertion"
+    }
+  ],
+  "js_commands": "node tests/test_*.js: 21 scripts; node --check: 2 inline Dashboard scripts",
+  "separate_postgres_file": "redis_shadow_postgres_regression.json"
 }

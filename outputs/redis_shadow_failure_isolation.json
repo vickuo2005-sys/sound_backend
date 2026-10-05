@@ -1,0 +1,17 @@
+{
+  "local_automated_status": "PASS",
+  "covered": [
+    "exact legacy response when disabled",
+    "Redis connection unavailable preserves HTTP 200 and identical response",
+    "bounded full queue visible rejection preserves response",
+    "oversized envelope rejects shadow only",
+    "no domain DB/Fusion/Tracking/WS imports in consumer"
+  ],
+  "real_staging_android_outage_status": "NOT_RUN",
+  "reason": "No physical nodes available",
+  "managed_service_intentionally_stopped": false,
+  "primary_backend_intentionally_stopped": false,
+  "local_redis_pending_recovery_status": "PASS",
+  "managed_pending_recovery_file": "redis_shadow_pending_recovery.json",
+  "cannot_claim_real_android_outage_verified": true
+}

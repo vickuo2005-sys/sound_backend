@@ -1,0 +1,48 @@
+{
+  "status": "NO_REAL_ANDROID_SAMPLES",
+  "real_event_count": 0,
+  "metrics": {
+    "first_position_backend": {
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null,
+      "max_ms": null
+    },
+    "redis_shadow_enqueue_ms": {
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null,
+      "max_ms": null
+    },
+    "redis_shadow_publish_ms": {
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null,
+      "max_ms": null
+    },
+    "redis_shadow_consumer_lag_ms": {
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null,
+      "max_ms": null
+    },
+    "redis_shadow_end_to_end_ms": {
+      "n": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null,
+      "max_ms": null
+    }
+  },
+  "legacy_before": null,
+  "legacy_with_shadow": null,
+  "regression": null,
+  "performance_safe_established": false,
+  "synthetic_probe_excluded": true,
+  "lag_peak_note": "runtime peaks sampled at 1 second, may miss brief PEL/backlog spikes",
+  "bottleneck_conclusion": "Not established; no comparable real-event populations"
+}
