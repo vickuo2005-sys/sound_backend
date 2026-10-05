@@ -11,10 +11,11 @@ const nodes = [
 const lateOccurrence = now - 23000;
 const expiresAt = now + 7000;
 
-// Live-map smoothing must not add almost another second after the backend has
-// already delivered a new target position.
-assert(visuals.MOTION_DURATION_MS > 0 && visuals.MOTION_DURATION_MS <= 250,
-    `live marker motion is too slow: ${visuals.MOTION_DURATION_MS} ms`);
+// Keep Simulation Lab/shared visual timing unchanged, but live operator markers
+// must not add almost another second after the backend has delivered a position.
+assert.equal(visuals.MOTION_DURATION_MS, 850);
+assert(visuals.LIVE_MOTION_DURATION_MS > 0 && visuals.LIVE_MOTION_DURATION_MS <= 250,
+    `live marker motion is too slow: ${visuals.LIVE_MOTION_DURATION_MS} ms`);
 
 const acceptedLateEvent = {
     event_id:'late-event',
