@@ -31,6 +31,20 @@ const lateEvent = {
     alert_accepted_in_time:true,
     alert_expires_at:new Date(expiry).toISOString()
 };
+const staleTrack = {
+    id:'track-1', label:'Drone', status:'active',
+    last_event_time:new Date(occurrence - 1000).toISOString(),
+    points:[{
+        group_id:'g-late', measurement_time_ms:occurrence - 1000,
+        measured_lat:25.0004, measured_lng:121.0004,
+        rejected_as_outlier:false
+    }]
+};
+assert.equal(patch.associatedGroupId(staleTrack), 'g-late');
+assert.equal(patch.groupIsNewerThanAssociatedTrack(staleTrack, group), true);
+assert.equal(patch.groupIsNewerThanAssociatedTrack({...staleTrack,points:[{...staleTrack.points[0],group_id:'other'}]}, group), false,
+    'unrelated tracks must never be suppressed by a different group');
+
 const state = {
     events:[lateEvent],
     groups:new Map([[group.id, group]]),
@@ -81,6 +95,7 @@ const context = vm.createContext({
     freshBackendMultiNodeEvidence:()=>false,
     freshBackendLocatedGroup:()=>false,
     selectedOrLatestGroup:()=>null,
+    isFreshLiveTrack:()=>true,
     handleWebSocketMessage:data=>data,
     renderLatencyDiagnostics:()=>undefined
 });
@@ -91,6 +106,10 @@ assert.equal(evidence.length, 1, 'late but backend-accepted event remains live e
 assert.equal(context.freshBackendMultiNodeEvidence(now), true);
 assert.equal(context.freshBackendLocatedGroup(now), true);
 assert.equal(context.selectedOrLatestGroup().id, group.id);
+assert.equal(context.isFreshLiveTrack(staleTrack, now), false,
+    'a stale track from the same group yields to the newer group position');
+assert.equal(context.isFreshLiveTrack({...staleTrack,points:[{...staleTrack.points[0],group_id:'other'}]}, now), true,
+    'an unrelated track keeps the previous freshness behavior');
 
 context.handleWebSocketMessage({type:'event_group',group,critical_path:{event_id:'event-late'}});
 assert.equal(state.browserGroupVisualSamples.length, 1);
@@ -100,4 +119,4 @@ assert.equal(sample.next_paint_eligible_ms, 32);
 assert.equal(sample.marker_settle_eligible_ms, 264);
 assert.match(patch.percentileText([sample], 'marker_settle_eligible_ms'), /P95 264\.0/);
 
-console.log('Dashboard live-map patch: backend freshness and browser visual milestones passed');
+console.log('Dashboard live-map patch: freshness, source arbitration and browser visual milestones passed');
