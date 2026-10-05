@@ -11,6 +11,7 @@ import secrets
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from time import monotonic, sleep
@@ -84,6 +85,7 @@ from services.realtime import AudioStreamManager, NodeManager, RealtimeCommandSe
 from services.latency_diagnostics import latency_diagnostics
 from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
 from services.events import shadow as event_driven_shadow
+from services.events import redis_shadow
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -92,7 +94,16 @@ from services.staging_write_freeze import (
 )
 
 
-app = FastAPI()
+@asynccontextmanager
+async def application_lifespan(application):
+    redis_shadow.start(latency_diagnostics)
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(redis_shadow.stop)
+
+
+app = FastAPI(lifespan=application_lifespan)
 
 
 APP_ENV = os.getenv("APP_ENV", "").strip().lower()
@@ -9726,6 +9737,8 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
     }
     if event_driven_shadow.flags()[1]:
         event_driven_shadow.observe(latency_diagnostics, "post_ingest", event_id, result)
+    if redis_shadow.enabled():
+        redis_shadow.observe("post_ingest", event_id, result)
     return result
 
 
@@ -10056,6 +10069,7 @@ async def runtime_status():
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
         **({"event_bus": event_bus_snapshot} if event_bus_snapshot is not None else {}),
+        **({"redis_shadow": redis_shadow.snapshot()} if redis_shadow.enabled() else {}),
         "critical_path_diagnostics_enabled": (os.getenv("APP_ENV", "").lower() == "staging" and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true"),
         "staging_write_freeze": {
             "configured": STAGING_WRITE_FREEZE_CONFIGURED,
@@ -10600,6 +10614,8 @@ async def _create_event(
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
     saved_event = result.get("saved_event") or {}
+    if redis_shadow.enabled():
+        redis_shadow.observe("initial", event, result, backend_received_at, request_started_monotonic)
     if event_driven_shadow.flags()[1]:
         event_driven_shadow.observe(
             latency_diagnostics, "persistence", event.model_dump(mode="json"), result, backend_received_at,

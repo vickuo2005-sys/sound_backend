@@ -1,0 +1,102 @@
+{
+  "python": {
+    "tests": 416,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 415
+  },
+  "js": [
+    {
+      "file": "test_critical_path.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_audio_analysis.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_audio_viewer.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_context.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_context_loading.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_sync.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_history_replay.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_latency.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_live_prediction.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_location_picker.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_location_sync.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_map_visuals.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_node_geometry.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_operations.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_overview.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_eta.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_lab.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_lab_controls.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_prediction.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_tracker.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_status.js",
+      "exit_code": 0
+    }
+  ],
+  "inline_js_exit_codes": [
+    0,
+    0
+  ],
+  "compileall": true,
+  "diff_check": true,
+  "real_redis_url_logged": false
+}
