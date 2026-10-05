@@ -117,6 +117,34 @@
         if(typeof DashboardNodeGeometry!=='object')return false;
         root.__dashboardLiveMapPatchInstalled=true;
 
+        // Keep shared/simulation motion timing untouched while shortening only the
+        // live operator marker interpolation. This avoids breaking Simulation Lab
+        // visual parity while removing the extra ~850 ms apparent live-map lag.
+        if(typeof setLiveMarkerTarget==='function'&&root.DashboardMapVisuals){
+            setLiveMarkerTarget=function(key,marker,target,heading=0){
+                if(!marker||!target)return;
+                const now=performance.now(),existing=liveMarkerMotion.get(key),normalizedHeading=((Number(heading)||0)%360+360)%360;
+                if(!existing){
+                    marker.setPosition(target);marker.setIcon(v22DroneTargetIcon(normalizedHeading));
+                    liveMarkerMotion.set(key,{marker,start:{...target},target:{...target},current:{...target},startHeading:normalizedHeading,targetHeading:normalizedHeading,currentHeading:normalizedHeading,startedAt:now,durationMs:1,lastIconAt:now});
+                    return;
+                }
+                const sample=liveMotionSample(existing,now)||{position:existing.current||existing.target,heading:existing.currentHeading||existing.targetHeading||0};
+                const dLat=target.lat-existing.target.lat,dLng=target.lng-existing.target.lng,headingChange=Math.abs(liveHeadingDelta(existing.targetHeading,normalizedHeading));
+                if(Math.hypot(dLat,dLng)<1e-9&&headingChange<.5)return;
+                existing.marker=marker;
+                existing.start={...sample.position};
+                existing.target={...target};
+                existing.current={...sample.position};
+                existing.startHeading=sample.heading;
+                existing.targetHeading=normalizedHeading;
+                existing.currentHeading=sample.heading;
+                existing.startedAt=now;
+                existing.durationMs=Math.max(1,Number(root.DashboardMapVisuals.LIVE_MOTION_DURATION_MS)||200);
+                ensureLiveMarkerAnimation();
+            };
+        }
+
         // The inline dashboard historically re-evaluated freshness from sound occurrence
         // time. Keep the backend's accepted/display-expiry contract authoritative when
         // those fields are present, while preserving the legacy 15 s fallback.
@@ -206,7 +234,7 @@
                     sample.dashboard_next_paint_eligible=frameAt;
                     sample.next_paint_eligible_ms=Math.max(0,frameAt-receivedAt);
                 });
-                const settleDelay=Math.max(0,Number(root.DashboardMapVisuals?.MOTION_DURATION_MS)||0);
+                const settleDelay=Math.max(0,Number(root.DashboardMapVisuals?.LIVE_MOTION_DURATION_MS)||Number(root.DashboardMapVisuals?.MOTION_DURATION_MS)||0);
                 setTimeout(()=>afterTwoFrames(frameAt=>{
                     sample.dashboard_marker_settle_eligible=frameAt;
                     sample.marker_settle_eligible_ms=Math.max(0,frameAt-receivedAt);
