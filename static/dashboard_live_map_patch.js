@@ -16,6 +16,12 @@
         if(list.length>max)list.splice(0,list.length-max);
         return list;
     }
+    function timeMs(value){
+        if(value===null||value===undefined||value==='')return null;
+        if(typeof value==='number')return Number.isFinite(value)?value:null;
+        const parsed=Date.parse(String(value));
+        return Number.isFinite(parsed)?parsed:null;
+    }
     function backendAlertFresh(value,fallbackTime,now=Date.now(),duration=FALLBACK_FRESH_MS){
         const helper=root.DashboardNodeGeometry?.alertFresh;
         if(typeof helper==='function')return helper(value,fallbackTime,now,duration);
@@ -57,6 +63,40 @@
         const lat=Number(group?.region_center_lat??group?.estimated_lat);
         const lng=Number(group?.region_center_lng??group?.estimated_lng);
         return Number.isFinite(lat)&&Number.isFinite(lng);
+    }
+    function associatedGroupId(track){
+        const direct=track?.group_id??track?.last_group_id??track?.event_group_id;
+        if(direct!==null&&direct!==undefined&&String(direct))return String(direct);
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        let winner=null,winnerTime=-Infinity;
+        for(let index=0;index<points.length;index++){
+            const point=points[index];
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false||point.group_id===null||point.group_id===undefined)continue;
+            const measured=timeMs(point.measurement_time_ms)??timeMs(point.measurement_timestamp??point.event_time??point.timestamp??point.created_at)??index;
+            if(measured>=winnerTime){winnerTime=measured;winner=String(point.group_id);}
+        }
+        return winner;
+    }
+    function groupObservationTime(group){
+        return timeMs(group?.last_event_time??group?.end_time??group?.first_event_time??group?.start_time);
+    }
+    function trackObservationTime(track){
+        const direct=timeMs(track?.last_event_time_ms)??timeMs(track?.last_event_time);
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        let latest=direct;
+        for(const point of points){
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false)continue;
+            const measured=timeMs(point.measurement_time_ms)??timeMs(point.measurement_timestamp??point.event_time??point.timestamp??point.created_at);
+            if(measured!==null&&(latest===null||measured>latest))latest=measured;
+        }
+        return latest;
+    }
+    function groupIsNewerThanAssociatedTrack(track,group){
+        if(!track||!group)return false;
+        const id=associatedGroupId(track);
+        if(!id||id!==String(group?.id??group?.group_id??''))return false;
+        const groupTime=groupObservationTime(group),trackTime=trackObservationTime(track);
+        return groupTime!==null&&trackTime!==null&&groupTime>trackTime;
     }
 
     function install(){
@@ -111,6 +151,22 @@
             };
         }
 
+        // A live track should not hide a newer position from the exact same fusion
+        // group. Compare observation timestamps (not backend updated_at) so the two
+        // clocks have the same semantic meaning. Tracks without an explicit group
+        // association keep the previous behavior.
+        if(typeof isFreshLiveTrack==='function'){
+            const baseTrackFresh=isFreshLiveTrack;
+            isFreshLiveTrack=function(track,now=Date.now()){
+                if(!baseTrackFresh(track,now))return false;
+                const groupId=associatedGroupId(track);
+                if(!groupId)return true;
+                const group=state.groups.get(String(groupId));
+                if(!group||terminalGroup(group)||!groupLocation(group)||!backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS))return true;
+                return !groupIsNewerThanAssociatedTrack(track,group);
+            };
+        }
+
         // Keep the existing synchronous metric, then add two browser-side milestones:
         // (1) two requestAnimationFrame boundaries after the WS handler, and
         // (2) the first two-frame boundary after the configured marker interpolation.
@@ -155,7 +211,10 @@
         return true;
     }
 
-    const api=Object.freeze({FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,backendAlertFresh,percentileText,afterTwoFrames,install});
+    const api=Object.freeze({
+        FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
+        associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
+    });
     if(typeof module==='object'&&module.exports)module.exports=api;
     else{
         root.DashboardLiveMapPatch=api;
