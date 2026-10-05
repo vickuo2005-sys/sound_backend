@@ -33,10 +33,25 @@ jobs:
           node-version: '20'
 
       - name: Install Python dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt pytest pytest-asyncio httpx2
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pytest pytest-asyncio httpx2 redis
 
       - name: Python tests
-        run: python -m pytest -q
+        run: python -m pytest -q -k 'not stale_fixed_location_cache_does_not_block_fast_ingest'
+
+      - name: Uptime-sensitive existing cache test
+        shell: bash
+        run: |
+          # This pre-existing test constructs cached_at = monotonic() - 61 and also
+          # requires cached_at > 0. Fresh hosted runners can have <61 s uptime.
+          # Wait only in this temporary validation workflow rather than changing
+          # unrelated production code or weakening the assertion.
+          python - <<'PY'
+          import time
+          remaining=max(0.0,62.0-time.monotonic())
+          print(f'waiting {remaining:.1f}s for monotonic() > 61s')
+          time.sleep(remaining)
+          PY
+          python -m pytest -q tests/test_post_inference_latency.py::test_stale_fixed_location_cache_does_not_block_fast_ingest
 
       - name: JavaScript tests
         shell: bash
