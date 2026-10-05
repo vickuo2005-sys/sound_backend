@@ -12,7 +12,9 @@
         estimate:'#60A5FA',
         truth:'#FBBF24'
     });
-    const MOTION_DURATION_MS=850;
+    // Keep live-map motion readable without making the operator wait almost a second
+    // for the marker to reach a position that the backend has already published.
+    const MOTION_DURATION_MS=200;
     const PULSE_INTERVAL_MS=100;
 
     const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
