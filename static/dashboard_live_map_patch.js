@@ -1,0 +1,164 @@
+(function(root){
+    'use strict';
+
+    const FALLBACK_FRESH_MS=15000;
+    const MAX_SAMPLES=256;
+
+    function nearestRank(values,percentile){
+        const sorted=(Array.isArray(values)?values:[]).filter(Number.isFinite).slice().sort((a,b)=>a-b);
+        if(!sorted.length)return null;
+        const p=Math.max(0,Math.min(1,Number(percentile)||0));
+        const index=Math.min(sorted.length-1,Math.max(0,Math.ceil(sorted.length*p)-1));
+        return sorted[index];
+    }
+    function pushBounded(list,value,max=MAX_SAMPLES){
+        list.push(value);
+        if(list.length>max)list.splice(0,list.length-max);
+        return list;
+    }
+    function backendAlertFresh(value,fallbackTime,now=Date.now(),duration=FALLBACK_FRESH_MS){
+        const helper=root.DashboardNodeGeometry?.alertFresh;
+        if(typeof helper==='function')return helper(value,fallbackTime,now,duration);
+        return Number.isFinite(fallbackTime)&&Number.isFinite(now)&&now-fallbackTime>=-2000&&now-fallbackTime<=duration;
+    }
+    function terminalGroup(group){
+        return ['closed','expired','ended','inactive'].includes(String(group?.status||'').toLowerCase());
+    }
+    function percentileText(samples,key){
+        const values=(samples||[]).map(sample=>sample?.[key]).filter(Number.isFinite);
+        const p50=nearestRank(values,.50),p95=nearestRank(values,.95),p99=nearestRank(values,.99);
+        return p95===null?'尚無樣本':`P50 ${p50.toFixed(1)} · P95 ${p95.toFixed(1)} · P99 ${p99.toFixed(1)} ms · n=${values.length}`;
+    }
+    function metricRow(id,label,text){
+        if(typeof document==='undefined')return;
+        const target=document.getElementById('latencyDiagnosticsList');
+        if(!target)return;
+        let row=document.getElementById(id);
+        if(!row){
+            row=document.createElement('div');
+            row.id=id;
+            row.className='health-row';
+            const name=document.createElement('span');
+            const value=document.createElement('span');
+            value.className='health-state';
+            row.append(name,value);
+            target.append(row);
+        }
+        row.firstElementChild.textContent=label;
+        row.lastElementChild.textContent=text;
+    }
+    function afterTwoFrames(callback){
+        const raf=typeof root.requestAnimationFrame==='function'
+            ? root.requestAnimationFrame.bind(root)
+            : fn=>setTimeout(()=>fn((root.performance?.now?.()||Date.now())),16);
+        raf(()=>raf(timestamp=>callback(Number.isFinite(timestamp)?timestamp:(root.performance?.now?.()||Date.now()))));
+    }
+    function groupHasLocation(group){
+        const lat=Number(group?.region_center_lat??group?.estimated_lat);
+        const lng=Number(group?.region_center_lng??group?.estimated_lng);
+        return Number.isFinite(lat)&&Number.isFinite(lng);
+    }
+
+    function install(){
+        if(typeof root.document==='undefined')return false;
+        if(root.__dashboardLiveMapPatchInstalled)return true;
+        if(typeof DashboardNodeGeometry!=='object')return false;
+        root.__dashboardLiveMapPatchInstalled=true;
+
+        // The inline dashboard historically re-evaluated freshness from sound occurrence
+        // time. Keep the backend's accepted/display-expiry contract authoritative when
+        // those fields are present, while preserving the legacy 15 s fallback.
+        if(typeof liveDroneSensorEvidence==='function'){
+            liveDroneSensorEvidence=function(now=Date.now()){
+                const byDevice=new Map(),devices=new Map(canonicalDevices().map(device=>[String(device.device_id),device]));
+                for(const event of state.events){
+                    if(!['drone','aircraft'].includes(String(classLabel(event)||'').toLowerCase()))continue;
+                    const time=eventTime(event),id=String(event?.device_id||'');
+                    if(!id||!backendAlertFresh(event,time,now,FALLBACK_FRESH_MS))continue;
+                    const device=devices.get(id),position=device?nodeLocation(device):null;
+                    if(!device||!deviceOnline(device)||!position)continue;
+                    const previous=byDevice.get(id);
+                    if(!previous||time>previous.time)byDevice.set(id,{device,event,time,position});
+                }
+                return [...byDevice.values()];
+            };
+        }
+        if(typeof freshBackendMultiNodeEvidence==='function'){
+            freshBackendMultiNodeEvidence=function(now=Date.now()){
+                return [...state.groups.values()].some(group=>
+                    isLiveTargetGroup(group)&&groupDeviceIds(group).length>=2&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                );
+            };
+        }
+        if(typeof freshBackendLocatedGroup==='function'){
+            freshBackendLocatedGroup=function(now=Date.now()){
+                return [...state.groups.values()].some(group=>
+                    isLiveTargetGroup(group)&&groupLocation(group)&&groupDeviceIds(group).length>=2&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                );
+            };
+        }
+        if(typeof selectedOrLatestGroup==='function'){
+            selectedOrLatestGroup=function(){
+                const selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
+                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected))return selected;
+                const now=Date.now();
+                return [...state.groups.values()].filter(group=>
+                    isLiveTargetGroup(group)&&groupLocation(group)&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                ).sort((a,b)=>groupTime(b)-groupTime(a))[0]||null;
+            };
+        }
+
+        // Keep the existing synchronous metric, then add two browser-side milestones:
+        // (1) two requestAnimationFrame boundaries after the WS handler, and
+        // (2) the first two-frame boundary after the configured marker interpolation.
+        // These are deliberately named "eligible" because browsers do not expose an
+        // exact user-visible paint timestamp for Google Maps overlays.
+        if(typeof handleWebSocketMessage==='function'){
+            const baseHandle=handleWebSocketMessage;
+            handleWebSocketMessage=function(data){
+                const measure=data?.type==='event_group'&&groupHasLocation(data.group||data)&&
+                    state.runtime?.critical_path_diagnostics_enabled===true;
+                const receivedAt=measure?(root.performance?.now?.()||0):null;
+                const result=baseHandle(data);
+                if(!measure||!Number.isFinite(receivedAt))return result;
+                const eventId=String(data?.critical_path?.event_id||'');
+                const samples=state.browserGroupVisualSamples||(state.browserGroupVisualSamples=[]);
+                const sample={event_id:eventId,dashboard_event_group_received:receivedAt};
+                pushBounded(samples,sample);
+                afterTwoFrames(frameAt=>{
+                    sample.dashboard_next_paint_eligible=frameAt;
+                    sample.next_paint_eligible_ms=Math.max(0,frameAt-receivedAt);
+                });
+                const settleDelay=Math.max(0,Number(root.DashboardMapVisuals?.MOTION_DURATION_MS)||0);
+                setTimeout(()=>afterTwoFrames(frameAt=>{
+                    sample.dashboard_marker_settle_eligible=frameAt;
+                    sample.marker_settle_eligible_ms=Math.max(0,frameAt-receivedAt);
+                }),settleDelay);
+                return result;
+            };
+        }
+        if(typeof renderLatencyDiagnostics==='function'){
+            const baseRenderLatency=renderLatencyDiagnostics;
+            renderLatencyDiagnostics=function(){
+                const result=baseRenderLatency.apply(this,arguments);
+                if(state.runtime?.critical_path_diagnostics_enabled===true){
+                    const samples=state.browserGroupVisualSamples||[];
+                    metricRow('browserNextPaintEligibleLatency','Browser group map next-paint eligible',percentileText(samples,'next_paint_eligible_ms'));
+                    metricRow('browserMarkerSettleEligibleLatency','Browser group marker settle eligible',percentileText(samples,'marker_settle_eligible_ms'));
+                }
+                return result;
+            };
+        }
+        return true;
+    }
+
+    const api=Object.freeze({FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,backendAlertFresh,percentileText,afterTwoFrames,install});
+    if(typeof module==='object'&&module.exports)module.exports=api;
+    else{
+        root.DashboardLiveMapPatch=api;
+        install();
+    }
+})(typeof globalThis==='object'?globalThis:this);
