@@ -12,9 +12,11 @@
         estimate:'#60A5FA',
         truth:'#FBBF24'
     });
-    // Keep live-map motion readable without making the operator wait almost a second
-    // for the marker to reach a position that the backend has already published.
-    const MOTION_DURATION_MS=200;
+    // Keep the original shared/simulation duration for visual parity. Live operator
+    // markers use a shorter duration so an already-published position is not hidden
+    // behind almost another second of interpolation.
+    const MOTION_DURATION_MS=850;
+    const LIVE_MOTION_DURATION_MS=200;
     const PULSE_INTERVAL_MS=100;
 
     const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
@@ -90,7 +92,7 @@
     }
 
     const api=Object.freeze({
-        DRONE_PATH,NODE_PATH,COLORS,MOTION_DURATION_MS,PULSE_INTERVAL_MS,
+        DRONE_PATH,NODE_PATH,COLORS,MOTION_DURATION_MS,LIVE_MOTION_DURATION_MS,PULSE_INTERVAL_MS,
         pulseAt,nodeVisual,pulseRingStyle,regionStyle,smoothStep,headingDelta,sampleMotion
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
