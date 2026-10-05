@@ -1,0 +1,52 @@
+name: Dashboard Fix Validation
+
+on:
+  push:
+    branches:
+      - fix/dashboard-alert-map-latency
+  pull_request:
+    branches:
+      - feat/event-driven-redis-staging-shadow
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+
+      - name: Python tests
+        run: python -m pytest -q
+
+      - name: JavaScript tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in tests/js/*.js; do
+            echo "==> $test_file"
+            node "$test_file"
+          done
+
+      - name: Compile dashboard Python
+        run: python -m py_compile services/dashboard_v2_4.py
+
+      - name: Git diff check
+        run: git diff --check HEAD^ HEAD
