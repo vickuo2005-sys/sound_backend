@@ -8,8 +8,10 @@ const patch = require('../../static/dashboard_live_map_patch.js');
 assert.equal(patch.liveNodeEligible({device_id:'A',status:'online',is_listening:true}), true);
 assert.equal(patch.liveNodeEligible({device_id:'A',status:'event',is_listening:false}), false);
 assert.equal(patch.liveNodeEligible({device_id:'A',status:'event',websocket_connected:false}), false);
-assert.equal(patch.liveNodeEligible({device_id:'A',status:'online',recording:false,detection_enabled:false}), false);
+assert.equal(patch.liveNodeEligible({device_id:'A',status:'online',recording:false,detection_enabled:false}), true,
+    'phase telemetry may be idle while an accepted event is processing/uploading');
 assert.equal(patch.liveNodeEligible({device_id:'A',status:'online',recording:false,detection_enabled:true}), true);
+assert.equal(patch.liveNodeEligible({device_id:'A',status:'online',app_status:'stopped'}), false);
 
 const group = {
     id:'g-stop', status:'ACTIVE', label:'Drone',
@@ -92,7 +94,7 @@ assert.equal(state.events.length,2,'render filtering restores the canonical even
 devices[0].is_listening=false;
 devices[0].recording=false;
 devices[0].detection_enabled=false;
-assert.equal(context.selectedOrLatestGroup(),null,'no live group remains once every node is stopped');
+assert.equal(context.selectedOrLatestGroup(),null,'no live group remains once every node is explicitly stopped');
 assert.equal(context.isFreshLiveTrack({id:'t1',group_id:'g-stop',status:'active',last_event_time:now},now),false,
     'track associated with an all-stopped group is no longer a live-map source');
 
