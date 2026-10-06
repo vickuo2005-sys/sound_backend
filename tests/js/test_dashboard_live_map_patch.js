@@ -11,6 +11,19 @@ for (let index = 0; index < 300; index++) patch.pushBounded(bounded, index, 256)
 assert.equal(bounded.length, 256);
 assert.equal(bounded[0], 44);
 
+assert.equal(patch.liveNodeEligible({status:'online',recording:false,detection_enabled:false}), true,
+    'processing/upload phase flags must not be mistaken for an operator stop');
+assert.equal(patch.liveNodeEligible({status:'event',recording:false,detection_enabled:false,is_listening:true}), true,
+    'an accepted event may be uploading while capture is temporarily idle');
+assert.equal(patch.liveNodeEligible({status:'online',is_listening:false}), false,
+    'explicit listening stop removes the node from live warning');
+assert.equal(patch.liveNodeEligible({status:'online',app_status:'stopped'}), false,
+    'explicit app stopped state removes the node from live warning');
+assert.equal(patch.liveNodeEligible({status:'online',websocket_connected:false}), false,
+    'explicit websocket disconnect removes the node from live warning');
+assert.equal(patch.liveNodeEligible({status:'offline'}), false,
+    'offline node removes itself from live warning');
+
 const source = fs.readFileSync(path.join(__dirname, '../../static/dashboard_live_map_patch.js'), 'utf8');
 const now = Date.now();
 const occurrence = now - 23000;
@@ -131,4 +144,4 @@ assert.equal(trackSample.entity_id, 'track-1');
 assert.equal(trackSample.next_paint_eligible_ms, 32);
 assert.equal(trackSample.marker_settle_eligible_ms, 264);
 
-console.log('Dashboard live-map patch: freshness, source arbitration and group/track visual milestones passed');
+console.log('Dashboard live-map patch: freshness, live-node phase handling, source arbitration and group/track visual milestones passed');
