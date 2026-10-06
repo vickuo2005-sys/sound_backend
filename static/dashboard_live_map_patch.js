@@ -30,6 +30,55 @@
     function terminalGroup(group){
         return ['closed','expired','ended','inactive'].includes(String(group?.status||'').toLowerCase());
     }
+    function liveNodeEligible(node){
+        if(!node)return false;
+        const status=String(node?.status||'').trim().toLowerCase();
+        const availability=String(node?.availability_status||'').trim().toLowerCase();
+        const appStatus=String(node?.app_status||'').trim().toLowerCase();
+        if(node?.websocket_connected===false)return false;
+        if(node?.is_listening===false)return false;
+        if(['offline','disconnected'].includes(status))return false;
+        if(availability==='offline')return false;
+        if(['stopped','disabled','off'].includes(appStatus))return false;
+        if(node?.recording===false&&node?.detection_enabled!==true&&node?.is_listening!==true)return false;
+        if(node?.detection_enabled===false&&node?.recording!==true&&node?.is_listening!==true)return false;
+        return true;
+    }
+    function rawGroupDeviceIds(group){
+        const candidates=[group?.active_device_ids,group?.reporting_device_ids,group?.device_ids,group?.devices,group?.member_device_ids];
+        for(let candidate of candidates){
+            if(typeof candidate==='string'&&candidate.trim()){
+                try{candidate=JSON.parse(candidate);}catch(_){candidate=candidate.split(',');}
+            }
+            if(Array.isArray(candidate)){
+                return [...new Set(candidate.map(value=>typeof value==='object'?value?.device_id:value).filter(Boolean).map(value=>String(value).trim()).filter(Boolean))];
+            }
+        }
+        return [];
+    }
+    function liveGroupDeviceIdsFrom(group,devices=[]){
+        const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+        if(!byId.size)return rawGroupDeviceIds(group);
+        return rawGroupDeviceIds(group).filter(id=>{
+            const device=byId.get(String(id));
+            return Boolean(device&&liveNodeEligible(device));
+        });
+    }
+    function sanitizeGroupForLive(group,devices=[]){
+        if(!group||typeof group!=='object')return group;
+        return {...group,active_device_ids:liveGroupDeviceIdsFrom(group,devices)};
+    }
+    function sanitizeEventsForLive(events,devices=[]){
+        if(!Array.isArray(events))return events;
+        const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+        if(!byId.size)return events;
+        return events.filter(event=>{
+            const id=String(event?.device_id||'');
+            if(!id)return true;
+            const device=byId.get(id);
+            return Boolean(device&&liveNodeEligible(device));
+        });
+    }
     function percentileText(samples,key){
         const values=(samples||[]).map(sample=>sample?.[key]).filter(Number.isFinite);
         const p50=nearestRank(values,.50),p95=nearestRank(values,.95),p99=nearestRank(values,.99);
@@ -117,6 +166,12 @@
         if(typeof DashboardNodeGeometry!=='object')return false;
         root.__dashboardLiveMapPatchInstalled=true;
 
+        const currentDevices=()=>{
+            try{return typeof canonicalDevices==='function'?canonicalDevices():[];}
+            catch(_){return [];}
+        };
+        const liveGroupIds=group=>liveGroupDeviceIdsFrom(group,currentDevices());
+
         // Keep shared/simulation motion timing untouched while shortening only the
         // live operator marker interpolation. This avoids breaking Simulation Lab
         // visual parity while removing the extra ~850 ms apparent live-map lag.
@@ -145,18 +200,39 @@
             };
         }
 
+        // A backend group is historical evidence; a live warning must also respect
+        // the node's current runtime state. When a node stops listening or disconnects,
+        // it must leave the live line/polygon immediately instead of waiting for the
+        // group's alert hold timer to expire.
+        if(typeof renderMap==='function'){
+            const baseRenderMap=renderMap;
+            renderMap=function(){
+                const devices=currentDevices();
+                const originalGroups=state.groups,originalEvents=state.events;
+                if(originalGroups instanceof Map){
+                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices)]));
+                }
+                state.events=sanitizeEventsForLive(originalEvents,devices);
+                try{return baseRenderMap.apply(this,arguments);}
+                finally{
+                    state.groups=originalGroups;
+                    state.events=originalEvents;
+                }
+            };
+        }
+
         // The inline dashboard historically re-evaluated freshness from sound occurrence
         // time. Keep the backend's accepted/display-expiry contract authoritative when
         // those fields are present, while preserving the legacy 15 s fallback.
         if(typeof liveDroneSensorEvidence==='function'){
             liveDroneSensorEvidence=function(now=Date.now()){
-                const byDevice=new Map(),devices=new Map(canonicalDevices().map(device=>[String(device.device_id),device]));
+                const byDevice=new Map(),devices=new Map(currentDevices().map(device=>[String(device.device_id),device]));
                 for(const event of state.events){
                     if(!['drone','aircraft'].includes(String(classLabel(event)||'').toLowerCase()))continue;
                     const time=eventTime(event),id=String(event?.device_id||'');
                     if(!id||!backendAlertFresh(event,time,now,FALLBACK_FRESH_MS))continue;
                     const device=devices.get(id),position=device?nodeLocation(device):null;
-                    if(!device||!deviceOnline(device)||!position)continue;
+                    if(!device||!liveNodeEligible(device)||!deviceOnline(device)||!position)continue;
                     const previous=byDevice.get(id);
                     if(!previous||time>previous.time)byDevice.set(id,{device,event,time,position});
                 }
@@ -166,7 +242,7 @@
         if(typeof freshBackendMultiNodeEvidence==='function'){
             freshBackendMultiNodeEvidence=function(now=Date.now()){
                 return [...state.groups.values()].some(group=>
-                    isLiveTargetGroup(group)&&groupDeviceIds(group).length>=2&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&liveGroupIds(group).length>=2&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 );
             };
@@ -174,7 +250,7 @@
         if(typeof freshBackendLocatedGroup==='function'){
             freshBackendLocatedGroup=function(now=Date.now()){
                 return [...state.groups.values()].some(group=>
-                    isLiveTargetGroup(group)&&groupLocation(group)&&groupDeviceIds(group).length>=2&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group).length>=2&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 );
             };
@@ -182,10 +258,10 @@
         if(typeof selectedOrLatestGroup==='function'){
             selectedOrLatestGroup=function(){
                 const selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
-                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected))return selected;
+                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected)&&liveGroupIds(selected).length>0)return selected;
                 const now=Date.now();
                 return [...state.groups.values()].filter(group=>
-                    isLiveTargetGroup(group)&&groupLocation(group)&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group).length>0&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 ).sort((a,b)=>groupTime(b)-groupTime(a))[0]||null;
             };
@@ -193,8 +269,8 @@
 
         // A live track should not hide a newer position from the exact same fusion
         // group. Compare observation timestamps (not backend updated_at) so the two
-        // clocks have the same semantic meaning. Tracks without an explicit group
-        // association keep the previous behavior.
+        // clocks have the same semantic meaning. Once every source node for an
+        // associated group has stopped, the live track also stops being eligible.
         if(typeof isFreshLiveTrack==='function'){
             const baseTrackFresh=isFreshLiveTrack;
             isFreshLiveTrack=function(track,now=Date.now()){
@@ -202,6 +278,7 @@
                 const groupId=associatedGroupId(track);
                 if(!groupId)return true;
                 const group=state.groups.get(String(groupId));
+                if(group&&liveGroupIds(group).length===0)return false;
                 if(!group||terminalGroup(group)||!groupLocation(group)||!backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS))return true;
                 return !groupIsNewerThanAssociatedTrack(track,group);
             };
@@ -262,6 +339,7 @@
 
     const api=Object.freeze({
         FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
+        liveNodeEligible,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,
         groupHasLocation,trackHasLocation,associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
