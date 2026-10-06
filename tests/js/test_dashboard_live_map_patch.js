@@ -12,7 +12,7 @@ assert.equal(bounded.length, 256);
 assert.equal(bounded[0], 44);
 
 const source = fs.readFileSync(path.join(__dirname, '../../static/dashboard_live_map_patch.js'), 'utf8');
-const now = Date.parse('2026-10-06T00:00:30Z');
+const now = Date.now();
 const occurrence = now - 23000;
 const expiry = now + 7000;
 let perf = 100;
