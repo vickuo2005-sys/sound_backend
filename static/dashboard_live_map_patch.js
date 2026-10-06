@@ -40,8 +40,10 @@
         if(['offline','disconnected'].includes(status))return false;
         if(availability==='offline')return false;
         if(['stopped','disabled','off'].includes(appStatus))return false;
-        if(node?.recording===false&&node?.detection_enabled!==true&&node?.is_listening!==true)return false;
-        if(node?.detection_enabled===false&&node?.recording!==true&&node?.is_listening!==true)return false;
+        // `recording` and `detection_enabled` are phase-level telemetry, not an
+        // authoritative operator stop signal. They can legitimately be false while
+        // the app is processing inference or uploading an accepted event. Only the
+        // explicit stop/disconnect signals above may remove a node from live warning.
         return true;
     }
     function rawGroupDeviceIds(group){
