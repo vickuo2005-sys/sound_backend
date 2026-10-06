@@ -2,6 +2,7 @@
     'use strict';
 
     const FALLBACK_FRESH_MS=15000;
+    const DETECTION_STATE_STALE_MS=4000;
     const MAX_SAMPLES=256;
 
     function nearestRank(values,percentile){
@@ -16,9 +17,16 @@
         if(list.length>max)list.splice(0,list.length-max);
         return list;
     }
+    function numberOrNull(value){
+        if(value===null||value===undefined||value===''||typeof value==='boolean')return null;
+        const parsed=Number(value);
+        return Number.isFinite(parsed)?parsed:null;
+    }
     function timeMs(value){
         if(value===null||value===undefined||value==='')return null;
         if(typeof value==='number')return Number.isFinite(value)?value:null;
+        const numeric=numberOrNull(value);
+        if(numeric!==null&&/^[-+]?\d+(?:\.\d+)?$/.test(String(value).trim()))return numeric;
         const parsed=Date.parse(String(value));
         return Number.isFinite(parsed)?parsed:null;
     }
@@ -40,11 +48,27 @@
         if(['offline','disconnected'].includes(status))return false;
         if(availability==='offline')return false;
         if(['stopped','disabled','off'].includes(appStatus))return false;
-        // `recording` and `detection_enabled` are phase-level telemetry, not an
-        // authoritative operator stop signal. They can legitimately be false while
-        // the app is processing inference or uploading an accepted event. Only the
-        // explicit stop/disconnect signals above may remove a node from live warning.
         return true;
+    }
+    function detectionStatePayload(node){
+        if(!node||typeof node!=='object')return {};
+        const nested=node.detection_state&&typeof node.detection_state==='object'?node.detection_state:{};
+        return {
+            active:typeof nested.active==='boolean'?nested.active:(typeof node.detection_active==='boolean'?node.detection_active:null),
+            sequence:numberOrNull(nested.sequence??node.detection_sequence),
+            observedAtMs:timeMs(nested.observed_at_ms??node.detection_observed_at_ms),
+            receivedAtMs:timeMs(nested.received_at_ms??node.detection_state_received_at_ms),
+            label:nested.label??node.detection_label??null,
+            confidence:numberOrNull(nested.confidence??node.detection_confidence)
+        };
+    }
+    function realtimeDetectionState(node,now=Date.now(),staleMs=DETECTION_STATE_STALE_MS){
+        const state=detectionStatePayload(node);
+        const supported=typeof state.active==='boolean'&&state.receivedAtMs!==null;
+        if(!supported)return {...state,supported:false,stale:false,active:false};
+        const age=now-state.receivedAtMs;
+        const stale=!Number.isFinite(age)||age<-2000||age>staleMs;
+        return {...state,supported:true,stale,ageMs:age,active:liveNodeEligible(node)&&!stale&&state.active===true};
     }
     function rawGroupDeviceIds(group){
         const candidates=[group?.active_device_ids,group?.reporting_device_ids,group?.device_ids,group?.devices,group?.member_device_ids];
@@ -58,19 +82,21 @@
         }
         return [];
     }
-    function liveGroupDeviceIdsFrom(group,devices=[]){
+    function liveGroupDeviceIdsFrom(group,devices=[],now=Date.now()){
         const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
         if(!byId.size)return rawGroupDeviceIds(group);
         return rawGroupDeviceIds(group).filter(id=>{
             const device=byId.get(String(id));
-            return Boolean(device&&liveNodeEligible(device));
+            if(!device)return false;
+            const realtime=realtimeDetectionState(device,now);
+            return realtime.supported?realtime.active:liveNodeEligible(device);
         });
     }
-    function sanitizeGroupForLive(group,devices=[]){
+    function sanitizeGroupForLive(group,devices=[],now=Date.now()){
         if(!group||typeof group!=='object')return group;
-        return {...group,active_device_ids:liveGroupDeviceIdsFrom(group,devices)};
+        return {...group,active_device_ids:liveGroupDeviceIdsFrom(group,devices,now)};
     }
-    function sanitizeEventsForLive(events,devices=[]){
+    function sanitizeEventsForLive(events,devices=[],now=Date.now()){
         if(!Array.isArray(events))return events;
         const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
         if(!byId.size)return events;
@@ -78,7 +104,9 @@
             const id=String(event?.device_id||'');
             if(!id)return true;
             const device=byId.get(id);
-            return Boolean(device&&liveNodeEligible(device));
+            if(!device)return false;
+            const realtime=realtimeDetectionState(device,now);
+            return realtime.supported?realtime.active:liveNodeEligible(device);
         });
     }
     function percentileText(samples,key){
@@ -172,11 +200,46 @@
             try{return typeof canonicalDevices==='function'?canonicalDevices():[];}
             catch(_){return [];}
         };
-        const liveGroupIds=group=>liveGroupDeviceIdsFrom(group,currentDevices());
+        const liveGroupIds=(group,now=Date.now())=>liveGroupDeviceIdsFrom(group,currentDevices(),now);
+        const detectionStaleTimers=new Map();
+        const detectionTimerSignatures=new Map();
+
+        function applyRealtimeNodeMarkerState(devices,now){
+            if(typeof nodeMarkers!=='object'||typeof nodeMarkerIcon!=='function')return;
+            if(typeof simulationIsVisible==='function'&&simulationIsVisible())return;
+            const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+            nodeMarkers.forEach((marker,id)=>{
+                const device=byId.get(String(id));
+                if(!device||!marker)return;
+                const realtime=realtimeDetectionState(device,now);
+                if(!realtime.supported)return;
+                const online=typeof deviceOnline==='function'?deviceOnline(device):liveNodeEligible(device);
+                marker.setIcon(nodeMarkerIcon(device,online,online&&realtime.active));
+                marker.__dashboardAlertKey=`${online?'1':'0'}:${online&&realtime.active?'1':'0'}`;
+            });
+        }
+        function scheduleDetectionStaleRender(node){
+            const realtime=realtimeDetectionState(node,Date.now());
+            if(!realtime.supported)return;
+            const id=String(node?.device_id||'');
+            if(!id)return;
+            const signature=`${realtime.sequence??'none'}:${realtime.receivedAtMs}`;
+            if(detectionTimerSignatures.get(id)===signature)return;
+            detectionTimerSignatures.set(id,signature);
+            const old=detectionStaleTimers.get(id);
+            if(old!==undefined)clearTimeout(old);
+            if(!realtime.active)return;
+            const remaining=Math.min(DETECTION_STATE_STALE_MS,Math.max(0,DETECTION_STATE_STALE_MS-Math.max(0,realtime.ageMs||0)));
+            const timer=setTimeout(()=>{
+                detectionStaleTimers.delete(id);
+                try{if(typeof renderLiveDetection==='function')renderLiveDetection();}catch(_){}
+                try{if(typeof renderMap==='function')renderMap();}catch(_){}
+            },remaining+50);
+            detectionStaleTimers.set(id,timer);
+        }
 
         // Keep shared/simulation motion timing untouched while shortening only the
-        // live operator marker interpolation. This avoids breaking Simulation Lab
-        // visual parity while removing the extra ~850 ms apparent live-map lag.
+        // live operator marker interpolation.
         if(typeof setLiveMarkerTarget==='function'&&root.DashboardMapVisuals){
             setLiveMarkerTarget=function(key,marker,target,heading=0){
                 if(!marker||!target)return;
@@ -202,41 +265,79 @@
             };
         }
 
-        // A backend group is historical evidence; a live warning must also respect
-        // the node's current runtime state. When a node stops listening or disconnects,
-        // it must leave the live line/polygon immediately instead of waiting for the
-        // group's alert hold timer to expire.
+        // Historical events/groups stay in state for audit/history, but when a node
+        // supports inference-window telemetry its current true/false state is the
+        // authoritative source for live warning membership.
         if(typeof renderMap==='function'){
             const baseRenderMap=renderMap;
             renderMap=function(){
-                const devices=currentDevices();
+                const now=Date.now(),devices=currentDevices();
                 const originalGroups=state.groups,originalEvents=state.events;
                 if(originalGroups instanceof Map){
-                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices)]));
+                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
                 }
-                state.events=sanitizeEventsForLive(originalEvents,devices);
-                try{return baseRenderMap.apply(this,arguments);}
-                finally{
+                state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                try{
+                    const result=baseRenderMap.apply(this,arguments);
+                    applyRealtimeNodeMarkerState(devices,now);
+                    return result;
+                }finally{
                     state.groups=originalGroups;
                     state.events=originalEvents;
                 }
             };
         }
+        if(typeof renderCoordinateFallback==='function'){
+            const baseFallback=renderCoordinateFallback;
+            renderCoordinateFallback=function(){
+                const now=Date.now(),devices=currentDevices();
+                const originalGroups=state.groups,originalEvents=state.events;
+                if(originalGroups instanceof Map){
+                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
+                }
+                state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                try{return baseFallback.apply(this,arguments);}
+                finally{state.groups=originalGroups;state.events=originalEvents;}
+            };
+        }
 
-        // The inline dashboard historically re-evaluated freshness from sound occurrence
-        // time. Keep the backend's accepted/display-expiry contract authoritative when
-        // those fields are present, while preserving the legacy 15 s fallback.
         if(typeof liveDroneSensorEvidence==='function'){
             liveDroneSensorEvidence=function(now=Date.now()){
                 const byDevice=new Map(),devices=new Map(currentDevices().map(device=>[String(device.device_id),device]));
+
+                // New contract: one state per inference window. Positive becomes live
+                // immediately; the following negative window removes it immediately.
+                for(const [id,device] of devices){
+                    const realtime=realtimeDetectionState(device,now);
+                    if(!realtime.supported||!realtime.active)continue;
+                    const position=nodeLocation(device);
+                    if(!position)continue;
+                    const time=realtime.observedAtMs??realtime.receivedAtMs??now;
+                    const label=String(realtime.label||'Drone');
+                    byDevice.set(id,{
+                        device,
+                        event:{device_id:id,label,classification:{model_label:label},realtime_detection_state:true},
+                        time,
+                        position,
+                        realtime:true
+                    });
+                }
+
+                // Legacy nodes that have not yet shipped the realtime contract keep
+                // the old event-based behavior during migration. A node that supports
+                // realtime state is never revived by historical event freshness.
                 for(const event of state.events){
-                    if(!['drone','aircraft'].includes(String(classLabel(event)||'').toLowerCase()))continue;
-                    const time=eventTime(event),id=String(event?.device_id||'');
-                    if(!id||!backendAlertFresh(event,time,now,FALLBACK_FRESH_MS))continue;
-                    const device=devices.get(id),position=device?nodeLocation(device):null;
+                    const id=String(event?.device_id||'');
+                    if(!id||byDevice.has(id))continue;
+                    const device=devices.get(id),realtime=realtimeDetectionState(device,now);
+                    if(realtime.supported)continue;
+                    if(!['drone','aircraft','airplane'].includes(String(classLabel(event)||'').toLowerCase()))continue;
+                    const time=eventTime(event);
+                    if(!backendAlertFresh(event,time,now,FALLBACK_FRESH_MS))continue;
+                    const position=device?nodeLocation(device):null;
                     if(!device||!liveNodeEligible(device)||!deviceOnline(device)||!position)continue;
                     const previous=byDevice.get(id);
-                    if(!previous||time>previous.time)byDevice.set(id,{device,event,time,position});
+                    if(!previous||time>previous.time)byDevice.set(id,{device,event,time,position,realtime:false});
                 }
                 return [...byDevice.values()];
             };
@@ -244,7 +345,7 @@
         if(typeof freshBackendMultiNodeEvidence==='function'){
             freshBackendMultiNodeEvidence=function(now=Date.now()){
                 return [...state.groups.values()].some(group=>
-                    isLiveTargetGroup(group)&&liveGroupIds(group).length>=2&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&liveGroupIds(group,now).length>=2&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 );
             };
@@ -252,27 +353,22 @@
         if(typeof freshBackendLocatedGroup==='function'){
             freshBackendLocatedGroup=function(now=Date.now()){
                 return [...state.groups.values()].some(group=>
-                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group).length>=2&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group,now).length>=2&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 );
             };
         }
         if(typeof selectedOrLatestGroup==='function'){
             selectedOrLatestGroup=function(){
-                const selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
-                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected)&&liveGroupIds(selected).length>0)return selected;
-                const now=Date.now();
+                const now=Date.now(),selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
+                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected)&&liveGroupIds(selected,now).length>0)return selected;
                 return [...state.groups.values()].filter(group=>
-                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group).length>0&&!terminalGroup(group)&&
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group,now).length>0&&!terminalGroup(group)&&
                     backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
                 ).sort((a,b)=>groupTime(b)-groupTime(a))[0]||null;
             };
         }
 
-        // A live track should not hide a newer position from the exact same fusion
-        // group. Compare observation timestamps (not backend updated_at) so the two
-        // clocks have the same semantic meaning. Once every source node for an
-        // associated group has stopped, the live track also stops being eligible.
         if(typeof isFreshLiveTrack==='function'){
             const baseTrackFresh=isFreshLiveTrack;
             isFreshLiveTrack=function(track,now=Date.now()){
@@ -280,16 +376,16 @@
                 const groupId=associatedGroupId(track);
                 if(!groupId)return true;
                 const group=state.groups.get(String(groupId));
-                if(group&&liveGroupIds(group).length===0)return false;
+                if(group&&liveGroupIds(group,now).length===0)return false;
                 if(!group||terminalGroup(group)||!groupLocation(group)||!backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS))return true;
                 return !groupIsNewerThanAssociatedTrack(track,group);
             };
         }
 
         // Keep the existing synchronous metric, then add browser-side visual milestones
-        // for both event-group and track updates. These are deliberately named
-        // "eligible" because browsers/Google Maps do not expose an exact operator-visible
-        // paint timestamp for overlays.
+        // for both event-group and track updates. Node heartbeat/status messages also
+        // arm a watchdog only for missing future inference states; false states render
+        // immediately through the existing WebSocket handler.
         if(typeof handleWebSocketMessage==='function'){
             const baseHandle=handleWebSocketMessage;
             handleWebSocketMessage=function(data){
@@ -299,6 +395,10 @@
                 const measure=Boolean(entity&&hasPosition&&state.runtime?.critical_path_diagnostics_enabled===true);
                 const receivedAt=measure?(root.performance?.now?.()||0):null;
                 const result=baseHandle(data);
+                if(['node_heartbeat','node_live_update','node_connected','location_update'].includes(messageType)){
+                    const node=data?.node||data?.device||data;
+                    scheduleDetectionStaleRender(node);
+                }
                 if(!measure||!Number.isFinite(receivedAt))return result;
                 const eventId=String(data?.critical_path?.event_id||'');
                 const entityId=String(messageType==='event_group'?(entity?.id??entity?.group_id??''):(entity?.id??entity?.track_id??''));
@@ -340,8 +440,8 @@
     }
 
     const api=Object.freeze({
-        FALLBACK_FRESH_MS,MAX_SAMPLES,nearestRank,pushBounded,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
-        liveNodeEligible,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,
+        FALLBACK_FRESH_MS,DETECTION_STATE_STALE_MS,MAX_SAMPLES,nearestRank,pushBounded,numberOrNull,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
+        liveNodeEligible,detectionStatePayload,realtimeDetectionState,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,
         groupHasLocation,trackHasLocation,associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
