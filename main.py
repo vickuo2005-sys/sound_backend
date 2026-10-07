@@ -7217,6 +7217,15 @@ def merge_device_status_rows_with_live_nodes(rows: list[dict]) -> list[dict]:
         row["is_listening"] = is_recording
         row["backend_status"] = "connected" if is_live else row.get("backend_status")
         row["app_status"] = "listening" if is_recording else "stopped"
+        # Keep API snapshots consistent with node_live_update; these are in-memory
+        # inference states, never database columns or writes.
+        for key in (
+            "connection_id", "websocket_connected", "availability_status",
+            "detection_state", "detection_active", "detection_sequence",
+            "detection_observed_at_ms", "detection_state_received_at_ms",
+            "detection_label", "detection_confidence",
+        ):
+            row[key] = node.get(key)
         row["battery"] = node.get("battery_percent") if node.get("battery_percent") is not None else row.get("battery")
 
         for key in (

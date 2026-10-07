@@ -1233,6 +1233,10 @@
         }
         function upsertDevice(device) {
             if (!device?.device_id) return null;
+            if (state.snapshotDeviceUpdates) {
+                const updates = state.snapshotDeviceUpdates;
+                updates.set(device.device_id, {...updates.get(device.device_id), ...device});
+            }
             const previous = state.devices.get(device.device_id) || {};
             const merged = {...previous, ...device};
             if (device.is_listening === undefined && previous.is_listening !== undefined) merged.is_listening = previous.is_listening;
@@ -1373,6 +1377,8 @@
             state.snapshotInFlight = true;
             const eventUpdates = new Map();
             state.snapshotEventUpdates = eventUpdates;
+            const deviceUpdates = new Map();
+            state.snapshotDeviceUpdates = deviceUpdates;
             const locationsVersion = state.locationsVersion;
             const requests = [
                 fetchJson('/events?limit=100'), fetchJson('/device-status'),
@@ -1383,6 +1389,7 @@
             state.loaded = true;
             state.snapshotInFlight = false;
             state.snapshotEventUpdates = null;
+            state.snapshotDeviceUpdates = null;
             state.devicesFailed = devicesResult.status !== 'fulfilled' || !Array.isArray(devicesResult.value?.devices);
             state.eventsFailed = eventsResult.status !== 'fulfilled' || !Array.isArray(eventsResult.value?.events);
             state.backendConnected = healthResult.status === 'fulfilled' || eventsResult.status === 'fulfilled';
@@ -1398,6 +1405,7 @@
             }
             if (locationsVersion === state.locationsVersion && devicesResult.status === 'fulfilled' && Array.isArray(devicesResult.value.devices)) {
                 state.devices.clear(); devicesResult.value.devices.forEach(upsertDevice); state.devicesAt = Date.now();
+                deviceUpdates.forEach(upsertDevice);
             }
             if (tracksResult.status === 'fulfilled' && Array.isArray(tracksResult.value.tracks)) {
                 state.tracks.clear(); tracksResult.value.tracks.forEach(track => { const id = trackId(track); if (id) state.tracks.set(id, track); });
@@ -1419,14 +1427,18 @@
         async function refreshDeviceSnapshot() {
             if (deviceSnapshotPollInFlight || state.snapshotInFlight) return;
             deviceSnapshotPollInFlight = true;
+            const deviceUpdates = new Map();
+            state.snapshotDeviceUpdates = deviceUpdates;
             const locationsVersion = state.locationsVersion;
             try {
                 const result = await fetchJson('/device-status', 5000);
                 if (!Array.isArray(result.devices)) throw new Error('Invalid device snapshot');
                 if (locationsVersion !== state.locationsVersion) return;
+                state.snapshotDeviceUpdates = null;
                 state.devicesAt = Date.now(); state.devicesFailed = false;
                 state.devices.clear();
                 result.devices.forEach(upsertDevice);
+                deviceUpdates.forEach(upsertDevice);
                 state.lastUpdate = new Date();
                 renderMetrics();
                 renderNodeStatus();
@@ -1439,6 +1451,7 @@
                 // WebSocket remains primary. The next bounded poll or reconnect
                 // snapshot retries without leaving a permanent loading state.
             } finally {
+                state.snapshotDeviceUpdates = null;
                 deviceSnapshotPollInFlight = false;
                 if (state.pendingSnapshotReason) {
                     const reason = state.pendingSnapshotReason;
@@ -2483,7 +2496,7 @@
             const estimate = selectedOrLatestGroup(),estimateLocation=groupLocation(estimate);
             const hasFreshDroneTrack=[...state.tracks.values()].some(track=>isLiveTargetLabel(track?.label)&&isFreshLiveTrack(track,now)&&trackPath(track).length);
             if (estimate && estimateLocation && !hasFreshDroneTrack) {
-                const estimateOptions={map,position:estimateLocation,opacity:simulationIsVisible()?.28:1,title:`目前聲源位置 · ${groupLabel(estimate)}`,
+                const estimateOptions={map,position:estimateLocation,opacity:simulationIsVisible()?.28:1,title:estimate.sensor_region_fallback?'即時感測區域中心（非無人機定位）':`目前聲源位置 · ${groupLabel(estimate)}`,
                     icon:v22DroneTargetIcon(0),label:{text:'UAV',color:'#111827',fontWeight:'900',fontSize:'12px'},zIndex:50};
                 if(!estimateMarker){
                     estimateMarker=new google.maps.Marker(estimateOptions);

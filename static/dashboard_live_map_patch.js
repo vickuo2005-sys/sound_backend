@@ -109,6 +109,36 @@
             return realtime.supported?realtime.active:liveNodeEligible(device);
         });
     }
+    // Display-only sensor region. It is not a localization measurement and must
+    // never enter tracking, motion prediction or ETA.
+    function sensorRegionFromEvidence(evidence=[],now=Date.now()){
+        const positions=new Map();
+        for(const item of evidence){
+            const id=String(item?.device?.device_id||'');
+            const lat=numberOrNull(item?.position?.lat),lng=numberOrNull(item?.position?.lng);
+            if(id&&lat!==null&&lng!==null&&Math.abs(lat)<=90&&Math.abs(lng)<=180)positions.set(id,{...item,position:{lat,lng}});
+        }
+        const items=[...positions.values()];
+        if(!items.length)return null;
+        const center=items.reduce((sum,item)=>({lat:sum.lat+item.position.lat/items.length,lng:sum.lng+item.position.lng/items.length}),{lat:0,lng:0});
+        const points=items.map(item=>item.position);
+        const hull=root.DashboardNodeGeometry?.convexHull?.(points)||points;
+        const coords=hull.map(point=>[point.lng,point.lat]);
+        const type=coords.length>=3?'Polygon':coords.length===2?'LineString':'Point';
+        const geometry=type==='Polygon'?{type,coordinates:[[...coords,coords[0]]]}:type==='Point'?{type,coordinates:coords[0]}:{type,coordinates:coords};
+        const receivedTimes=items.map(item=>numberOrNull(item.receivedAtMs??item.time)).filter(Number.isFinite);
+        const time=receivedTimes.length?Math.max(...receivedTimes):now;
+        const iso=new Date(time).toISOString();
+        return {
+            id:'live_sensor_fallback',label:'Drone',status:'live_sensor_only',
+            region_type:type==='Polygon'?'polygon':type==='LineString'?'segment':'single_node',
+            region_center_lat:center.lat,region_center_lng:center.lng,region_geojson:geometry,
+            active_device_ids:[...positions.keys()],reporting_device_ids:[...positions.keys()],
+            reporting_node_count:items.length,events:[],last_event_time:iso,region_updated_at:iso,
+            alert_expires_at:new Date(now+DETECTION_STATE_STALE_MS).toISOString(),
+            localization_method:'sensor_region_fallback',sensor_region_fallback:true
+        };
+    }
     function percentileText(samples,key){
         const values=(samples||[]).map(sample=>sample?.[key]).filter(Number.isFinite);
         const p50=nearestRank(values,.50),p95=nearestRank(values,.95),p99=nearestRank(values,.99);
@@ -201,6 +231,10 @@
             catch(_){return [];}
         };
         const liveGroupIds=(group,now=Date.now())=>liveGroupDeviceIdsFrom(group,currentDevices(),now);
+        const useRealtimeSensorRegion=()=>state.runtime?.localization_enabled===false&&
+            currentDevices().some(device=>realtimeDetectionState(device).supported);
+        let sensorRegionFrame;
+        const currentSensorRegion=(now=Date.now())=>sensorRegionFrame!==undefined?sensorRegionFrame:sensorRegionFromEvidence(liveDroneSensorEvidence(now),now);
         const detectionStaleTimers=new Map();
         const detectionTimerSignatures=new Map();
 
@@ -273,10 +307,17 @@
             renderMap=function(){
                 const now=Date.now(),devices=currentDevices();
                 const originalGroups=state.groups,originalEvents=state.events;
+                const previousFrame=sensorRegionFrame;
+                if(useRealtimeSensorRegion())sensorRegionFrame=currentSensorRegion(now);
                 if(originalGroups instanceof Map){
                     state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
                 }
                 state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                if(useRealtimeSensorRegion()){
+                    const region=currentSensorRegion(now);
+                    state.groups=new Map(region?[[region.id,region]]:[]);
+                    state.events=[];
+                }
                 try{
                     const result=baseRenderMap.apply(this,arguments);
                     applyRealtimeNodeMarkerState(devices,now);
@@ -284,6 +325,7 @@
                 }finally{
                     state.groups=originalGroups;
                     state.events=originalEvents;
+                    sensorRegionFrame=previousFrame;
                 }
             };
         }
@@ -292,12 +334,19 @@
             renderCoordinateFallback=function(){
                 const now=Date.now(),devices=currentDevices();
                 const originalGroups=state.groups,originalEvents=state.events;
+                const previousFrame=sensorRegionFrame;
+                if(useRealtimeSensorRegion())sensorRegionFrame=currentSensorRegion(now);
                 if(originalGroups instanceof Map){
                     state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
                 }
                 state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                if(useRealtimeSensorRegion()){
+                    const region=currentSensorRegion(now);
+                    state.groups=new Map(region?[[region.id,region]]:[]);
+                    state.events=[];
+                }
                 try{return baseFallback.apply(this,arguments);}
-                finally{state.groups=originalGroups;state.events=originalEvents;}
+                finally{state.groups=originalGroups;state.events=originalEvents;sensorRegionFrame=previousFrame;}
             };
         }
 
@@ -312,12 +361,13 @@
                     if(!realtime.supported||!realtime.active)continue;
                     const position=nodeLocation(device);
                     if(!position)continue;
-                    const time=realtime.observedAtMs??realtime.receivedAtMs??now;
+                    const time=realtime.receivedAtMs??now;
                     const label=String(realtime.label||'Drone');
                     byDevice.set(id,{
                         device,
                         event:{device_id:id,label,classification:{model_label:label},realtime_detection_state:true},
                         time,
+                        receivedAtMs:time,
                         position,
                         realtime:true
                     });
@@ -342,6 +392,12 @@
                 return [...byDevice.values()];
             };
         }
+        if(typeof liveSensorFallbackEstimate==='function'){
+            const baseSensorFallback=liveSensorFallbackEstimate;
+            liveSensorFallbackEstimate=function(now=Date.now()){
+                return useRealtimeSensorRegion()?currentSensorRegion(now):baseSensorFallback(now);
+            };
+        }
         if(typeof freshBackendMultiNodeEvidence==='function'){
             freshBackendMultiNodeEvidence=function(now=Date.now()){
                 return [...state.groups.values()].some(group=>
@@ -360,6 +416,7 @@
         }
         if(typeof selectedOrLatestGroup==='function'){
             selectedOrLatestGroup=function(){
+                if(useRealtimeSensorRegion())return currentSensorRegion();
                 const now=Date.now(),selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
                 if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected)&&liveGroupIds(selected,now).length>0)return selected;
                 return [...state.groups.values()].filter(group=>
@@ -372,6 +429,9 @@
         if(typeof isFreshLiveTrack==='function'){
             const baseTrackFresh=isFreshLiveTrack;
             isFreshLiveTrack=function(track,now=Date.now()){
+                // Historical region tracks must not override the current sensor
+                // center when actual localization is explicitly disabled.
+                if(useRealtimeSensorRegion())return false;
                 if(!baseTrackFresh(track,now))return false;
                 const groupId=associatedGroupId(track);
                 if(!groupId)return true;
@@ -441,7 +501,7 @@
 
     const api=Object.freeze({
         FALLBACK_FRESH_MS,DETECTION_STATE_STALE_MS,MAX_SAMPLES,nearestRank,pushBounded,numberOrNull,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
-        liveNodeEligible,detectionStatePayload,realtimeDetectionState,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,
+        liveNodeEligible,detectionStatePayload,realtimeDetectionState,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,sensorRegionFromEvidence,
         groupHasLocation,trackHasLocation,associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
     });
     if(typeof module==='object'&&module.exports)module.exports=api;
