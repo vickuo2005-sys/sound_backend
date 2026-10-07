@@ -10,6 +10,7 @@ TEMPLATE_PATH = Path(__file__).resolve().parents[1] / "templates" / "dashboard_v
 STATUS_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_status.js"
 EVENT_CONTEXT_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_event_context.js"
 AUDIO_EVIDENCE_SCRIPT_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_audio_evidence.js"
+LIVE_MAP_PATCH_PATH = TEMPLATE_PATH.parents[1] / "static" / "dashboard_live_map_patch.js"
 SIMULATION_PREDICTION_PATH = (
     Path(__file__).resolve().parents[1]
     / "static"
@@ -115,7 +116,14 @@ def render_dashboard_v2_4(
         .replace("__DASHBOARD_REFINEMENT_STYLES__", "<style>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_apk_theme.css").read_text(encoding="utf-8") + ((TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.css").read_text(encoding="utf-8") if simulation_enabled else "") + "</style>")
         .replace("__SIMULATION_LAB_SCRIPT__", ("<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.js").read_text(encoding="utf-8") + "</script>") if simulation_enabled else "")
         .replace("__OPERATIONS_SCRIPT__", "".join("<script>" + (TEMPLATE_PATH.parents[1] / "static" / name).read_text(encoding="utf-8") + "</script>" for name in ("dashboard_simulation_eta.js", "dashboard_simulation_tracker.js", "dashboard_operations.js", "dashboard_live_prediction.js")))
-        .replace("__OPERATIONS_UI_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations_ui.js").read_text(encoding="utf-8") + "</script>")
+        .replace(
+            "__OPERATIONS_UI_SCRIPT__",
+            "<script>"
+            + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations_ui.js").read_text(encoding="utf-8")
+            + "</script><script>"
+            + LIVE_MAP_PATCH_PATH.read_text(encoding="utf-8")
+            + "</script>",
+        )
         .replace("__AUDIO_EVIDENCE_SCRIPT__", "<script>" + AUDIO_EVIDENCE_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__EVENT_CONTEXT_SCRIPT__", "<script>" + EVENT_CONTEXT_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")
         .replace("__LOCATION_TOKEN_REQUIRED__", "true" if location_token_required else "false")

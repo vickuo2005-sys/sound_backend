@@ -1,0 +1,512 @@
+(function(root){
+    'use strict';
+
+    const FALLBACK_FRESH_MS=15000;
+    const DETECTION_STATE_STALE_MS=4000;
+    const MAX_SAMPLES=256;
+
+    function nearestRank(values,percentile){
+        const sorted=(Array.isArray(values)?values:[]).filter(Number.isFinite).slice().sort((a,b)=>a-b);
+        if(!sorted.length)return null;
+        const p=Math.max(0,Math.min(1,Number(percentile)||0));
+        const index=Math.min(sorted.length-1,Math.max(0,Math.ceil(sorted.length*p)-1));
+        return sorted[index];
+    }
+    function pushBounded(list,value,max=MAX_SAMPLES){
+        list.push(value);
+        if(list.length>max)list.splice(0,list.length-max);
+        return list;
+    }
+    function numberOrNull(value){
+        if(value===null||value===undefined||value===''||typeof value==='boolean')return null;
+        const parsed=Number(value);
+        return Number.isFinite(parsed)?parsed:null;
+    }
+    function timeMs(value){
+        if(value===null||value===undefined||value==='')return null;
+        if(typeof value==='number')return Number.isFinite(value)?value:null;
+        const numeric=numberOrNull(value);
+        if(numeric!==null&&/^[-+]?\d+(?:\.\d+)?$/.test(String(value).trim()))return numeric;
+        const parsed=Date.parse(String(value));
+        return Number.isFinite(parsed)?parsed:null;
+    }
+    function backendAlertFresh(value,fallbackTime,now=Date.now(),duration=FALLBACK_FRESH_MS){
+        const helper=root.DashboardNodeGeometry?.alertFresh;
+        if(typeof helper==='function')return helper(value,fallbackTime,now,duration);
+        return Number.isFinite(fallbackTime)&&Number.isFinite(now)&&now-fallbackTime>=-2000&&now-fallbackTime<=duration;
+    }
+    function terminalGroup(group){
+        return ['closed','expired','ended','inactive'].includes(String(group?.status||'').toLowerCase());
+    }
+    function liveNodeEligible(node){
+        if(!node)return false;
+        const status=String(node?.status||'').trim().toLowerCase();
+        const availability=String(node?.availability_status||'').trim().toLowerCase();
+        const appStatus=String(node?.app_status||'').trim().toLowerCase();
+        if(node?.websocket_connected===false)return false;
+        if(node?.is_listening===false)return false;
+        if(['offline','disconnected'].includes(status))return false;
+        if(availability==='offline')return false;
+        if(['stopped','disabled','off'].includes(appStatus))return false;
+        return true;
+    }
+    function detectionStatePayload(node){
+        if(!node||typeof node!=='object')return {};
+        const nested=node.detection_state&&typeof node.detection_state==='object'?node.detection_state:{};
+        return {
+            active:typeof nested.active==='boolean'?nested.active:(typeof node.detection_active==='boolean'?node.detection_active:null),
+            sequence:numberOrNull(nested.sequence??node.detection_sequence),
+            observedAtMs:timeMs(nested.observed_at_ms??node.detection_observed_at_ms),
+            receivedAtMs:timeMs(nested.received_at_ms??node.detection_state_received_at_ms),
+            label:nested.label??node.detection_label??null,
+            confidence:numberOrNull(nested.confidence??node.detection_confidence)
+        };
+    }
+    function realtimeDetectionState(node,now=Date.now(),staleMs=DETECTION_STATE_STALE_MS){
+        const state=detectionStatePayload(node);
+        const supported=typeof state.active==='boolean'&&state.receivedAtMs!==null;
+        if(!supported)return {...state,supported:false,stale:false,active:false};
+        const age=now-state.receivedAtMs;
+        const stale=!Number.isFinite(age)||age<-2000||age>staleMs;
+        return {...state,supported:true,stale,ageMs:age,active:liveNodeEligible(node)&&!stale&&state.active===true};
+    }
+    function rawGroupDeviceIds(group){
+        const candidates=[group?.active_device_ids,group?.reporting_device_ids,group?.device_ids,group?.devices,group?.member_device_ids];
+        for(let candidate of candidates){
+            if(typeof candidate==='string'&&candidate.trim()){
+                try{candidate=JSON.parse(candidate);}catch(_){candidate=candidate.split(',');}
+            }
+            if(Array.isArray(candidate)){
+                return [...new Set(candidate.map(value=>typeof value==='object'?value?.device_id:value).filter(Boolean).map(value=>String(value).trim()).filter(Boolean))];
+            }
+        }
+        return [];
+    }
+    function liveGroupDeviceIdsFrom(group,devices=[],now=Date.now()){
+        const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+        if(!byId.size)return rawGroupDeviceIds(group);
+        return rawGroupDeviceIds(group).filter(id=>{
+            const device=byId.get(String(id));
+            if(!device)return false;
+            const realtime=realtimeDetectionState(device,now);
+            return realtime.supported?realtime.active:liveNodeEligible(device);
+        });
+    }
+    function sanitizeGroupForLive(group,devices=[],now=Date.now()){
+        if(!group||typeof group!=='object')return group;
+        return {...group,active_device_ids:liveGroupDeviceIdsFrom(group,devices,now)};
+    }
+    function sanitizeEventsForLive(events,devices=[],now=Date.now()){
+        if(!Array.isArray(events))return events;
+        const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+        if(!byId.size)return events;
+        return events.filter(event=>{
+            const id=String(event?.device_id||'');
+            if(!id)return true;
+            const device=byId.get(id);
+            if(!device)return false;
+            const realtime=realtimeDetectionState(device,now);
+            return realtime.supported?realtime.active:liveNodeEligible(device);
+        });
+    }
+    // Display-only sensor region. It is not a localization measurement and must
+    // never enter tracking, motion prediction or ETA.
+    function sensorRegionFromEvidence(evidence=[],now=Date.now()){
+        const positions=new Map();
+        for(const item of evidence){
+            const id=String(item?.device?.device_id||'');
+            const lat=numberOrNull(item?.position?.lat),lng=numberOrNull(item?.position?.lng);
+            if(id&&lat!==null&&lng!==null&&Math.abs(lat)<=90&&Math.abs(lng)<=180)positions.set(id,{...item,position:{lat,lng}});
+        }
+        const items=[...positions.values()];
+        if(!items.length)return null;
+        const center=items.reduce((sum,item)=>({lat:sum.lat+item.position.lat/items.length,lng:sum.lng+item.position.lng/items.length}),{lat:0,lng:0});
+        const points=items.map(item=>item.position);
+        const hull=root.DashboardNodeGeometry?.convexHull?.(points)||points;
+        const coords=hull.map(point=>[point.lng,point.lat]);
+        const type=coords.length>=3?'Polygon':coords.length===2?'LineString':'Point';
+        const geometry=type==='Polygon'?{type,coordinates:[[...coords,coords[0]]]}:type==='Point'?{type,coordinates:coords[0]}:{type,coordinates:coords};
+        const receivedTimes=items.map(item=>numberOrNull(item.receivedAtMs??item.time)).filter(Number.isFinite);
+        const time=receivedTimes.length?Math.max(...receivedTimes):now;
+        const iso=new Date(time).toISOString();
+        return {
+            id:'live_sensor_fallback',label:'Drone',status:'live_sensor_only',
+            region_type:type==='Polygon'?'polygon':type==='LineString'?'segment':'single_node',
+            region_center_lat:center.lat,region_center_lng:center.lng,region_geojson:geometry,
+            active_device_ids:[...positions.keys()],reporting_device_ids:[...positions.keys()],
+            reporting_node_count:items.length,events:[],last_event_time:iso,region_updated_at:iso,
+            alert_expires_at:new Date(now+DETECTION_STATE_STALE_MS).toISOString(),
+            localization_method:'sensor_region_fallback',sensor_region_fallback:true
+        };
+    }
+    function percentileText(samples,key){
+        const values=(samples||[]).map(sample=>sample?.[key]).filter(Number.isFinite);
+        const p50=nearestRank(values,.50),p95=nearestRank(values,.95),p99=nearestRank(values,.99);
+        return p95===null?'尚無樣本':`P50 ${p50.toFixed(1)} · P95 ${p95.toFixed(1)} · P99 ${p99.toFixed(1)} ms · n=${values.length}`;
+    }
+    function metricRow(id,label,text){
+        if(typeof document==='undefined')return;
+        const target=document.getElementById('latencyDiagnosticsList');
+        if(!target)return;
+        let row=document.getElementById(id);
+        if(!row){
+            row=document.createElement('div');
+            row.id=id;
+            row.className='health-row';
+            const name=document.createElement('span');
+            const value=document.createElement('span');
+            value.className='health-state';
+            row.append(name,value);
+            target.append(row);
+        }
+        row.firstElementChild.textContent=label;
+        row.lastElementChild.textContent=text;
+    }
+    function afterTwoFrames(callback){
+        const raf=typeof root.requestAnimationFrame==='function'
+            ? root.requestAnimationFrame.bind(root)
+            : fn=>setTimeout(()=>fn((root.performance?.now?.()||Date.now())),16);
+        raf(()=>raf(timestamp=>callback(Number.isFinite(timestamp)?timestamp:(root.performance?.now?.()||Date.now()))));
+    }
+    function groupHasLocation(group){
+        const lat=Number(group?.region_center_lat??group?.estimated_lat);
+        const lng=Number(group?.region_center_lng??group?.estimated_lng);
+        return Number.isFinite(lat)&&Number.isFinite(lng);
+    }
+    function trackHasLocation(track){
+        const directLat=Number(track?.last_lat??track?.filtered_lat??track?.estimated_lat??track?.latitude);
+        const directLng=Number(track?.last_lng??track?.filtered_lng??track?.estimated_lng??track?.longitude);
+        if(Number.isFinite(directLat)&&Number.isFinite(directLng))return true;
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        return points.some(point=>{
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false)return false;
+            const lat=Number(point.measured_lat??point.filtered_lat??point.estimated_lat??point.latitude);
+            const lng=Number(point.measured_lng??point.filtered_lng??point.estimated_lng??point.longitude);
+            return Number.isFinite(lat)&&Number.isFinite(lng);
+        });
+    }
+    function associatedGroupId(track){
+        const direct=track?.group_id??track?.last_group_id??track?.event_group_id;
+        if(direct!==null&&direct!==undefined&&String(direct))return String(direct);
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        let winner=null,winnerTime=-Infinity;
+        for(let index=0;index<points.length;index++){
+            const point=points[index];
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false||point.group_id===null||point.group_id===undefined)continue;
+            const measured=timeMs(point.measurement_time_ms)??timeMs(point.measurement_timestamp??point.event_time??point.timestamp??point.created_at)??index;
+            if(measured>=winnerTime){winnerTime=measured;winner=String(point.group_id);}
+        }
+        return winner;
+    }
+    function groupObservationTime(group){
+        return timeMs(group?.last_event_time??group?.end_time??group?.first_event_time??group?.start_time);
+    }
+    function trackObservationTime(track){
+        const direct=timeMs(track?.last_event_time_ms)??timeMs(track?.last_event_time);
+        const points=Array.isArray(track?.points)?track.points:Array.isArray(track?.recent_points)?track.recent_points:[];
+        let latest=direct;
+        for(const point of points){
+            if(!point||point.rejected_as_outlier||point.is_outlier||point.is_rejected||point.accepted===false)continue;
+            const measured=timeMs(point.measurement_time_ms)??timeMs(point.measurement_timestamp??point.event_time??point.timestamp??point.created_at);
+            if(measured!==null&&(latest===null||measured>latest))latest=measured;
+        }
+        return latest;
+    }
+    function groupIsNewerThanAssociatedTrack(track,group){
+        if(!track||!group)return false;
+        const id=associatedGroupId(track);
+        if(!id||id!==String(group?.id??group?.group_id??''))return false;
+        const groupTime=groupObservationTime(group),trackTime=trackObservationTime(track);
+        return groupTime!==null&&trackTime!==null&&groupTime>trackTime;
+    }
+
+    function install(){
+        if(typeof root.document==='undefined')return false;
+        if(root.__dashboardLiveMapPatchInstalled)return true;
+        if(typeof DashboardNodeGeometry!=='object')return false;
+        root.__dashboardLiveMapPatchInstalled=true;
+
+        const currentDevices=()=>{
+            try{return typeof canonicalDevices==='function'?canonicalDevices():[];}
+            catch(_){return [];}
+        };
+        const liveGroupIds=(group,now=Date.now())=>liveGroupDeviceIdsFrom(group,currentDevices(),now);
+        const useRealtimeSensorRegion=()=>state.runtime?.localization_enabled===false&&
+            currentDevices().some(device=>realtimeDetectionState(device).supported);
+        let sensorRegionFrame;
+        const currentSensorRegion=(now=Date.now())=>sensorRegionFrame!==undefined?sensorRegionFrame:sensorRegionFromEvidence(liveDroneSensorEvidence(now),now);
+        const detectionStaleTimers=new Map();
+        const detectionTimerSignatures=new Map();
+
+        function applyRealtimeNodeMarkerState(devices,now){
+            if(typeof nodeMarkers!=='object'||typeof nodeMarkerIcon!=='function')return;
+            if(typeof simulationIsVisible==='function'&&simulationIsVisible())return;
+            const byId=new Map((Array.isArray(devices)?devices:[]).filter(device=>device?.device_id).map(device=>[String(device.device_id),device]));
+            nodeMarkers.forEach((marker,id)=>{
+                const device=byId.get(String(id));
+                if(!device||!marker)return;
+                const realtime=realtimeDetectionState(device,now);
+                if(!realtime.supported)return;
+                const online=typeof deviceOnline==='function'?deviceOnline(device):liveNodeEligible(device);
+                marker.setIcon(nodeMarkerIcon(device,online,online&&realtime.active));
+                marker.__dashboardAlertKey=`${online?'1':'0'}:${online&&realtime.active?'1':'0'}`;
+            });
+        }
+        function scheduleDetectionStaleRender(node){
+            const realtime=realtimeDetectionState(node,Date.now());
+            if(!realtime.supported)return;
+            const id=String(node?.device_id||'');
+            if(!id)return;
+            const signature=`${realtime.sequence??'none'}:${realtime.receivedAtMs}`;
+            if(detectionTimerSignatures.get(id)===signature)return;
+            detectionTimerSignatures.set(id,signature);
+            const old=detectionStaleTimers.get(id);
+            if(old!==undefined)clearTimeout(old);
+            if(!realtime.active)return;
+            const remaining=Math.min(DETECTION_STATE_STALE_MS,Math.max(0,DETECTION_STATE_STALE_MS-Math.max(0,realtime.ageMs||0)));
+            const timer=setTimeout(()=>{
+                detectionStaleTimers.delete(id);
+                try{if(typeof renderLiveDetection==='function')renderLiveDetection();}catch(_){}
+                try{if(typeof renderMap==='function')renderMap();}catch(_){}
+            },remaining+50);
+            detectionStaleTimers.set(id,timer);
+        }
+
+        // Keep shared/simulation motion timing untouched while shortening only the
+        // live operator marker interpolation.
+        if(typeof setLiveMarkerTarget==='function'&&root.DashboardMapVisuals){
+            setLiveMarkerTarget=function(key,marker,target,heading=0){
+                if(!marker||!target)return;
+                const now=performance.now(),existing=liveMarkerMotion.get(key),normalizedHeading=((Number(heading)||0)%360+360)%360;
+                if(!existing){
+                    marker.setPosition(target);marker.setIcon(v22DroneTargetIcon(normalizedHeading));
+                    liveMarkerMotion.set(key,{marker,start:{...target},target:{...target},current:{...target},startHeading:normalizedHeading,targetHeading:normalizedHeading,currentHeading:normalizedHeading,startedAt:now,durationMs:1,lastIconAt:now});
+                    return;
+                }
+                const sample=liveMotionSample(existing,now)||{position:existing.current||existing.target,heading:existing.currentHeading||existing.targetHeading||0};
+                const dLat=target.lat-existing.target.lat,dLng=target.lng-existing.target.lng,headingChange=Math.abs(liveHeadingDelta(existing.targetHeading,normalizedHeading));
+                if(Math.hypot(dLat,dLng)<1e-9&&headingChange<.5)return;
+                existing.marker=marker;
+                existing.start={...sample.position};
+                existing.target={...target};
+                existing.current={...sample.position};
+                existing.startHeading=sample.heading;
+                existing.targetHeading=normalizedHeading;
+                existing.currentHeading=sample.heading;
+                existing.startedAt=now;
+                existing.durationMs=Math.max(1,Number(root.DashboardMapVisuals.LIVE_MOTION_DURATION_MS)||200);
+                ensureLiveMarkerAnimation();
+            };
+        }
+
+        // Historical events/groups stay in state for audit/history, but when a node
+        // supports inference-window telemetry its current true/false state is the
+        // authoritative source for live warning membership.
+        if(typeof renderMap==='function'){
+            const baseRenderMap=renderMap;
+            renderMap=function(){
+                const now=Date.now(),devices=currentDevices();
+                const originalGroups=state.groups,originalEvents=state.events;
+                const previousFrame=sensorRegionFrame;
+                if(useRealtimeSensorRegion())sensorRegionFrame=currentSensorRegion(now);
+                if(originalGroups instanceof Map){
+                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
+                }
+                state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                if(useRealtimeSensorRegion()){
+                    const region=currentSensorRegion(now);
+                    state.groups=new Map(region?[[region.id,region]]:[]);
+                    state.events=[];
+                }
+                try{
+                    const result=baseRenderMap.apply(this,arguments);
+                    applyRealtimeNodeMarkerState(devices,now);
+                    return result;
+                }finally{
+                    state.groups=originalGroups;
+                    state.events=originalEvents;
+                    sensorRegionFrame=previousFrame;
+                }
+            };
+        }
+        if(typeof renderCoordinateFallback==='function'){
+            const baseFallback=renderCoordinateFallback;
+            renderCoordinateFallback=function(){
+                const now=Date.now(),devices=currentDevices();
+                const originalGroups=state.groups,originalEvents=state.events;
+                const previousFrame=sensorRegionFrame;
+                if(useRealtimeSensorRegion())sensorRegionFrame=currentSensorRegion(now);
+                if(originalGroups instanceof Map){
+                    state.groups=new Map([...originalGroups.entries()].map(([id,group])=>[id,sanitizeGroupForLive(group,devices,now)]));
+                }
+                state.events=sanitizeEventsForLive(originalEvents,devices,now);
+                if(useRealtimeSensorRegion()){
+                    const region=currentSensorRegion(now);
+                    state.groups=new Map(region?[[region.id,region]]:[]);
+                    state.events=[];
+                }
+                try{return baseFallback.apply(this,arguments);}
+                finally{state.groups=originalGroups;state.events=originalEvents;sensorRegionFrame=previousFrame;}
+            };
+        }
+
+        if(typeof liveDroneSensorEvidence==='function'){
+            liveDroneSensorEvidence=function(now=Date.now()){
+                const byDevice=new Map(),devices=new Map(currentDevices().map(device=>[String(device.device_id),device]));
+
+                // New contract: one state per inference window. Positive becomes live
+                // immediately; the following negative window removes it immediately.
+                for(const [id,device] of devices){
+                    const realtime=realtimeDetectionState(device,now);
+                    if(!realtime.supported||!realtime.active)continue;
+                    const position=nodeLocation(device);
+                    if(!position)continue;
+                    const time=realtime.receivedAtMs??now;
+                    const label=String(realtime.label||'Drone');
+                    byDevice.set(id,{
+                        device,
+                        event:{device_id:id,label,classification:{model_label:label},realtime_detection_state:true},
+                        time,
+                        receivedAtMs:time,
+                        position,
+                        realtime:true
+                    });
+                }
+
+                // Legacy nodes that have not yet shipped the realtime contract keep
+                // the old event-based behavior during migration. A node that supports
+                // realtime state is never revived by historical event freshness.
+                for(const event of state.events){
+                    const id=String(event?.device_id||'');
+                    if(!id||byDevice.has(id))continue;
+                    const device=devices.get(id),realtime=realtimeDetectionState(device,now);
+                    if(realtime.supported)continue;
+                    if(!['drone','aircraft','airplane'].includes(String(classLabel(event)||'').toLowerCase()))continue;
+                    const time=eventTime(event);
+                    if(!backendAlertFresh(event,time,now,FALLBACK_FRESH_MS))continue;
+                    const position=device?nodeLocation(device):null;
+                    if(!device||!liveNodeEligible(device)||!deviceOnline(device)||!position)continue;
+                    const previous=byDevice.get(id);
+                    if(!previous||time>previous.time)byDevice.set(id,{device,event,time,position,realtime:false});
+                }
+                return [...byDevice.values()];
+            };
+        }
+        if(typeof liveSensorFallbackEstimate==='function'){
+            const baseSensorFallback=liveSensorFallbackEstimate;
+            liveSensorFallbackEstimate=function(now=Date.now()){
+                return useRealtimeSensorRegion()?currentSensorRegion(now):baseSensorFallback(now);
+            };
+        }
+        if(typeof freshBackendMultiNodeEvidence==='function'){
+            freshBackendMultiNodeEvidence=function(now=Date.now()){
+                return [...state.groups.values()].some(group=>
+                    isLiveTargetGroup(group)&&liveGroupIds(group,now).length>=2&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                );
+            };
+        }
+        if(typeof freshBackendLocatedGroup==='function'){
+            freshBackendLocatedGroup=function(now=Date.now()){
+                return [...state.groups.values()].some(group=>
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group,now).length>=2&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                );
+            };
+        }
+        if(typeof selectedOrLatestGroup==='function'){
+            selectedOrLatestGroup=function(){
+                if(useRealtimeSensorRegion())return currentSensorRegion();
+                const now=Date.now(),selected=state.selectedGroupId?state.groups.get(state.selectedGroupId):null;
+                if(selected&&isLiveTargetGroup(selected)&&groupLocation(selected)&&liveGroupIds(selected,now).length>0)return selected;
+                return [...state.groups.values()].filter(group=>
+                    isLiveTargetGroup(group)&&groupLocation(group)&&liveGroupIds(group,now).length>0&&!terminalGroup(group)&&
+                    backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS)
+                ).sort((a,b)=>groupTime(b)-groupTime(a))[0]||null;
+            };
+        }
+
+        if(typeof isFreshLiveTrack==='function'){
+            const baseTrackFresh=isFreshLiveTrack;
+            isFreshLiveTrack=function(track,now=Date.now()){
+                // Historical region tracks must not override the current sensor
+                // center when actual localization is explicitly disabled.
+                if(useRealtimeSensorRegion())return false;
+                if(!baseTrackFresh(track,now))return false;
+                const groupId=associatedGroupId(track);
+                if(!groupId)return true;
+                const group=state.groups.get(String(groupId));
+                if(group&&liveGroupIds(group,now).length===0)return false;
+                if(!group||terminalGroup(group)||!groupLocation(group)||!backendAlertFresh(group,groupTime(group),now,FALLBACK_FRESH_MS))return true;
+                return !groupIsNewerThanAssociatedTrack(track,group);
+            };
+        }
+
+        // Keep the existing synchronous metric, then add browser-side visual milestones
+        // for both event-group and track updates. Node heartbeat/status messages also
+        // arm a watchdog only for missing future inference states; false states render
+        // immediately through the existing WebSocket handler.
+        if(typeof handleWebSocketMessage==='function'){
+            const baseHandle=handleWebSocketMessage;
+            handleWebSocketMessage=function(data){
+                const messageType=String(data?.type||'');
+                const entity=messageType==='event_group'?(data.group||data):messageType==='track_update'?(data.track||data):null;
+                const hasPosition=messageType==='event_group'?groupHasLocation(entity):messageType==='track_update'?trackHasLocation(entity):false;
+                const measure=Boolean(entity&&hasPosition&&state.runtime?.critical_path_diagnostics_enabled===true);
+                const receivedAt=measure?(root.performance?.now?.()||0):null;
+                const result=baseHandle(data);
+                if(['node_heartbeat','node_live_update','node_connected','location_update'].includes(messageType)){
+                    const node=data?.node||data?.device||data;
+                    scheduleDetectionStaleRender(node);
+                }
+                if(!measure||!Number.isFinite(receivedAt))return result;
+                const eventId=String(data?.critical_path?.event_id||'');
+                const entityId=String(messageType==='event_group'?(entity?.id??entity?.group_id??''):(entity?.id??entity?.track_id??''));
+                const allSamples=state.browserMapVisualSamples||(state.browserMapVisualSamples=[]);
+                const typedSamples=messageType==='event_group'
+                    ? (state.browserGroupVisualSamples||(state.browserGroupVisualSamples=[]))
+                    : (state.browserTrackVisualSamples||(state.browserTrackVisualSamples=[]));
+                const sample={message_type:messageType,entity_id:entityId,event_id:eventId,dashboard_ws_visual_received:receivedAt};
+                pushBounded(allSamples,sample);
+                pushBounded(typedSamples,sample);
+                afterTwoFrames(frameAt=>{
+                    sample.dashboard_next_paint_eligible=frameAt;
+                    sample.next_paint_eligible_ms=Math.max(0,frameAt-receivedAt);
+                });
+                const settleDelay=Math.max(0,Number(root.DashboardMapVisuals?.LIVE_MOTION_DURATION_MS)||Number(root.DashboardMapVisuals?.MOTION_DURATION_MS)||0);
+                setTimeout(()=>afterTwoFrames(frameAt=>{
+                    sample.dashboard_marker_settle_eligible=frameAt;
+                    sample.marker_settle_eligible_ms=Math.max(0,frameAt-receivedAt);
+                }),settleDelay);
+                return result;
+            };
+        }
+        if(typeof renderLatencyDiagnostics==='function'){
+            const baseRenderLatency=renderLatencyDiagnostics;
+            renderLatencyDiagnostics=function(){
+                const result=baseRenderLatency.apply(this,arguments);
+                if(state.runtime?.critical_path_diagnostics_enabled===true){
+                    const groupSamples=state.browserGroupVisualSamples||[];
+                    const trackSamples=state.browserTrackVisualSamples||[];
+                    metricRow('browserGroupNextPaintEligibleLatency','Browser group map next-paint eligible',percentileText(groupSamples,'next_paint_eligible_ms'));
+                    metricRow('browserGroupMarkerSettleEligibleLatency','Browser group marker settle eligible',percentileText(groupSamples,'marker_settle_eligible_ms'));
+                    metricRow('browserTrackNextPaintEligibleLatency','Browser track map next-paint eligible',percentileText(trackSamples,'next_paint_eligible_ms'));
+                    metricRow('browserTrackMarkerSettleEligibleLatency','Browser track marker settle eligible',percentileText(trackSamples,'marker_settle_eligible_ms'));
+                }
+                return result;
+            };
+        }
+        return true;
+    }
+
+    const api=Object.freeze({
+        FALLBACK_FRESH_MS,DETECTION_STATE_STALE_MS,MAX_SAMPLES,nearestRank,pushBounded,numberOrNull,timeMs,backendAlertFresh,percentileText,afterTwoFrames,
+        liveNodeEligible,detectionStatePayload,realtimeDetectionState,rawGroupDeviceIds,liveGroupDeviceIdsFrom,sanitizeGroupForLive,sanitizeEventsForLive,sensorRegionFromEvidence,
+        groupHasLocation,trackHasLocation,associatedGroupId,groupObservationTime,trackObservationTime,groupIsNewerThanAssociatedTrack,install
+    });
+    if(typeof module==='object'&&module.exports)module.exports=api;
+    else{
+        root.DashboardLiveMapPatch=api;
+        install();
+    }
+})(typeof globalThis==='object'?globalThis:this);

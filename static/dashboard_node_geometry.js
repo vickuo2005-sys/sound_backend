@@ -58,6 +58,23 @@
     const groupTime = group => timestamp(group?.last_event_time ?? group?.end_time ?? group?.region_updated_at ?? group?.updated_at ?? group?.created_at);
     const groupId = group => String(group?.id ?? group?.group_id ?? '');
     function fresh(time, now, duration) { return time !== null && Number.isFinite(now) && now-time >= -FUTURE_TOLERANCE_MS && now-time <= duration; }
+    function alertExpiryTime(value) {
+        return timestamp(value?.alert_expires_at ?? value?.dashboard_presentation?.alert_expires_at);
+    }
+    function alertAccepted(value) {
+        return value?.alert_accepted_in_time !== false && value?.dashboard_presentation?.alert_accepted_in_time !== false;
+    }
+    function alertFresh(value, fallbackTime, now, duration) {
+        const expiresAt = alertExpiryTime(value);
+        // New payloads carry the backend display contract. Once accepted, the alert
+        // stays visible until alert_expires_at even when the sound occurrence itself
+        // was more than FRESH_MS ago. Old payloads keep the historical fallback.
+        if (expiresAt !== null) return alertAccepted(value) && Number.isFinite(now) && now <= expiresAt;
+        return fresh(fallbackTime, now, duration);
+    }
+    function alertExpiry(value, fallbackTime, duration) {
+        return alertExpiryTime(value) ?? ((fallbackTime ?? 0) + duration);
+    }
     function isDrone(event) {
         const label = event?.classification?.model_label ?? event?.dashboard_presentation?.model_label ?? event?.model_label ?? event?.label;
         return typeof label === 'string' && label.trim().toLowerCase() === 'drone';
@@ -128,12 +145,12 @@
         if (!enabled) return [];
         const duration = number(freshMs) !== null && freshMs > 0 ? Number(freshMs) : FRESH_MS;
         const positions = new Map(rows(nodes).map(node => [String(node.device_id || ''), nodePosition(node)]).filter(([id,point]) => id && point));
-        const recent = rows(events).filter(event => isDrone(event) && fresh(eventTime(event), now, duration));
+        const recent = rows(events).filter(event => isDrone(event) && alertFresh(event, eventTime(event), now, duration));
         const output = [], representedEvents = new Set();
         for (const group of rows(groups)) {
             const id = groupId(group), updated = groupTime(group);
-            if (!id || !isTargetGroup(group) || ['closed','expired','ended','inactive'].includes(String(group.status || '').toLowerCase()) || !fresh(updated, now, duration)) continue;
-            const embedded = rows(group.events).filter(event => isDrone(event) && fresh(eventTime(event), now, duration));
+            if (!id || !isTargetGroup(group) || ['closed','expired','ended','inactive'].includes(String(group.status || '').toLowerCase()) || !alertFresh(group, updated, now, duration)) continue;
+            const embedded = rows(group.events).filter(event => isDrone(event) && alertFresh(event, eventTime(event), now, duration));
             const evidence = [...recent, ...embedded].filter(event => belongsToGroup(event, group));
             const participants = memberIds(group).map(device_id => {
                 const position = positions.get(device_id);
@@ -151,16 +168,16 @@
                     source:reports.length?'event_evidence':'backend_group_membership'
                 };
             }).filter(Boolean);
-            if (participants.length) output.push(geometry(`group:${id}`, participants, updated+duration));
+            if (participants.length) output.push(geometry(`group:${id}`, participants, alertExpiry(group, updated, duration)));
         }
         const solo = new Map();
         for (const event of recent) {
             const id = String(event.device_id || ''), position = positions.get(id);
             if (!position || representedEvents.has(event.event_id || event)) continue;
             const time = eventTime(event);
-            if (!solo.has(id) || time > solo.get(id).time) solo.set(id,{device_id:id,position,time});
+            if (!solo.has(id) || time > solo.get(id).time) solo.set(id,{device_id:id,position,time,event});
         }
-        for (const participant of solo.values()) output.push(geometry(`node:${participant.device_id}`, [participant], participant.time+duration));
+        for (const participant of solo.values()) output.push(geometry(`node:${participant.device_id}`, [participant], alertExpiry(participant.event, participant.time, duration)));
         return output;
     }
     function createRenderer(options={}) {
@@ -236,7 +253,7 @@
         }
         return Object.freeze({update,clear});
     }
-    const api = Object.freeze({FRESH_MS,coordinate,nodePosition,mergeFixedLocations,mergeFixedNodes,memberIds,isDrone,isTargetGroup,convexHull,buildGeometries,createRenderer});
+    const api=Object.freeze({FRESH_MS,coordinate,nodePosition,mergeFixedLocations,mergeFixedNodes,memberIds,isDrone,isTargetGroup,convexHull,alertExpiryTime,alertAccepted,alertFresh,buildGeometries,createRenderer});
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.DashboardNodeGeometry = api;
 })(typeof window !== 'undefined' ? window : globalThis);

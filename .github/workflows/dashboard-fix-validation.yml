@@ -1,0 +1,69 @@
+name: Dashboard Fix Validation
+
+on:
+  push:
+    branches:
+      - fix/dashboard-alert-map-latency
+  pull_request:
+    branches:
+      - feat/event-driven-redis-staging-shadow
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pytest pytest-asyncio httpx2 redis
+
+      - name: Python tests
+        run: python -m pytest -q -k 'not stale_fixed_location_cache_does_not_block_fast_ingest'
+
+      - name: Uptime-sensitive existing cache test
+        shell: bash
+        run: |
+          # This pre-existing test constructs cached_at = monotonic() - 61 and also
+          # requires cached_at > 0. Fresh hosted runners can have <61 s uptime.
+          # Wait only in this temporary validation workflow rather than changing
+          # unrelated production code or weakening the assertion.
+          python - <<'PY'
+          import time
+          remaining=max(0.0,62.0-time.monotonic())
+          print(f'waiting {remaining:.1f}s for monotonic() > 61s')
+          time.sleep(remaining)
+          PY
+          python -m pytest -q tests/test_post_inference_latency.py::test_stale_fixed_location_cache_does_not_block_fast_ingest
+
+      - name: JavaScript tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in tests/js/*.js; do
+            echo "==> $test_file"
+            node "$test_file"
+          done
+
+      - name: Compile dashboard Python
+        run: python -m py_compile services/dashboard_v2_4.py
+
+      - name: Git diff check
+        run: git diff --check origin/feat/event-driven-redis-staging-shadow...HEAD
