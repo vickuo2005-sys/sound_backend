@@ -1,0 +1,11 @@
+{
+  "APP_ENV": "production",
+  "BACKEND_BASE_URL": "https://sound-backend.onrender.com",
+  "UPLOAD_TOKEN": "",
+  "DEVICE_TOKEN": "",
+  "LIVE_AUDIO_ENABLED": "false",
+  "COMMAND_WEBSOCKET_ENABLED": "true",
+  "REST_FALLBACK_ENABLED": "true",
+  "OBSERVATION_SHADOW_ENABLED": "false",
+  "CLASSIFICATION_V1_ENABLED": "false"
+}

@@ -1,0 +1,44 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# IDE/local
+.idea/
+.vscode/
+*.iml
+android/local.properties
+android/.gradle/
+
+# Signing and secrets
+key.properties
+*.jks
+*.keystore
+.env
+.env.*
+google-services.json
+service-account*.json
+credentials*.json
+*.pem
+*.key
+
+# Local generated data
+outputs/
+*.wav
+*.mp3
+*.m4a
+pending_upload*
+local_events.json
+
+# Large model source artifacts
+*.h5
+*.pt
+*.pth
+*.onnx
+*.pb
+saved_model/
+

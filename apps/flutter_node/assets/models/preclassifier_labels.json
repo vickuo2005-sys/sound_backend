@@ -1,0 +1,28 @@
+{
+  "class_values": [0, 1],
+  "labels": {
+    "0": "non_aircraft",
+    "1": "aircraft"
+  },
+  "class_descriptions": {
+    "0": "環境音",
+    "1": "飛機音"
+  },
+  "positive_class_value": 1,
+  "positive_class_index": 1,
+  "threshold": 0.6,
+  "note": "Default mapping. Confirm class_values from preclassifier_best.pt before formal deployment.",
+  "preprocessing": {
+    "sample_rate": 16000,
+    "audio_sec": 3.0,
+    "n_fft": 1024,
+    "win_length": 1024,
+    "hop_length": 320,
+    "n_mels": 128,
+    "f_min": 20.0,
+    "f_max": null,
+    "target_frames": 256,
+    "top_db": 80,
+    "normalize": "per_sample_mean_std"
+  }
+}

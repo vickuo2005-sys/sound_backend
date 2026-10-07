@@ -1,0 +1,14 @@
+{
+  "APP_ENV": "staging",
+  "BACKEND_BASE_URL": "https://replace-with-approved-staging-host.invalid",
+  "UPLOAD_TOKEN": "",
+  "DEVICE_TOKEN": "",
+  "LIVE_AUDIO_ENABLED": "false",
+  "COMMAND_WEBSOCKET_ENABLED": "true",
+  "REST_FALLBACK_ENABLED": "true",
+  "FAST_METADATA_UPLOAD_ENABLED": "true",
+  "PERSISTENT_METADATA_HTTP_CLIENT_ENABLED": "true",
+  "POST_INFERENCE_LATENCY_TRACING_ENABLED": "true",
+  "OBSERVATION_SHADOW_ENABLED": "true",
+  "CLASSIFICATION_V1_ENABLED": "true"
+}
