@@ -141,6 +141,14 @@ def staging_active_write_request_count() -> int:
         return _active_write_requests
 
 
+from services.http_rtt_diagnostics import (
+    HttpRttDiagnosticsMiddleware,
+    mark as http_rtt_mark,
+    correlate_event as http_rtt_correlate_event,
+)
+
+app.add_middleware(HttpRttDiagnosticsMiddleware)
+
 @app.middleware("http")
 async def staging_write_freeze_middleware(request: Request, call_next):
     """Reject classified mutating routes while preserving diagnostic reads."""
@@ -9613,7 +9621,11 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         db_started_at = utc_wall_time_ms()
         latency_trace["db_started_at"] = db_started_at
         latency_trace["db_start"] = db_started_at
-    db_id, inserted = save_event_with_inserted(event, created_at)
+    http_rtt_mark("S2_db_start")
+    try:
+        db_id, inserted = save_event_with_inserted(event, created_at)
+    finally:
+        http_rtt_mark("S3_db_complete")
     db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
     latency_diagnostics.record("event_db_write", db_duration_ms)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
@@ -10098,6 +10110,7 @@ async def runtime_status():
         "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
         "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
         "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
+        "phase3c_http_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
         "staging_db_latency_probe_enabled": STAGING_DB_LATENCY_PROBE_ENABLED,
         "classification_v1_enabled": CLASSIFICATION_V1_ENABLED,
         "classification_v1_persistence_enabled": CLASSIFICATION_V1_PERSISTENCE_ENABLED,
@@ -10569,6 +10582,8 @@ async def create_event(
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
+    http_rtt_mark("S1_payload_validated")
+    http_rtt_correlate_event(event.event_id)
     enabled = (os.getenv("APP_ENV", "").lower() == "staging"
                and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true")
     trace = latency_diagnostics.new_critical_trace(event.event_id) if enabled else None
@@ -10579,6 +10594,7 @@ async def create_event(
             latency_diagnostics.finish_critical_trace(trace, outcome="ingestion_failed")
             raise
         finally:
+            http_rtt_mark("S4_processing_complete")
             if trace is not None and "post_ingest_enqueued" not in trace["timestamps_ms"]:
                 latency_diagnostics.finish_critical_trace(trace, outcome="no_post_ingest")
 
