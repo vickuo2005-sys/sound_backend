@@ -106,6 +106,31 @@ def test_db_failure_retains_db_span_and_no_false_success(client, monkeypatch, ca
 ORIGINAL_HELPER = main.process_event_initial_submission
 
 
+def test_query_correlation_supports_existing_normal_client_without_header(client, monkeypatch):
+    payload = {"event_id": "p3c_query_event", "device_id": "p3c_node",
+               "timestamp": "2026-10-27T00:00:00Z", "label": "other"}
+    response = client.post("/events?phase3c_request_id=p3c_query", json=payload,
+                           headers={"x-upload-token": "phase3c-test-only-token"})
+    assert response.status_code == 200
+    assert response.headers["x-phase3c-request-id"] == "p3c_query"
+    assert response.json()["event_id"] == "p3c_query_event"
+    assert "phase3c_handler;dur=" in response.headers["server-timing"]
+    response = client.post("/events?phase3c_request_id=p3c_query", json=payload,
+                           headers={"x-upload-token": "phase3c-test-only-token",
+                                    "x-phase3c-request-id": "p3c_header"})
+    assert response.headers["x-phase3c-request-id"] == "p3c_header"
+    for query in ["a=1&b=2&c=3&d=4&e=5", "phase3c_request_id=invalid", "x=" + "a" * 260]:
+        response = client.post("/events?" + query, json=payload,
+                               headers={"x-upload-token": "phase3c-test-only-token"})
+        assert response.status_code == 200
+        assert "x-phase3c-request-id" not in response.headers
+    monkeypatch.setenv("APP_ENV", "production")
+    response = client.post("/events?phase3c_request_id=p3c_query", json=payload,
+                           headers={"x-upload-token": "phase3c-test-only-token"})
+    assert response.status_code == 200
+    assert "x-phase3c-request-id" not in response.headers
+
+
 def test_parallel_asgi_contexts_do_not_cross_contaminate(monkeypatch):
     monkeypatch.setenv("APP_ENV", "staging")
     async def run():

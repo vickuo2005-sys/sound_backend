@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from time import monotonic
+from urllib.parse import parse_qs
 
 _trace = ContextVar("phase3c_http_trace", default=None)
 logger = logging.getLogger(__name__)
@@ -33,6 +34,19 @@ class HttpRttDiagnosticsMiddleware:
         request_id = next((v.decode("ascii", errors="ignore")
                            for k, v in scope.get("headers", [])
                            if k.lower() == b"x-phase3c-request-id"), "")
+        # The hash-pinned normal MetadataUploadClient cannot add a diagnostic
+        # header. A bounded opt-in query ID lets that exact client be measured
+        # without replacing it or changing its production headers/selection.
+        if (not request_id and scope.get("type") == "http"
+                and scope.get("path") == "/events"
+                and os.getenv("APP_ENV", "").lower() == "staging"):
+            query = scope.get("query_string", b"")
+            if len(query) <= 256:
+                try:
+                    request_id = parse_qs(query.decode("ascii"),
+                                          max_num_fields=4).get("phase3c_request_id", [""])[0]
+                except (ValueError, UnicodeError):
+                    request_id = ""
         if not (scope["type"] == "http" and scope.get("method") == "POST"
                 and scope.get("path") == "/events"
                 and os.getenv("APP_ENV", "").lower() == "staging"
