@@ -250,6 +250,7 @@
                 const online=typeof deviceOnline==='function'?deviceOnline(device):liveNodeEligible(device);
                 marker.setIcon(nodeMarkerIcon(device,online,online&&realtime.active));
                 marker.__dashboardAlertKey=`${online?'1':'0'}:${online&&realtime.active?'1':'0'}`;
+                root.Phase3dDashboard?.marker(device,marker);
             });
         }
         function scheduleDetectionStaleRender(node){

@@ -122,6 +122,8 @@ def render_dashboard_v2_4(
             + (TEMPLATE_PATH.parents[1] / "static/dashboard_operations_ui.js").read_text(encoding="utf-8")
             + "</script><script>"
             + LIVE_MAP_PATCH_PATH.read_text(encoding="utf-8")
+            + "</script><script>"
+            + (TEMPLATE_PATH.parents[1] / "static/dashboard_phase3d.js").read_text(encoding="utf-8")
             + "</script>",
         )
         .replace("__AUDIO_EVIDENCE_SCRIPT__", "<script>" + AUDIO_EVIDENCE_SCRIPT_PATH.read_text(encoding="utf-8") + "</script>")

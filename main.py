@@ -14,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
-from time import monotonic, sleep
+from time import monotonic, sleep, perf_counter
+from services.realtime_latency import bridge as phase3d_bridge, BOOT_ID as PHASE3D_BOOT_ID
 from typing import Any, Optional
 from urllib.parse import quote, urlsplit
 
@@ -10110,6 +10111,8 @@ async def runtime_status():
         "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
         "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
         "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
+        "phase3d_realtime_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
+        "phase3d_server_boot_id": PHASE3D_BOOT_ID if os.getenv("APP_ENV", "").lower() == "staging" else None,
         "phase3c_http_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
         "staging_db_latency_probe_enabled": STAGING_DB_LATENCY_PROBE_ENABLED,
         "classification_v1_enabled": CLASSIFICATION_V1_ENABLED,
@@ -11667,8 +11670,10 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
 
         while True:
             raw_message = await websocket.receive_text()
+            phase3d_b0 = perf_counter() * 1000
             try:
                 envelope = parse_node_message(raw_message, expected_device_id=device_id)
+                phase3d_b1 = perf_counter() * 1000
             except ProtocolError as exc:
                 await websocket.send_json(
                     build_envelope(
@@ -11680,18 +11685,21 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type in {"heartbeat", "status_update"}:
+                phase3d_row = await phase3d_bridge.begin(envelope.payload, state, node_manager, phase3d_b0, phase3d_b1)
                 node_state = await node_manager.update_heartbeat(
                     device_id=device_id,
                     connection_id=state.connection_id,
                     payload=envelope.payload,
                 )
                 if node_state:
-                    await dashboard_manager.broadcast(
-                        {
-                            "type": "node_heartbeat",
-                            "node": node_state,
-                        }
-                    )
+                    message = {"type": "node_heartbeat", "node": node_state}
+                    if phase3d_row:
+                        phase3d_row["B4"] = perf_counter() * 1000
+                        phase3d_row["B2"] = perf_counter() * 1000
+                        message["phase3d"] = {k: phase3d_row[k] for k in ("traceId", "runId", "windowId", "sessionId", "sequence", "nodeId", "serverBootId")}
+                    await dashboard_manager.broadcast(message)
+                    if phase3d_row:
+                        await phase3d_bridge.complete(phase3d_row)
                 continue
 
             if envelope.message_type == "command_ack":
@@ -11958,8 +11966,16 @@ async def dashboard_websocket(websocket: WebSocket):
     await dashboard_manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            try:
+                message = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            await phase3d_bridge.dashboard_message(websocket, message)
     except WebSocketDisconnect:
+        pass
+    finally:
+        phase3d_bridge.subscribers.pop(websocket, None)
         dashboard_manager.disconnect(websocket)
 
 

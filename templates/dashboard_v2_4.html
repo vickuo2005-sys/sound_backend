@@ -1241,6 +1241,7 @@
             const merged = {...previous, ...device};
             if (device.is_listening === undefined && previous.is_listening !== undefined) merged.is_listening = previous.is_listening;
             state.devices.set(device.device_id, merged);
+            globalThis.Phase3dDashboard?.stored(merged);
             return merged;
         }
         function updateFixedLocationCache(device, deviceId = device?.device_id) {
@@ -2593,13 +2594,18 @@
                 const reconnect = state.wsEverConnected;
                 state.wsConnected = true; state.wsEverConnected = true; wsRetryAttempt = 0;
                 renderCommandBar(); renderHealth();
+                globalThis.Phase3dDashboard?.connected(socket);
                 if (reconnect) refreshSnapshot('reconnect');
             };
             socket.onmessage = message => {
+                const phase3dD0=performance.now();
                 let data; try { data = JSON.parse(message.data); } catch (_) { return; }
+                if(globalThis.Phase3dDashboard?.control(data))return;
                 const browserStarted=performance.now();
+                globalThis.Phase3dDashboard?.begin(data,phase3dD0,browserStarted);
                 try { handleWebSocketMessage(data); }
                 finally {
+                    globalThis.Phase3dDashboard?.finish();
                     recordBrowserMessageLatency(performance.now()-browserStarted);
                     // Avoid an extra DOM redraw for every high-frequency WS update.
                     const now=performance.now();
