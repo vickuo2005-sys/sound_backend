@@ -148,6 +148,8 @@ from services.http_rtt_diagnostics import (
     correlate_event as http_rtt_correlate_event,
 )
 
+from services.normal_workload_diagnostics import NormalWorkloadDiagnosticsMiddleware, mark as phase3e_mark, correlation as phase3e_correlation
+app.add_middleware(NormalWorkloadDiagnosticsMiddleware)
 app.add_middleware(HttpRttDiagnosticsMiddleware)
 
 @app.middleware("http")
@@ -10022,7 +10024,9 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         time_sync_at=location.time_sync_at,
         last_time_sync_at=location.last_time_sync_at,
     )
+    phase3e_mark("S1_status_db_merge_complete",nodeId=location.device_id,is_listening=location.is_listening,app_status=location.app_status)
     enriched_device_row = enrich_device_status_row(device_row)
+    phase3e_mark("S2_public_status_produced")
     update_device_status_cache_row(enriched_device_row)
     return device_row, enriched_device_row
 
@@ -10111,6 +10115,7 @@ async def runtime_status():
         "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
         "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
         "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
+        "phase3e_normal_workload_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
         "phase3d_realtime_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
         "phase3d_server_boot_id": PHASE3D_BOOT_ID if os.getenv("APP_ENV", "").lower() == "staging" else None,
         "phase3c_http_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
@@ -10638,6 +10643,7 @@ async def _create_event(
         "event_initial_submission",
         (monotonic() - request_started_monotonic) * 1000.0,
     )
+    phase3e_mark("E1_db_write_complete",eventId=event.event_id,nodeId=event.device_id)
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
@@ -11152,6 +11158,7 @@ async def update_location(location: LocationUpdate):
     schedule_dashboard_broadcast(
         {
             "type": "location_update",
+            **({"phase3e_status":phase3e_correlation()} if phase3e_correlation() else {}),
             **(dashboard_device_location_payload(enriched_device_row) or enriched_device_row),
         },
         "location_update",
