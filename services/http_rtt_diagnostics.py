@@ -8,7 +8,9 @@ from time import monotonic
 from urllib.parse import parse_qs
 
 _trace = ContextVar("phase3c_http_trace", default=None)
-logger = logging.getLogger(__name__)
+# Use Uvicorn's configured INFO logger; an unconfigured module logger inherits
+# root WARNING on Render and would silently lose the correlation records.
+logger = logging.getLogger("uvicorn.error")
 _ID = re.compile(r"p3c_[A-Za-z0-9_-]{1,100}\Z")
 _EVENT_ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}\Z")
 

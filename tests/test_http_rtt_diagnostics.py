@@ -36,7 +36,7 @@ def post(client, request_id="p3c_request", **overrides):
 
 
 def test_correlates_request_and_preserves_payload_and_legacy_metric(client, caplog):
-    caplog.set_level(logging.INFO, logger="services.http_rtt_diagnostics")
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
     instrumented = post(client)
     plain = client.post("/events", headers={"x-upload-token": "phase3c-test-only-token"},
                         json={"event_id": "p3c_event", "device_id": "p3c_node",
@@ -68,7 +68,7 @@ def test_correlates_request_and_preserves_payload_and_legacy_metric(client, capl
 def test_no_instrumentation_without_staging_and_bounded_valid_id(client, monkeypatch, caplog,
                                                                   environment, request_id):
     monkeypatch.setenv("APP_ENV", environment)
-    caplog.set_level(logging.INFO, logger="services.http_rtt_diagnostics")
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
     response = post(client, request_id)
     assert response.status_code == 200
     assert "x-phase3c-request-id" not in response.headers
@@ -95,7 +95,7 @@ def test_db_failure_retains_db_span_and_no_false_success(client, monkeypatch, ca
     def fail(*args):
         raise RuntimeError("test DB failure")
     monkeypatch.setattr(main, "save_event_with_inserted", fail)
-    caplog.set_level(logging.INFO, logger="services.http_rtt_diagnostics")
+    caplog.set_level(logging.INFO, logger="uvicorn.error")
     response = post(client, "p3c_failed")
     assert response.status_code == 500
     assert response.json()["detail"] == "db_event_write_error"
