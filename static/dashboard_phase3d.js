@@ -37,9 +37,7 @@
         const row=current;current=null;
         if(!row)return;
         row.D4=root.performance.now();
-        // A missing visible indicator remains a failure, never invented timing.
-        if(!Number.isFinite(row.D3))row.D3=row.D4;
-        if(!Number.isFinite(row.D2))row.D2=row.D1;
+        // Missing milestones stay absent. The bridge rejects an incomplete receipt.
         root.requestAnimationFrame(()=>{
             row.D5=root.performance.now();
             rows.push(row);if(rows.length>512)rows.shift();

@@ -15,4 +15,5 @@ assert.ok(d.rows[0].D5>=d.rows[0].D4);
 d.begin(message,0,1);d.stored(node);d.finish();frame();
 assert.equal(d.rows[1].duplicate,true);assert.equal(d.rows[1].outOfOrder,true);
 assert.equal(d.rows[1].alertIndicator,'NOT_AVAILABLE');
+assert.equal(d.rows[1].D3,undefined,'missing alert milestone cannot be replaced with map timing');
 console.log('Phase3D actual milestone hooks / receipt / duplicate / missing indicator PASS');
