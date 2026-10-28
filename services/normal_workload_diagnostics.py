@@ -16,7 +16,7 @@ def mark(stage, **fields):
     trace = _current.get()
     if trace is not None:
         trace["stages"].setdefault(stage, perf_counter()*1000)
-        for key in ("eventId", "nodeId", "is_listening", "app_status", "detection_active", "sequence"):
+        for key in ("eventId", "dbId", "nodeId", "is_listening", "app_status", "detection_active", "sequence"):
             value = fields.get(key)
             if isinstance(value, (str, int, float, bool)):
                 trace[key] = value[:128] if isinstance(value, str) else value

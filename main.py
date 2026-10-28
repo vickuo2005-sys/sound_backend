@@ -10643,7 +10643,7 @@ async def _create_event(
         "event_initial_submission",
         (monotonic() - request_started_monotonic) * 1000.0,
     )
-    phase3e_mark("E1_db_write_complete",eventId=event.event_id,nodeId=event.device_id)
+    phase3e_mark("E1_db_write_complete",eventId=event.event_id,nodeId=event.device_id,dbId=result["db_id"])
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
