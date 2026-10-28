@@ -3,7 +3,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from fastapi import WebSocket
 
@@ -46,6 +46,12 @@ class NodeConnectionState:
     time_sync_quality: Optional[str] = None
     time_sync_at: Optional[str] = None
     last_time_sync_at: Optional[str] = None
+    detection_active: Optional[bool] = None
+    detection_sequence: Optional[int] = None
+    detection_observed_at_ms: Optional[float] = None
+    detection_state_received_at_ms: Optional[float] = None
+    detection_label: Optional[str] = None
+    detection_confidence: Optional[float] = None
     reconnect_count: int = 0
     last_disconnect_at: Optional[float] = None
     last_disconnect_reason: Optional[str] = None
@@ -62,7 +68,20 @@ class NodeConnectionState:
             return "DEGRADED"
         return "OFFLINE"
 
+    def detection_state_dict(self) -> Optional[dict[str, Any]]:
+        if self.detection_state_received_at_ms is None:
+            return None
+        return {
+            "active": self.detection_active,
+            "sequence": self.detection_sequence,
+            "observed_at_ms": self.detection_observed_at_ms,
+            "received_at_ms": self.detection_state_received_at_ms,
+            "label": self.detection_label,
+            "confidence": self.detection_confidence,
+        }
+
     def to_public_dict(self, degraded_after: float, offline_after: float) -> dict[str, Any]:
+        detection_state = self.detection_state_dict()
         return {
             "device_id": self.device_id,
             "connection_id": self.connection_id,
@@ -102,6 +121,15 @@ class NodeConnectionState:
             "time_sync_quality": self.time_sync_quality,
             "time_sync_at": self.time_sync_at,
             "last_time_sync_at": self.last_time_sync_at,
+            "detection_state": detection_state,
+            # Flat aliases keep the dashboard migration additive and make older
+            # consumers that ignore nested objects harmless.
+            "detection_active": self.detection_active,
+            "detection_sequence": self.detection_sequence,
+            "detection_observed_at_ms": self.detection_observed_at_ms,
+            "detection_state_received_at_ms": self.detection_state_received_at_ms,
+            "detection_label": self.detection_label,
+            "detection_confidence": self.detection_confidence,
             "reconnect_count": self.reconnect_count,
             "last_disconnect_at": (
                 datetime.fromtimestamp(
@@ -197,6 +225,7 @@ class NodeManager:
         state: NodeConnectionState,
         payload: dict[str, Any],
     ) -> None:
+        self.apply_detection_state_payload(state, payload)
         if "recording" in payload:
             parsed = self._optional_bool(payload.get("recording"))
             if parsed is not None:
@@ -249,6 +278,82 @@ class NodeManager:
             except (TypeError, ValueError):
                 pass
 
+    def apply_detection_state_payload(
+        self,
+        state: NodeConnectionState,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        """Apply one inference-window state without coupling it to event persistence.
+
+        The node websocket already carries high-frequency status messages. A nested
+        ``detection_state`` object is therefore an additive realtime channel: the
+        dashboard can react to every positive *and* negative inference result while
+        /events remains the durable history path.
+        """
+
+        nested = payload.get("detection_state")
+        detection = dict(nested) if isinstance(nested, Mapping) else {}
+        if not detection:
+            flat_keys = {
+                "detection_active",
+                "detection_sequence",
+                "detection_observed_at_ms",
+                "detection_observed_at",
+                "detection_label",
+                "detection_confidence",
+            }
+            if not any(key in payload for key in flat_keys):
+                return False
+            detection = {
+                "active": payload.get("detection_active"),
+                "sequence": payload.get("detection_sequence"),
+                "observed_at_ms": payload.get("detection_observed_at_ms"),
+                "observed_at": payload.get("detection_observed_at"),
+                "label": payload.get("detection_label"),
+                "confidence": payload.get("detection_confidence"),
+            }
+
+        active = self._optional_bool(
+            detection.get("active", detection.get("detection_active"))
+        )
+        if active is None:
+            return False
+
+        sequence = self._optional_int(
+            detection.get("sequence", detection.get("detection_sequence"))
+        )
+        if (
+            sequence is not None
+            and state.detection_sequence is not None
+            and sequence <= state.detection_sequence
+        ):
+            # Duplicates must not extend the realtime freshness clock and older
+            # packets must never flip a newer UI state.
+            return False
+
+        observed_at_ms = self._timestamp_ms(
+            detection.get("observed_at_ms", detection.get("detection_observed_at_ms"))
+        )
+        if observed_at_ms is None:
+            observed_at_ms = self._timestamp_ms(
+                detection.get("observed_at", detection.get("detection_observed_at"))
+            )
+
+        label = detection.get("label", detection.get("detection_label"))
+        confidence = self._optional_float(
+            detection.get("confidence", detection.get("detection_confidence"))
+        )
+
+        state.detection_active = active
+        state.detection_sequence = sequence
+        state.detection_observed_at_ms = observed_at_ms
+        # Freshness is intentionally anchored to backend receipt time; phone clocks
+        # are not synchronized tightly enough to decide whether a live light is stale.
+        state.detection_state_received_at_ms = time.time() * 1000.0
+        state.detection_label = str(label) if label is not None else None
+        state.detection_confidence = confidence
+        return True
+
     @staticmethod
     def _optional_bool(value: Any) -> Optional[bool]:
         if value is None:
@@ -267,12 +372,37 @@ class NodeManager:
 
     @staticmethod
     def _optional_float(value: Any) -> Optional[float]:
-        if value is None:
+        if value is None or isinstance(value, bool):
             return None
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return None
+        return parsed if parsed == parsed and parsed not in {float("inf"), float("-inf")} else None
+
+    @staticmethod
+    def _optional_int(value: Any) -> Optional[int]:
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _timestamp_ms(value: Any) -> Optional[float]:
+        parsed = NodeManager._optional_float(value)
+        if parsed is not None:
+            return parsed
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            timestamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        return timestamp.timestamp() * 1000.0
 
     async def update_heartbeat(
         self,
@@ -348,6 +478,9 @@ class NodeManager:
             "websocket_connected": False,
             "availability_status": "OFFLINE",
             "heartbeat_age_seconds": None,
+            "detection_state": None,
+            "detection_active": None,
+            "detection_state_received_at_ms": None,
             "last_disconnect_at": (
                 datetime.fromtimestamp(
                     prior_disconnect["at"],

@@ -14,7 +14,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
-from time import monotonic, sleep
+from time import monotonic, sleep, perf_counter
+from services.realtime_latency import bridge as phase3d_bridge, BOOT_ID as PHASE3D_BOOT_ID
 from typing import Any, Optional
 from urllib.parse import quote, urlsplit
 
@@ -140,6 +141,16 @@ def staging_active_write_request_count() -> int:
     with _active_write_requests_lock:
         return _active_write_requests
 
+
+from services.http_rtt_diagnostics import (
+    HttpRttDiagnosticsMiddleware,
+    mark as http_rtt_mark,
+    correlate_event as http_rtt_correlate_event,
+)
+
+from services.normal_workload_diagnostics import NormalWorkloadDiagnosticsMiddleware, mark as phase3e_mark, correlation as phase3e_correlation
+app.add_middleware(NormalWorkloadDiagnosticsMiddleware)
+app.add_middleware(HttpRttDiagnosticsMiddleware)
 
 @app.middleware("http")
 async def staging_write_freeze_middleware(request: Request, call_next):
@@ -7217,6 +7228,15 @@ def merge_device_status_rows_with_live_nodes(rows: list[dict]) -> list[dict]:
         row["is_listening"] = is_recording
         row["backend_status"] = "connected" if is_live else row.get("backend_status")
         row["app_status"] = "listening" if is_recording else "stopped"
+        # Keep API snapshots consistent with node_live_update; these are in-memory
+        # inference states, never database columns or writes.
+        for key in (
+            "connection_id", "websocket_connected", "availability_status",
+            "detection_state", "detection_active", "detection_sequence",
+            "detection_observed_at_ms", "detection_state_received_at_ms",
+            "detection_label", "detection_confidence",
+        ):
+            row[key] = node.get(key)
         row["battery"] = node.get("battery_percent") if node.get("battery_percent") is not None else row.get("battery")
 
         for key in (
@@ -9604,7 +9624,11 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         db_started_at = utc_wall_time_ms()
         latency_trace["db_started_at"] = db_started_at
         latency_trace["db_start"] = db_started_at
-    db_id, inserted = save_event_with_inserted(event, created_at)
+    http_rtt_mark("S2_db_start")
+    try:
+        db_id, inserted = save_event_with_inserted(event, created_at)
+    finally:
+        http_rtt_mark("S3_db_complete")
     db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
     latency_diagnostics.record("event_db_write", db_duration_ms)
     if POST_INFERENCE_LATENCY_TRACING_ENABLED:
@@ -10000,7 +10024,9 @@ def process_location_update(location: LocationUpdate) -> tuple[dict, dict]:
         time_sync_at=location.time_sync_at,
         last_time_sync_at=location.last_time_sync_at,
     )
+    phase3e_mark("S1_status_db_merge_complete",nodeId=location.device_id,is_listening=location.is_listening,app_status=location.app_status)
     enriched_device_row = enrich_device_status_row(device_row)
+    phase3e_mark("S2_public_status_produced")
     update_device_status_cache_row(enriched_device_row)
     return device_row, enriched_device_row
 
@@ -10089,6 +10115,10 @@ async def runtime_status():
         "postgres_schema_cache_ttl_seconds": POSTGRES_SCHEMA_CACHE_TTL_SECONDS,
         "fast_event_ingest_enabled": FAST_EVENT_INGEST_ENABLED,
         "post_inference_latency_tracing_enabled": POST_INFERENCE_LATENCY_TRACING_ENABLED,
+        "phase3e_normal_workload_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
+        "phase3d_realtime_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
+        "phase3d_server_boot_id": PHASE3D_BOOT_ID if os.getenv("APP_ENV", "").lower() == "staging" else None,
+        "phase3c_http_diagnostics_enabled": os.getenv("APP_ENV", "").lower() == "staging",
         "staging_db_latency_probe_enabled": STAGING_DB_LATENCY_PROBE_ENABLED,
         "classification_v1_enabled": CLASSIFICATION_V1_ENABLED,
         "classification_v1_persistence_enabled": CLASSIFICATION_V1_PERSISTENCE_ENABLED,
@@ -10560,6 +10590,8 @@ async def create_event(
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
+    http_rtt_mark("S1_payload_validated")
+    http_rtt_correlate_event(event.event_id)
     enabled = (os.getenv("APP_ENV", "").lower() == "staging"
                and os.getenv("CRITICAL_PATH_DIAGNOSTICS_ENABLED", "true").lower() == "true")
     trace = latency_diagnostics.new_critical_trace(event.event_id) if enabled else None
@@ -10570,6 +10602,7 @@ async def create_event(
             latency_diagnostics.finish_critical_trace(trace, outcome="ingestion_failed")
             raise
         finally:
+            http_rtt_mark("S4_processing_complete")
             if trace is not None and "post_ingest_enqueued" not in trace["timestamps_ms"]:
                 latency_diagnostics.finish_critical_trace(trace, outcome="no_post_ingest")
 
@@ -10610,6 +10643,7 @@ async def _create_event(
         "event_initial_submission",
         (monotonic() - request_started_monotonic) * 1000.0,
     )
+    phase3e_mark("E1_db_write_complete",eventId=event.event_id,nodeId=event.device_id,dbId=result["db_id"])
     db_id = result["db_id"]
     device_row = result["device_row"]
     is_existing_event = result["is_existing_event"]
@@ -11124,6 +11158,7 @@ async def update_location(location: LocationUpdate):
     schedule_dashboard_broadcast(
         {
             "type": "location_update",
+            **({"phase3e_status":phase3e_correlation()} if phase3e_correlation() else {}),
             **(dashboard_device_location_payload(enriched_device_row) or enriched_device_row),
         },
         "location_update",
@@ -11642,8 +11677,10 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
 
         while True:
             raw_message = await websocket.receive_text()
+            phase3d_b0 = perf_counter() * 1000
             try:
                 envelope = parse_node_message(raw_message, expected_device_id=device_id)
+                phase3d_b1 = perf_counter() * 1000
             except ProtocolError as exc:
                 await websocket.send_json(
                     build_envelope(
@@ -11655,18 +11692,21 @@ async def node_control_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             if envelope.message_type in {"heartbeat", "status_update"}:
+                phase3d_row = await phase3d_bridge.begin(envelope.payload, state, node_manager, phase3d_b0, phase3d_b1)
                 node_state = await node_manager.update_heartbeat(
                     device_id=device_id,
                     connection_id=state.connection_id,
                     payload=envelope.payload,
                 )
                 if node_state:
-                    await dashboard_manager.broadcast(
-                        {
-                            "type": "node_heartbeat",
-                            "node": node_state,
-                        }
-                    )
+                    message = {"type": "node_heartbeat", "node": node_state}
+                    if phase3d_row:
+                        phase3d_row["B4"] = perf_counter() * 1000
+                        phase3d_row["B2"] = perf_counter() * 1000
+                        message["phase3d"] = {k: phase3d_row[k] for k in ("traceId", "runId", "windowId", "sessionId", "sequence", "nodeId", "serverBootId")}
+                    await dashboard_manager.broadcast(message)
+                    if phase3d_row:
+                        await phase3d_bridge.complete(phase3d_row)
                 continue
 
             if envelope.message_type == "command_ack":
@@ -11933,8 +11973,16 @@ async def dashboard_websocket(websocket: WebSocket):
     await dashboard_manager.connect(websocket)
     try:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            try:
+                message = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            await phase3d_bridge.dashboard_message(websocket, message)
     except WebSocketDisconnect:
+        pass
+    finally:
+        phase3d_bridge.subscribers.pop(websocket, None)
         dashboard_manager.disconnect(websocket)
 
 
