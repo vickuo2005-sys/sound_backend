@@ -71,8 +71,12 @@ class BenchmarkController extends ChangeNotifier {
   Future<void> _delete(Map<String, dynamic>? event) async {
     final p = event?['path'];
     if (p is String) {
-      final file = File(p);
-      if (await file.exists()) await file.delete();
+      try {
+        final file = File(p);
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        interruption = 'audio_cleanup_failed';
+      }
     }
   }
 
