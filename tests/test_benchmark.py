@@ -130,3 +130,12 @@ def test_unconfirmed_hop_never_stable():
     batch = b.Batch.model_validate(dict(session_id=str(uuid4()), completed_at='2026-11-04T00:10:00Z',
         status='completed', reason='test', criteria_version='benchmark.v1', runs=[run(phase='survey')]))
     assert b.decisions(batch)['lowest_stable_hop'] is None
+
+
+def test_pipeline_versions_remain_distinguishable():
+    old = b.Session.model_validate(session())
+    new = b.Session.model_validate({**session(), 'pipeline_version':'native-wav-ai.v2',
+                                  'protocol_version':'benchmark.protocol.v1.1'})
+    assert old.pipeline_version != new.pipeline_version
+    assert old.protocol_version == 'benchmark.protocol.v1'
+    assert new.protocol_version == 'benchmark.protocol.v1.1'

@@ -1,5 +1,7 @@
 # Drone Audio Benchmark V1 API
 
+V1.1 compatibility: Session accepts both `native-wav-ai.v1` (original per-byte writer) and `native-wav-ai.v2` (byte-identical bulk WAV writer), and adds `protocol_version` (old sessions default to `benchmark.protocol.v1`; new clients send `benchmark.protocol.v1.1`). CSV exports retain both fields, so results from different implementations/protocols can be kept separate. No SQL change is needed because metadata is stored as validated JSON. Criteria remain `benchmark.v1`; new clients use >=15 seconds and >=8 samples for warmup and require >=30 samples before latency overload early-stop. Latency-budget failures alone do not stop descending; two consecutive runs with >=30 generated windows and >=25% loss do. No measured improvement is claimed before physical retesting.
+
 This is an opt-in addition to FastAPI. Existing event, fusion, tracking, TDOA and dashboard code paths are unchanged. `main.py` mounts `/benchmark/*`; `uvicorn benchmark_app:app` can also run the isolated API without importing the monitoring application. No automatic migration or deployment occurs.
 
 ## Database and configuration

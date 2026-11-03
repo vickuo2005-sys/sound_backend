@@ -38,7 +38,8 @@ class Session(Strict):
     model_version: str = Field(max_length=80)
     model_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model_metadata_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    pipeline_version: Literal['native-wav-ai.v1']
+    pipeline_version: Literal['native-wav-ai.v1', 'native-wav-ai.v2']
+    protocol_version: Literal['benchmark.protocol.v1', 'benchmark.protocol.v1.1'] = 'benchmark.protocol.v1'
     inference_settings: Literal['tflite_flutter-0.12.1-default-options']
     input_shape: list[int] = Field(min_length=1, max_length=8)
     output_shape: list[int] = Field(min_length=1, max_length=8)
@@ -265,7 +266,7 @@ def export_csv(request: Request, authorization: str | None = Header(default=None
         cursor = execute("SELECT metadata_json, result_json FROM benchmark_sessions WHERE result_json IS NOT NULL ORDER BY session_id")
         while rows := cursor.fetchmany(100):
             for metadata, result in rows:
-                s, batch = json.loads(metadata), Batch.model_validate_json(result)
+                s, batch = Session.model_validate_json(metadata).model_dump(mode='json'), Batch.model_validate_json(result)
                 decision = decisions(batch)
                 for run in batch.runs or [None]:
                     if run is None:
