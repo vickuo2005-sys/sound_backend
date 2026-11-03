@@ -1,6 +1,6 @@
-fastapi
+fastapi>=0.100,<1
 uvicorn
-pydantic
+pydantic>=2,<3
 google-cloud-storage
 python-multipart
 psycopg2-binary
