@@ -894,10 +894,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun writeShortArrayData(wav: RandomAccessFile, samples: ShortArray) {
-        for (sample in samples) {
-            wav.write(sample.toInt() and 0xFF)
-            wav.write((sample.toInt() shr 8) and 0xFF)
-        }
+        Pcm16WavWriter.write(wav, samples)
     }
 
     private fun writeOneShort(sample: Short) {

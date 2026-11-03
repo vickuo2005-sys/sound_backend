@@ -1,5 +1,11 @@
 # Drone Audio Benchmark V1
 
+## V1.1 update after Redmi field test
+
+The original Redmi 23108RN04Y session completed 43/43 inferences with no drops, but measured native WAV save P95 of 2197 ms (1500 ms hop) and 924 ms (1000 ms hop). The original shared complete-window writer performed 96000 single-byte writes per 3-second PCM16 window. V1.1 uses byte-identical little-endian encoding with one bulk write, shared by monitoring and benchmark native code. No monitoring APK is deployed by this change. All 65536 signed PCM16 values and bulk file I/O behavior have JVM tests.
+
+V1.1 records pipeline `native-wav-ai.v2` and protocol `benchmark.protocol.v1.1`; keep original v1 results separate. The classifier/model and PASS/recommendation criteria (`benchmark.v1`) are unchanged. Warmup is now at least 15 seconds AND 8 samples, with a 45-second timeout. Latency failure alone no longer stops descending to smaller hops. Only two consecutive runs with at least 30 generated windows and >=25% observed window loss stop descent. Confirmation latency early-stop requires >=30 samples; interruptions/severe thermal still stop immediately. The benchmark flavor alone increases versionCode to 4 and versionName suffix to `-benchmark-v1.1`; sideload over the old APK using the same signing key to preserve saved sessions. Actual performance improvement still requires the same phone to retest. The following V1 descriptions of three-sample warmup and two-failure descent early-stop are historical; this section supersedes them.
+
 Independent flavor/application ID: `com.example.sound_detector_clean.benchmark`. Entry point: `lib/benchmark_main.dart`. The monitoring entry point, production/staging flavors, event uploads, positioning and GCS paths are not used by the benchmark entry point. The benchmark manifest removes GPS, phone-state, shared storage, boot receiver, monitoring service and unrelated runtime permissions.
 
 ## Build and distribute

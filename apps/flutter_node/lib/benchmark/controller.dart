@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../ai_sound_classifier.dart';
 import 'stats.dart';
 import 'store.dart';
+import 'schedule.dart';
 
 String randomHex(int bytes) => List.generate(
   bytes,
@@ -234,7 +235,8 @@ class BenchmarkController extends ChangeNotifier {
               ),
             )
             .toString(),
-        'pipeline_version': 'native-wav-ai.v1',
+        'pipeline_version': benchmarkPipelineVersion,
+        'protocol_version': benchmarkProtocolVersion,
         'inference_settings': 'tflite_flutter-0.12.1-default-options',
         'input_shape': classifier.inputShape,
         'output_shape': classifier.outputShape,
@@ -250,7 +252,7 @@ class BenchmarkController extends ChangeNotifier {
       };
       await _checkpoint();
       final candidates = <int>[];
-      var consecutiveFailures = 0;
+      var consecutiveOverloads = 0;
       for (
         var i = 0;
         i < benchmarkHops.length && !cancelled && interruption == null;
@@ -266,11 +268,16 @@ class BenchmarkController extends ChangeNotifier {
         await _checkpoint();
         if (evaluateRun(run)['passed'] == true) {
           candidates.add(hop);
-          consecutiveFailures = 0;
-        } else {
-          consecutiveFailures++;
         }
-        if (consecutiveFailures >= 2) break;
+        if (hasSubstantialWindowLoss(
+          run['generated'] as int,
+          run['dropped'] as int,
+        )) {
+          consecutiveOverloads++;
+        } else {
+          consecutiveOverloads = 0;
+        }
+        if (consecutiveOverloads >= 2) break;
       }
       for (final hop in candidates.reversed) {
         if (cancelled || interruption != null) break;
@@ -362,15 +369,10 @@ class BenchmarkController extends ChangeNotifier {
       if (actual?['hop_ms'] != hop || actual?['run_id'] != run['run_id']) {
         throw StateError('native_configuration_mismatch');
       }
-      final target = phase == 'warmup'
-          ? 3
-          : phase == 'confirmation'
-          ? 60
-          : 30;
       final maxMs = phase == 'confirmation'
           ? 180000
           : phase == 'warmup'
-          ? 30000
+          ? warmupTimeoutMs
           : 90000;
       while (!cancelled &&
           interruption == null &&
@@ -394,15 +396,18 @@ class BenchmarkController extends ChangeNotifier {
           await _checkpoint();
           lastCheckpointMs = timer.elapsedMilliseconds;
         }
-        if (samples.length >= target &&
-            (phase != 'confirmation' || timer.elapsedMilliseconds >= 120000)) {
+        if (phaseHasEnoughData(
+          phase,
+          samples.length,
+          timer.elapsedMilliseconds,
+        )) {
           break;
         }
-        if (samples.length >= 10 && phase != 'warmup') {
+        if (samples.length >= 30 && phase != 'warmup') {
           final p = summarize(
             samples.map((s) => s['pipeline_upper_ms'] as num),
           );
-          if (p!['p95']! > 2 * hop ||
+          if (shouldStopOverloaded(phase, samples.length, p!['p95']!, hop) ||
               samples.where((s) => s['success'] != true).length >= 2) {
             break;
           }
@@ -422,6 +427,16 @@ class BenchmarkController extends ChangeNotifier {
       pending = null;
     }
     _updateRunCounts(run, state, timer.elapsedMilliseconds);
+    if (phase == 'warmup' &&
+        interruption == null &&
+        !cancelled &&
+        !phaseHasEnoughData(
+          phase,
+          run['processed'] as int,
+          timer.elapsedMilliseconds,
+        )) {
+      interruption = 'warmup_incomplete';
+    }
     if (interruption != null) (run['errors'] as List).add(interruption!);
     return run;
   }

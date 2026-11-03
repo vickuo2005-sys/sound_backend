@@ -82,7 +82,8 @@ android {
         create("benchmark") {
             dimension = "environment"
             applicationIdSuffix = ".benchmark"
-            versionNameSuffix = "-benchmark-v1"
+            versionCode = 4
+            versionNameSuffix = "-benchmark-v1.1"
             manifestPlaceholders["appLabel"] = "Drone Audio Benchmark"
         }
         create("staging") {
