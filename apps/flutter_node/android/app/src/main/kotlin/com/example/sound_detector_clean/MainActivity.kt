@@ -7,6 +7,12 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioManager
+import android.os.PowerManager
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.TimeUnit
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
@@ -66,9 +72,69 @@ class MainActivity : FlutterActivity() {
     // Keep 50% overlap between complete 3-second model windows. The archived
     // 500 ms hop overloaded WAV writes; 1.5 seconds retains overlap at one third
     // of that write rate.
-    private val slidingHopMs = 1500
+    private var slidingHopMs = 1500
     private val slidingWindowSamples = sampleRate * slidingWindowMs / 1000
-    private val slidingHopSamples = sampleRate * slidingHopMs / 1000
+    private val slidingHopSamples get() = if (benchmark) BenchmarkHop.samples(slidingHopMs) else sampleRate * slidingHopMs / 1000
+
+    private val benchmark get() = packageName.endsWith(".benchmark")
+    private var captureThread: Thread? = null
+    private var permissionResult: MethodChannel.Result? = null
+    private val benchmarkPending = AtomicInteger(0)
+    private var benchmarkGenerated = 0
+    private var benchmarkDropped = 0
+    private var benchmarkMaxBacklog = 0
+    private var benchmarkRunId = ""
+    private var benchmarkCpuStart = 0L
+
+    override fun onPause() {
+        if (benchmark && isListening) {
+            stopListening()
+            sendToFlutter("benchmark_interrupted", "app_backgrounded_or_locked")
+        }
+        super.onPause()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1001) {
+            permissionResult?.success(hasMicPermission())
+            permissionResult = null
+        }
+    }
+
+    private fun benchmarkState(): Map<String, Any?> {
+        val power = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(memory)
+        return mapOf(
+            "brand" to Build.BRAND, "model" to Build.MODEL,
+            "android_version" to Build.VERSION.RELEASE,
+            "abi" to Build.SUPPORTED_ABIS.joinToString(","),
+            "cores" to Runtime.getRuntime().availableProcessors(),
+            "memory_mb" to memory.totalMem / 1048576,
+            "app_version" to packageManager.getPackageInfo(packageName, 0).versionName,
+            "generated" to benchmarkGenerated, "native_dropped" to benchmarkDropped,
+            "max_backlog" to benchmarkMaxBacklog,
+            "cpu_ms" to (android.os.Process.getElapsedCpuTime() - benchmarkCpuStart),
+            "thermal" to if (Build.VERSION.SDK_INT >= 29) power.currentThermalStatus else null,
+            "hop_ms" to slidingHopMs, "run_id" to benchmarkRunId
+        )
+    }
+
+    private fun benchmarkStop(result: MethodChannel.Result) {
+        stopListening()
+        thread {
+            try {
+                captureThread?.join(5000)
+                check(captureThread?.isAlive != true) { "capture_stop_timeout" }
+                slidingWindowWriteExecutor.submit {}.get(10, TimeUnit.SECONDS)
+                runOnUiThread { result.success(benchmarkState()) }
+            } catch (e: Exception) {
+                runOnUiThread { result.error("benchmark_stop_failed", e.message, null) }
+            }
+        }
+    }
 
     private val preBuffer = ArrayDeque<Short>()
     private val slidingWindowBuffer = ShortArray(slidingWindowSamples)
@@ -118,9 +184,13 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        if (benchmark) {
+            File(getExternalFilesDir(Environment.DIRECTORY_MUSIC), "benchmark_audio").listFiles()?.forEach { it.delete() }
+        }
     }
 
     override fun onDestroy() {
+        stopListening()
         slidingWindowWriteExecutor.shutdownNow()
         super.onDestroy()
     }
@@ -132,6 +202,47 @@ class MainActivity : FlutterActivity() {
 
         methodChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
+                "benchmarkPermission" -> {
+                    if (!benchmark) result.notImplemented()
+                    else if (hasMicPermission()) result.success(true)
+                    else { permissionResult = result; requestMicPermission() }
+                }
+                "benchmarkClock" -> result.success(SystemClock.elapsedRealtime())
+                "benchmarkState" -> result.success(benchmarkState())
+                "benchmarkStop" -> if (benchmark) benchmarkStop(result) else result.notImplemented()
+                "benchmarkStart" -> {
+                    if (!benchmark) { result.notImplemented(); return@setMethodCallHandler }
+                    val hop = call.argument<Int>("hop_ms") ?: 0
+                    if (!hasMicPermission() || !BenchmarkHop.canStart(hop, isListening, captureThread?.isAlive == true, benchmarkPending.get())) {
+                        result.error("unsafe_start", "permission, stop/drain or hop invalid", null)
+                    } else {
+                        File(getExternalFilesDir(Environment.DIRECTORY_MUSIC), "benchmark_audio").listFiles()?.forEach { it.delete() }
+                        slidingHopMs = hop
+                        benchmarkRunId = call.argument<String>("run_id") ?: ""
+                        benchmarkGenerated = 0; benchmarkDropped = 0; benchmarkMaxBacklog = 0
+                        benchmarkCpuStart = android.os.Process.getElapsedCpuTime()
+                        startListening()
+                        if (isListening) result.success(benchmarkState())
+                        else result.error("audio_start_failed", "AudioRecord failed", null)
+                    }
+                }
+                "benchmarkShare" -> {
+                    if (!benchmark) { result.notImplemented(); return@setMethodCallHandler }
+                    val files = (call.arguments as? List<*>)?.map { File(it.toString()).canonicalFile } ?: emptyList()
+                    val root = File(filesDir.parentFile, "app_flutter/benchmark_exports").canonicalFile
+                    if (files.isEmpty() || files.any { !it.path.startsWith(root.path + File.separator) || !it.isFile }) {
+                        result.error("invalid_export", "invalid export path", null)
+                    } else {
+                        val uris = ArrayList(files.map { FileProvider.getUriForFile(this, "$packageName.benchmark.files", it) })
+                        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                            type = "application/octet-stream"
+                            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(intent, "匯出測試結果"))
+                        result.success(true)
+                    }
+                }
                 "startListening" -> {
                     if (hasMicPermission()) {
                         startListening()
@@ -339,11 +450,13 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        thread {
+        captureThread = thread {
             try {
                 while (isListening) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
 
+                    if (benchmark && read < 0 && isListening) error("AudioRecord_read_$read")
+                    if (benchmark && Build.VERSION.SDK_INT >= 29 && audioRecord?.activeRecordingConfiguration?.isClientSilenced == true) error("microphone_silenced")
                     if (read > 0) {
                         val bufferStartGlobalSample = totalSamplesRead
                         processAudioBuffer(buffer, read, bufferStartGlobalSample)
@@ -354,6 +467,7 @@ class MainActivity : FlutterActivity() {
                 android.util.Log.e("SoundNodeAudio", "audio read/process failed", error)
                 sendToFlutter("audio_error", null)
             } finally {
+                isListening = false
                 releaseAudioRecord()
             }
         }
@@ -388,8 +502,17 @@ class MainActivity : FlutterActivity() {
             return
         }
 
-        appendToSlidingWindow(buffer, read)
-        emitReadySlidingWindows()
+        if (benchmark) {
+            // Emit at the exact PCM boundary before the circular buffer is overwritten.
+            for (i in 0 until read) {
+                slidingWindowBuffer[(slidingSamplesSeen % slidingWindowSamples).toInt()] = buffer[i]
+                slidingSamplesSeen++
+                if (slidingSamplesSeen >= nextSlidingWindowEndSample) emitReadySlidingWindows()
+            }
+        } else {
+            appendToSlidingWindow(buffer, read)
+            emitReadySlidingWindows()
+        }
     }
 
     private fun calculateRms(buffer: ShortArray, read: Int): Double {
@@ -459,8 +582,14 @@ class MainActivity : FlutterActivity() {
         }
 
         snapshots.forEach { snapshot ->
+            if (benchmark) {
+                benchmarkGenerated++
+                if (benchmarkPending.get() >= 2) { benchmarkDropped++; return@forEach }
+                benchmarkMaxBacklog = maxOf(benchmarkMaxBacklog, benchmarkPending.incrementAndGet())
+            }
             slidingWindowWriteExecutor.execute {
-                saveSlidingWindowEvent(snapshot)
+                try { saveSlidingWindowEvent(snapshot) }
+                finally { if (benchmark) benchmarkPending.decrementAndGet() }
             }
         }
     }
@@ -471,7 +600,7 @@ class MainActivity : FlutterActivity() {
         try {
             val folder = File(
                 getExternalFilesDir(Environment.DIRECTORY_MUSIC),
-                "sound_events"
+                if (benchmark) "benchmark_audio" else "sound_events"
             )
 
             if (!folder.exists()) {
@@ -543,6 +672,9 @@ class MainActivity : FlutterActivity() {
                 "sample_rate_hz" to sampleRate,
                 "channel_count" to channelCount,
                 "rms_peak_time_ms" to peakTimeMs,
+                "benchmark_run_id" to benchmarkRunId,
+                "ready_native_ms" to snapshot.readyMonotonicMs,
+                "emit_native_ms" to emitMonotonicMs,
                 "window_sequence" to snapshot.sequence,
                 "window_start_global_sample" to snapshot.startGlobalSample,
                 "window_end_global_sample" to snapshot.endGlobalSample,

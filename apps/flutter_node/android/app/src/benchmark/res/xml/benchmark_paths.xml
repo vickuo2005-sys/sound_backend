@@ -1,0 +1,3 @@
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="flutter_exports" path="../app_flutter/benchmark_exports/"/>
+</paths>

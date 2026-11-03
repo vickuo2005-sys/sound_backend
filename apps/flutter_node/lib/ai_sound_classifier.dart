@@ -161,6 +161,18 @@ class AiSoundClassifier {
   static const int legacyInputSize = 224;
   static const double topDb = 80.0;
 
+  double lastPreprocessMs = 0;
+  double lastInferenceMs = 0;
+  Future<void> loadStrict(String modelId) async {
+    final option = supportedModels.firstWhere((m) => m.id == modelId);
+    try {
+      await _loadModelOption(option);
+    } catch (_) {
+      close();
+      rethrow;
+    }
+  }
+
   tfl.Interpreter? _interpreter;
   _ModelProfile _modelProfile = _ModelProfile.none;
   AiModelOption _activeModel = supportedModels.first;
@@ -245,10 +257,16 @@ class AiSoundClassifier {
         );
       }
 
+      lastPreprocessMs = 0;
+      lastInferenceMs = 0;
+      final prep = Stopwatch()..start();
       final input = await _buildInputTensorInBackground(wavPath);
+      lastPreprocessMs = prep.elapsedMicroseconds / 1000;
       final output = _zeroTensorForShape(_outputShape);
 
+      final invoke = Stopwatch()..start();
       interpreter.run(input, output);
+      lastInferenceMs = invoke.elapsedMicroseconds / 1000;
 
       final rawOutput = _flattenTensor(output);
       final probabilities = _probabilitiesFromOutput(
