@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" tools:node="remove"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" tools:node="remove"/>
+    <uses-permission android:name="android.permission.VIBRATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
+    <application android:allowBackup="false" tools:replace="android:allowBackup">
+        <receiver android:name=".BootReceiver" tools:node="remove"/>
+        <service android:name=".SoundNodeForegroundService" tools:node="remove"/>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.benchmark.files" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/benchmark_paths"/>
+        </provider>
+    </application>
+</manifest>

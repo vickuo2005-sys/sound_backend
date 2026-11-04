@@ -79,6 +79,13 @@ android {
 
     flavorDimensions += "environment"
     productFlavors {
+        create("benchmark") {
+            dimension = "environment"
+            applicationIdSuffix = ".benchmark"
+            versionCode = 5
+            versionNameSuffix = "-benchmark-v1.2"
+            manifestPlaceholders["appLabel"] = "Drone Audio Benchmark"
+        }
         create("staging") {
             dimension = "environment"
             applicationIdSuffix = ".staging"
@@ -105,3 +112,5 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies { testImplementation("junit:junit:4.13.2") }
