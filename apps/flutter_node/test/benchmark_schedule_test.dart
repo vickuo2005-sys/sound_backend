@@ -1,7 +1,26 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sound_detector_clean/benchmark/schedule.dart';
+import 'package:sound_detector_clean/benchmark/stats.dart';
 
 void main() {
+  test(
+    '300ms reference is measured between 350 and 250 then continues to 100',
+    () {
+      expect(benchmarkHops, [
+        1500,
+        1000,
+        750,
+        500,
+        350,
+        300,
+        250,
+        200,
+        150,
+        100,
+      ]);
+      expect(benchmarkProtocolVersion, 'benchmark.protocol.v1.2');
+    },
+  );
   test('warmup needs elapsed time and completed samples', () {
     expect(phaseHasEnoughData('warmup', 3, 30000), false);
     expect(phaseHasEnoughData('warmup', 8, 14999), false);

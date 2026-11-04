@@ -10,6 +10,7 @@ class BenchmarkHopTest {
             assertTrue(BenchmarkHop.canStart(hop, false, false, 0))
         }
         assertEquals(1600, BenchmarkHop.samples(100))
+        assertEquals(4800, BenchmarkHop.samples(300))
         assertEquals(24000, BenchmarkHop.samples(1500))
     }
     @Test fun rejectsChangesUntilCaptureAndWriterAreDrained() {

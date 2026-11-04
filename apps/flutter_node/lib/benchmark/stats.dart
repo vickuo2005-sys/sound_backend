@@ -1,6 +1,6 @@
 import 'dart:math';
 
-const benchmarkHops = [1500, 1000, 750, 500, 350, 250, 200, 150, 100];
+const benchmarkHops = [1500, 1000, 750, 500, 350, 300, 250, 200, 150, 100];
 const criteriaVersion = 'benchmark.v1';
 const timingMetrics = [
   'native_queue_ms',

@@ -1,6 +1,6 @@
 /// V1.1 changes execution policy, not the pass/recommendation thresholds.
 const benchmarkPipelineVersion = 'native-wav-ai.v2';
-const benchmarkProtocolVersion = 'benchmark.protocol.v1.1';
+const benchmarkProtocolVersion = 'benchmark.protocol.v1.2';
 const warmupMinimumMs = 15000;
 const warmupMinimumSamples = 8;
 const warmupTimeoutMs = 45000;
