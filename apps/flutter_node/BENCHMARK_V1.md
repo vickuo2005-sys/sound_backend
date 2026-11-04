@@ -2,6 +2,8 @@
 
 ## V1.2: explicitly measure the user's earlier 300 ms reference
 
+Local CSV now includes app_version, pipeline_version and protocol_version on every row, including legacy sessions (default protocol v1); JSON retains complete session metadata. An export regression test checks historical-session labeling, column alignment and omission of session credentials.
+
 The user reports previously reaching 300 ms on Redmi 13C; that observation is a reference to retest, not a confirmed result from this benchmark. The sequence is now 1500, 1000, 750, 500, 350, **300**, 250, 200, 150, 100 ms, with 300 included in the actual native Hop guard (4800 PCM samples). Protocol is `benchmark.protocol.v1.2`; pipeline remains `native-wav-ai.v2` and criteria remain `benchmark.v1`. Benchmark flavor versionCode is 5, suffix `-benchmark-v1.2` (ARM64 split code 2005); production/staging version metadata is unchanged. Sideloader can update either prior pilot using the same certificate, preserving local results. The V1.1 improvements below remain active. At most 20 measured runs (10 surveys plus 10 confirmations) may be exported/uploaded; backend support and an explicit existing-PostgreSQL constraint migration are included in companion PR #7. No production schema change is performed automatically.
 
 ## V1.1 update after Redmi field test

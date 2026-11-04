@@ -172,14 +172,17 @@ class BenchmarkStore {
 
   Future<List<String>> export(
     Map<String, dynamic> session,
-    Map<String, dynamic> batch,
-  ) async {
-    final dir = Directory(
-      path.join(
-        (await getApplicationDocumentsDirectory()).path,
-        'benchmark_exports',
-      ),
-    );
+    Map<String, dynamic> batch, {
+    Directory? directory,
+  }) async {
+    final dir =
+        directory ??
+        Directory(
+          path.join(
+            (await getApplicationDocumentsDirectory()).path,
+            'benchmark_exports',
+          ),
+        );
     await dir.create(recursive: true);
     for (final f in dir.listSync().whereType<File>()) {
       await f.delete();
@@ -213,6 +216,9 @@ class BenchmarkStore {
         'session_id',
         'model_id',
         'model_sha256',
+        'app_version',
+        'pipeline_version',
+        'protocol_version',
         'hop_ms',
         'phase',
         'sequence',
@@ -226,15 +232,21 @@ class BenchmarkStore {
         'reasons',
       ],
     ];
+    List<Object?> identity(Map<String, dynamic> s) => [
+      s['session_id'],
+      s['model_id'],
+      s['model_sha256'],
+      s['app_version'],
+      s['pipeline_version'],
+      s['protocol_version'] ?? 'benchmark.protocol.v1',
+    ];
     for (final record in results) {
       final s = record['session'];
       final runs = (record['batch']['runs'] as List)
           .cast<Map<String, dynamic>>();
       if (runs.isEmpty) {
         rows.add([
-          s['session_id'],
-          s['model_id'],
-          s['model_sha256'],
+          ...identity(s),
           ...List.filled(16, ''),
           record['batch']['reason'],
         ]);
@@ -245,9 +257,7 @@ class BenchmarkStore {
         for (final sample
             in samples.isEmpty ? [<String, dynamic>{}] : samples) {
           rows.add([
-            s['session_id'],
-            s['model_id'],
-            s['model_sha256'],
+            ...identity(s),
             r['hop_ms'],
             r['phase'],
             sample['sequence'],

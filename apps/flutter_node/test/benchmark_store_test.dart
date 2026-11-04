@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -21,6 +22,50 @@ void main() {
     'reason': 'completed',
     'runs': [],
   };
+  test(
+    'export labels old and new protocols and never includes session secrets',
+    () async {
+      final store = BenchmarkStore(db);
+      final oldSession = {
+        ...session,
+        'app_version': '1.0.2-benchmark-v1',
+        'pipeline_version': 'native-wav-ai.v1',
+      };
+      final newSession = {
+        ...session,
+        'session_id': 'new-session',
+        'app_version': '1.0.2-benchmark-v1.2',
+        'pipeline_version': 'native-wav-ai.v2',
+        'protocol_version': 'benchmark.protocol.v1.2',
+      };
+      await store.save(oldSession, batch, 'private-old-session-credential');
+      await store.save(newSession, batch, 'private-new-session-credential');
+      final dir = await Directory.systemTemp.createTemp(
+        'benchmark-export-test-',
+      );
+      try {
+        final paths = await store.export(newSession, batch, directory: dir);
+        final csv = await File(paths[1]).readAsString();
+        final json = await File(paths[0]).readAsString();
+        expect(
+          csv,
+          contains('"app_version","pipeline_version","protocol_version"'),
+        );
+        expect(csv, contains('"native-wav-ai.v1","benchmark.protocol.v1"'));
+        expect(csv, contains('"native-wav-ai.v2","benchmark.protocol.v1.2"'));
+        final rows = csv.split('\r\n');
+        expect(rows.length, 3);
+        for (final row in rows) {
+          expect(row.split(',').length, 23);
+        }
+        expect(csv, isNot(contains('private-old-session-credential')));
+        expect(json, isNot(contains('private-new-session-credential')));
+        expect((jsonDecode(json)['results'] as List).length, 2);
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+  );
   test('offline failure preserves complete payload and uses backoff', () async {
     final store = BenchmarkStore(
       db,
