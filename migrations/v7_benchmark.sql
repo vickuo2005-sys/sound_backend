@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS benchmark_sessions (
 CREATE TABLE IF NOT EXISTS benchmark_runs (
     run_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES benchmark_sessions(session_id),
-    hop_ms INTEGER NOT NULL CHECK (hop_ms IN (1500,1000,750,500,350,250,200,150,100)),
+    hop_ms INTEGER NOT NULL CHECK (hop_ms IN (1500,1000,750,500,350,300,250,200,150,100)),
     phase TEXT NOT NULL CHECK (phase IN ('survey','confirmation')),
     payload_json TEXT NOT NULL
 );

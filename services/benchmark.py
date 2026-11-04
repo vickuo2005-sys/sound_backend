@@ -18,7 +18,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 router = APIRouter(prefix="/benchmark", tags=["benchmark"])
-HOPS = [1500, 1000, 750, 500, 350, 250, 200, 150, 100]
+HOPS = [1500, 1000, 750, 500, 350, 300, 250, 200, 150, 100]
 
 
 class Strict(BaseModel):
@@ -39,7 +39,7 @@ class Session(Strict):
     model_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model_metadata_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     pipeline_version: Literal['native-wav-ai.v1', 'native-wav-ai.v2']
-    protocol_version: Literal['benchmark.protocol.v1', 'benchmark.protocol.v1.1'] = 'benchmark.protocol.v1'
+    protocol_version: Literal['benchmark.protocol.v1', 'benchmark.protocol.v1.1', 'benchmark.protocol.v1.2'] = 'benchmark.protocol.v1'
     inference_settings: Literal['tflite_flutter-0.12.1-default-options']
     input_shape: list[int] = Field(min_length=1, max_length=8)
     output_shape: list[int] = Field(min_length=1, max_length=8)
@@ -93,7 +93,7 @@ class Batch(Strict):
     status: Literal["completed", "cancelled", "failed", "interrupted"]
     reason: str = Field(max_length=200)
     criteria_version: Literal["benchmark.v1"]
-    runs: list[Run] = Field(max_length=18)
+    runs: list[Run] = Field(max_length=20)
 
     @model_validator(mode="after")
     def unique(self):

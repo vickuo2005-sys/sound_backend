@@ -139,3 +139,41 @@ def test_pipeline_versions_remain_distinguishable():
     assert old.pipeline_version != new.pipeline_version
     assert old.protocol_version == 'benchmark.protocol.v1'
     assert new.protocol_version == 'benchmark.protocol.v1.1'
+
+
+def test_all_ten_survey_and_confirmation_runs_fit_one_batch():
+    runs = [run(hop_ms=hop, phase=phase) for phase in ['survey', 'confirmation'] for hop in b.HOPS]
+    body = b.Batch.model_validate(dict(session_id=str(uuid4()), completed_at='2026-11-04T00:10:00Z',
+        status='completed', reason='test', criteria_version='benchmark.v1', runs=runs))
+    assert len(body.runs) == 20
+    assert any(r.hop_ms == 300 for r in body.runs)
+
+
+def test_300ms_upload_and_existing_postgres_schema_upgrade(client, monkeypatch):
+    s = {**session(), 'pipeline_version':'native-wav-ai.v2', 'protocol_version':'benchmark.protocol.v1.2'}
+    assert client.post('/benchmark/sessions', json=s, headers=HEADERS).status_code == 200
+    previous=session()
+    assert client.post('/benchmark/sessions', json=previous, headers=HEADERS).status_code == 200
+    previous_run=run(hop_ms=500)
+    previous_batch=dict(session_id=previous['session_id'], completed_at='2026-11-04T00:10:00Z',
+        status='completed', reason='test', criteria_version='benchmark.v1', runs=[previous_run])
+    assert client.post('/benchmark/results/batch', json=previous_batch, headers=HEADERS).status_code == 200
+    # Exercise the actual PostgreSQL upgrade from the original V7 constraint.
+    # The test fixture supplies a disposable database only; no production DSN.
+    if os.getenv('BENCHMARK_DATABASE_URL', '').startswith('postgres'):
+        with b.database() as execute:
+            execute('ALTER TABLE benchmark_runs DROP CONSTRAINT benchmark_runs_hop_ms_check')
+            execute('ALTER TABLE benchmark_runs ADD CONSTRAINT benchmark_runs_hop_ms_check CHECK (hop_ms IN (1500,1000,750,500,350,250,200,150,100))')
+        with b.database() as execute:
+            execute(Path('migrations/v7_1_benchmark_hop_300.sql').read_text())
+        # Reapplying the explicit migration is safe.
+        with b.database() as execute:
+            execute(Path('migrations/v7_1_benchmark_hop_300.sql').read_text())
+    body = dict(session_id=s['session_id'], completed_at='2026-11-04T00:10:00Z',
+        status='completed', reason='test', criteria_version='benchmark.v1', runs=[run(hop_ms=300)])
+    response=client.post('/benchmark/results/batch', json=body, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    assert response.json()['lowest_stable_hop'] == 300
+    with b.database() as execute:
+        assert execute('SELECT hop_ms FROM benchmark_runs WHERE session_id=?', (s['session_id'],)).fetchone()[0] == 300
+        assert execute('SELECT hop_ms FROM benchmark_runs WHERE run_id=?', (previous_run['run_id'],)).fetchone()[0] == 500
