@@ -410,6 +410,7 @@ DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED = (
 DASHBOARD_SIMULATION_ENABLED = (
     os.getenv("DASHBOARD_SIMULATION_ENABLED", "false").lower() == "true"
 )
+DEMO_STABLE_MODE = os.getenv("DEMO_STABLE_MODE", "true").lower() == "true"
 MOTION_SHADOW_ENABLED = os.getenv("MOTION_SHADOW_ENABLED", "false").lower() == "true"
 MOTION_FIELD_TELEMETRY_ENABLED = (
     os.getenv("MOTION_FIELD_TELEMETRY_ENABLED", "false").lower() == "true"
@@ -10153,6 +10154,7 @@ async def runtime_status():
         "dashboard_v2_enabled": DASHBOARD_V2_ENABLED,
         "dashboard_v2_experimental_motion_enabled": DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
         "dashboard_simulation_enabled": DASHBOARD_SIMULATION_ENABLED,
+        "demo_stable_mode": DEMO_STABLE_MODE,
         "node_websocket_enabled": NODE_WEBSOCKET_ENABLED,
         "command_websocket_enabled": COMMAND_WEBSOCKET_ENABLED,
         "live_audio_enabled": LIVE_AUDIO_ENABLED,
@@ -15531,6 +15533,7 @@ def dashboard_v2_4() -> HTMLResponse:
             experimental_motion_enabled=DASHBOARD_V2_EXPERIMENTAL_MOTION_ENABLED,
             simulation_enabled=DASHBOARD_SIMULATION_ENABLED,
             location_token_required=location_write_token_required(),
+            demo_stable_mode=DEMO_STABLE_MODE,
         )
     )
 
