@@ -1,0 +1,394 @@
+{
+  "migration_order": [
+    "v2_0_events_baseline.sql",
+    "v2_1_remote_node_management.sql",
+    "v3_0_event_fusion_tracking.sql",
+    "v3_1_tdoa_timestamp_localization.sql",
+    "v3_1a_timing_metadata.sql",
+    "v3_1b_smart_audio_upload.sql",
+    "v3_2_time_sync.sql",
+    "v3_3_localization.sql",
+    "v3_4_hybrid_localization.sql",
+    "v4_0_tracking.sql",
+    "v4_1_tracking_metadata.sql",
+    "v4_final_localization.sql",
+    "v4_final_realtime.sql",
+    "v4_final_tracking.sql",
+    "v4_region_localization.sql",
+    "v5_1_device_status_split_upload_status.sql",
+    "v5_device_fixed_locations.sql",
+    "v6_0_bi1_classification.sql"
+  ],
+  "table_objects": [
+    "audio_stream_sessions",
+    "device_commands",
+    "device_connections",
+    "device_locations",
+    "device_status",
+    "event_group_observations",
+    "event_groups",
+    "events",
+    "localization_pair_results",
+    "localization_results",
+    "target_track_points",
+    "target_tracks"
+  ],
+  "audit": [
+    {
+      "file": "v2_0_events_baseline.sql",
+      "create_tables": [
+        "events"
+      ],
+      "create_indexes": [
+        "events_event_id_key"
+      ],
+      "alter_tables": [],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v2_1_remote_node_management.sql",
+      "create_tables": [
+        "device_status",
+        "device_commands"
+      ],
+      "create_indexes": [
+        "device_commands_pending_idx"
+      ],
+      "alter_tables": [
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_status",
+        "device_commands",
+        "device_commands",
+        "device_commands",
+        "device_commands",
+        "device_commands",
+        "device_commands",
+        "device_commands",
+        "device_commands"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v3_0_event_fusion_tracking.sql",
+      "create_tables": [
+        "event_groups",
+        "event_group_observations"
+      ],
+      "create_indexes": [
+        "events_event_id_key",
+        "event_groups_label_status_last_time_idx",
+        "event_groups_updated_at_idx",
+        "event_group_observations_group_idx",
+        "event_group_observations_event_id_idx",
+        "event_group_observations_device_idx",
+        "event_group_observations_timestamp_idx",
+        "event_group_observations_fusion_event_id_key"
+      ],
+      "alter_tables": [
+        "event_groups",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations"
+      ],
+      "destructive_tokens": [
+        "delete",
+        "delete"
+      ],
+      "updates": 2
+    },
+    {
+      "file": "v3_1_tdoa_timestamp_localization.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "events_corrected_arrival_time_idx",
+        "events_timing_quality_idx",
+        "event_group_observations_tdoa_used_idx"
+      ],
+      "alter_tables": [
+        "events",
+        "event_group_observations",
+        "event_groups"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v3_1a_timing_metadata.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "events_device_event_time_ms_idx",
+        "events_timing_source_idx",
+        "event_group_observations_device_event_time_ms_idx",
+        "event_group_observations_timing_source_idx"
+      ],
+      "alter_tables": [
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "events",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations",
+        "event_group_observations"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v3_1b_smart_audio_upload.sql",
+      "create_tables": [],
+      "create_indexes": [],
+      "alter_tables": [
+        "events",
+        "event_group_observations"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v3_2_time_sync.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "device_status_time_sync_quality_idx",
+        "events_corrected_arrival_time_ms_idx",
+        "event_group_observations_corrected_arrival_time_ms_idx"
+      ],
+      "alter_tables": [
+        "device_status",
+        "events",
+        "event_group_observations"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v3_3_localization.sql",
+      "create_tables": [
+        "localization_results"
+      ],
+      "create_indexes": [
+        "localization_results_signature_idx",
+        "localization_results_group_idx",
+        "localization_results_created_idx"
+      ],
+      "alter_tables": [
+        "event_groups",
+        "localization_results"
+      ],
+      "destructive_tokens": [
+        "DELETE"
+      ],
+      "updates": 0
+    },
+    {
+      "file": "v3_4_hybrid_localization.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "localization_results_method_idx",
+        "event_group_observations_clip_idx"
+      ],
+      "alter_tables": [
+        "localization_results"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v4_0_tracking.sql",
+      "create_tables": [
+        "target_tracks",
+        "target_track_points"
+      ],
+      "create_indexes": [
+        "target_tracks_status_label_idx",
+        "target_track_points_track_idx",
+        "target_track_points_group_idx"
+      ],
+      "alter_tables": [
+        "target_tracks",
+        "target_track_points"
+      ],
+      "destructive_tokens": [
+        "DELETE",
+        "DELETE",
+        "DELETE"
+      ],
+      "updates": 0
+    },
+    {
+      "file": "v4_1_tracking_metadata.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "events_gps_movement_idx",
+        "target_track_points_time_idx"
+      ],
+      "alter_tables": [
+        "events",
+        "event_group_observations",
+        "device_status"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v4_final_localization.sql",
+      "create_tables": [
+        "localization_results",
+        "localization_pair_results"
+      ],
+      "create_indexes": [
+        "localization_results_signature_idx",
+        "localization_results_group_idx",
+        "localization_pair_results_result_idx",
+        "localization_pair_results_group_idx"
+      ],
+      "alter_tables": [
+        "event_groups",
+        "localization_results",
+        "localization_pair_results"
+      ],
+      "destructive_tokens": [
+        "DELETE",
+        "DELETE",
+        "DELETE"
+      ],
+      "updates": 0
+    },
+    {
+      "file": "v4_final_realtime.sql",
+      "create_tables": [
+        "device_connections",
+        "audio_stream_sessions"
+      ],
+      "create_indexes": [
+        "device_connections_device_idx",
+        "device_connections_live_connection_idx",
+        "device_commands_status_idx",
+        "device_commands_idempotency_idx",
+        "audio_stream_sessions_device_idx"
+      ],
+      "alter_tables": [
+        "device_connections",
+        "device_commands",
+        "audio_stream_sessions"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v4_final_tracking.sql",
+      "create_tables": [
+        "target_tracks",
+        "target_track_points"
+      ],
+      "create_indexes": [
+        "target_tracks_status_label_idx",
+        "target_track_points_track_idx",
+        "target_track_points_group_idx"
+      ],
+      "alter_tables": [
+        "target_tracks",
+        "target_track_points"
+      ],
+      "destructive_tokens": [
+        "DELETE",
+        "DELETE",
+        "DELETE"
+      ],
+      "updates": 0
+    },
+    {
+      "file": "v4_region_localization.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "event_groups_region_updated_at_idx",
+        "event_groups_region_type_idx"
+      ],
+      "alter_tables": [
+        "event_groups",
+        "event_groups",
+        "event_groups",
+        "event_groups",
+        "event_groups",
+        "event_groups",
+        "event_groups"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v5_1_device_status_split_upload_status.sql",
+      "create_tables": [],
+      "create_indexes": [],
+      "alter_tables": [
+        "device_status"
+      ],
+      "destructive_tokens": [],
+      "updates": 1
+    },
+    {
+      "file": "v5_device_fixed_locations.sql",
+      "create_tables": [
+        "device_locations"
+      ],
+      "create_indexes": [
+        "device_locations_updated_at_idx"
+      ],
+      "alter_tables": [],
+      "destructive_tokens": [],
+      "updates": 0
+    },
+    {
+      "file": "v6_0_bi1_classification.sql",
+      "create_tables": [],
+      "create_indexes": [
+        "events_model_label_idx",
+        "events_operational_class_idx"
+      ],
+      "alter_tables": [
+        "events"
+      ],
+      "destructive_tokens": [],
+      "updates": 0
+    }
+  ],
+  "conclusion": "REPLAY_REQUIRES_REVIEW",
+  "notes": [
+    "v3_0_event_fusion_tracking contains UPDATE statements that should be skipped or reviewed for a schema-only rehearsal.",
+    "v4_0_tracking and v4_final_tracking both define target_tracks/target_track_points families; replay order and IF NOT EXISTS behavior require catalog diff.",
+    "localization migrations overlap and evolve the same objects; replay is not proven equivalent to live Tokyo."
+  ]
+}

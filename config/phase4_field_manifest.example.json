@@ -1,0 +1,18 @@
+{
+  "evidence_kind": "real_android_staging",
+  "app_env": "staging",
+  "backend_url": "https://replace-with-real-staging-host.example",
+  "scenario": "one_node_sustained_5m",
+  "duration_seconds": 300,
+  "network": "same_wifi",
+  "android_devices": [
+    {
+      "device_id": "A01",
+      "manufacturer": "replace-me",
+      "model": "replace-me",
+      "android_version": "replace-me",
+      "transport_id": "replace-me"
+    }
+  ],
+  "notes": "Do not put tokens or production hostnames in this file."
+}

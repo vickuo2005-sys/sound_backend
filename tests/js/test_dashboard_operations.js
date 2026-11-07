@@ -1,0 +1,22 @@
+const assert=require('node:assert/strict');
+const O=require('../../static/dashboard_operations.js');
+const now=Date.now(), site={name:'Test',lat:0,lng:0,radius:100,arrivalRadius:20};
+function track(distance,time=now){return {id:'T',label:'drone',approach_motion:{quality:'high',valid:true,vx_mps:-10,vy_mps:0,measurement_time_ms:time},recent_points:[{measured_lat:0,measured_lng:distance/6371008.8*180/Math.PI,measurement_time_ms:time,uncertainty_radius_m:1,diagnostics_json:{source:'localization_result',localization_method:'hybrid_tdoa',reporting_node_count:3}}]};}
+let a=O.assess(track(200),site,now,true,true);
+assert.equal(a.status,'outside');assert(Math.abs(a.zoneEta-10)<.001);assert(Math.abs(a.arrivalEta-18)<.001);
+assert.equal(O.assess(track(200,now-16000),site,now,true,true).position,null);
+assert.equal(O.assess(track(200,now+3000),site,now,true,true).position,null);
+assert.equal(O.assess(track(200),site,now,false,true).position,null);
+assert.equal(O.assess(track(200),site,now,true,false).arrivalEta,null);
+assert.equal(O.assess(track(99.5),site,now,true,true).status,'boundary');
+assert.equal(O.assess(track(90),site,now,true,true).status,'inside');
+let region=track(90);region.recent_points[0].diagnostics_json.source='event_group_region';
+assert.equal(O.assess(region,site,now,true,true).position,null,'node/region centers cannot trigger geofence');
+let away=track(200);away.approach_motion.vx_mps=10;assert.equal(O.assess(away,site,now,true,true).zoneEta,null);
+assert.equal(O.entry(200,200,-10,0,100),null,'passing nearby is not entering');
+const entries=new O.Entries();assert(entries.update('T','inside',1));assert(!entries.update('T','inside',2));assert(!entries.update('T','outside',1));
+assert(!entries.update('T','boundary',3));assert(!entries.update('T','inside',4));assert(!entries.update('T','outside',5));assert(entries.update('T','inside',6));assert(entries.update('U','inside',6));
+const path=O.points({recent_points:[{measured_lat:1,measured_lng:2,measurement_time_ms:3000},{measured_lat:0,measured_lng:1,measurement_time_ms:1000},{measured_lat:91,measured_lng:2},{measured_lat:3,measured_lng:4,is_rejected:true}]});
+assert.equal(path.length,2);assert.equal(path[0].time,1000);assert.equal(O.frame(path,.9).index,0);assert.equal(O.frame(path,1).index,1);
+assert.equal(O.site({...site,arrivalRadius:101}),null);assert.equal(O.site({...site,lat:null}),null);
+console.log('dashboard operations: geometry, freshness, provenance, alert episodes and timed replay passed');

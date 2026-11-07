@@ -1,0 +1,42 @@
+{
+  "tls": {
+    "Tokyo": {
+      "psql_select_1": true,
+      "psycopg2_select_1": true,
+      "ssl_in_use": true
+    },
+    "Singapore": {
+      "psql_select_1": true,
+      "psycopg2_select_1": true,
+      "ssl_in_use": true
+    }
+  },
+  "tokyo_static": true,
+  "table_count": {
+    "Tokyo": 12,
+    "Singapore": 12
+  },
+  "row_count_differences": {},
+  "catalog_equal": true,
+  "sequences_equal": true,
+  "fk_orphans": {
+    "Tokyo": 0,
+    "Singapore": 0
+  },
+  "checksum_equal": {
+    "audio_stream_sessions": true,
+    "device_commands": true,
+    "device_connections": true,
+    "device_locations": true,
+    "device_status": true,
+    "event_group_observations": true,
+    "event_groups": true,
+    "events": true,
+    "localization_pair_results": true,
+    "localization_results": true,
+    "target_track_points": true,
+    "target_tracks": true
+  },
+  "semantic_constraints_equal": true,
+  "catalog_difference_reason": "information_schema generated NOT NULL constraint names embed different relation OIDs"
+}

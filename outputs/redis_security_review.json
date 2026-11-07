@@ -1,0 +1,44 @@
+{
+  "scope": "changed/new text files only, not git history",
+  "tools_available": {
+    "gitleaks": false,
+    "trufflehog": false
+  },
+  "patterns": [
+    "credential_url",
+    "private_key",
+    "supabase_secret"
+  ],
+  "files_scanned": [
+    "EVENT_DRIVEN_V2A_REDIS_VALIDATION_REPORT.md",
+    "docs/redis_retention_strategy.md",
+    "docs/redis_security_notes.md",
+    "outputs/redis_ambiguous_ack.json",
+    "outputs/redis_app_safety_snapshot.json",
+    "outputs/redis_consumer_scaling.json",
+    "outputs/redis_crash_recovery.json",
+    "outputs/redis_dlq_validation.json",
+    "outputs/redis_environment.json",
+    "outputs/redis_final_regression.json",
+    "outputs/redis_initial_regression.json",
+    "outputs/redis_load_100_nodes.json",
+    "outputs/redis_load_20_nodes.json",
+    "outputs/redis_load_4_nodes.json",
+    "outputs/redis_load_50_nodes.json",
+    "outputs/redis_ordering_validation.json",
+    "outputs/redis_payload_size.json",
+    "outputs/redis_restart_recovery.json",
+    "outputs/redis_retention_validation.json",
+    "outputs/redis_security_review.json",
+    "outputs/redis_v2a_baseline.json",
+    "outputs/redis_v2a_postgres_regression.json",
+    "outputs/redis_v2a_summary.json",
+    "services/events/redis_streams.py",
+    "tests/test_event_redis_v2a.py",
+    "tools/validate_real_redis.py"
+  ],
+  "findings": [],
+  "credentials_printed": false,
+  "loopback_only": true,
+  "remote_tls_tested": false
+}

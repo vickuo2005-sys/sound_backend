@@ -1,0 +1,6 @@
+{
+  "environment": "Singapore staging",
+  "read_only": true,
+  "event_groups_user_triggers": [],
+  "tls": true
+}

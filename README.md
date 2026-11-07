@@ -1,8 +1,8 @@
 # Sound Detector Backend
 
-Sound Detector Backend 是一個 FastAPI 後端，第一階段用途是接收多台 Android 手機聲音偵測節點上傳的聲音事件資料。
+Sound Detector Backend 是一個 FastAPI 後端，第一階段用途是接收多台 Android 手機聲音偵測節點上傳的事件資料。
 
-目前使用 SQLite (`sound_events.db`) 作為測試用資料庫。這個資料庫檔案不應提交到 GitHub，之後可再改成 PostgreSQL。
+目前使用 SQLite (`sound_events.db`) 作為測試用資料庫。這個資料庫檔案不要上傳到 GitHub，之後可再改成 PostgreSQL。
 
 ## 專案結構
 
@@ -88,7 +88,7 @@ test-token-123
 
 ### GET /health
 
-健康檢查。
+確認線上服務目前是否正常。
 
 回傳範例：
 
@@ -101,7 +101,7 @@ test-token-123
 
 ### POST /events
 
-接收 Android APP 上傳的聲音事件資料，並寫入 SQLite。
+接收 Android APP 上傳的聲音事件資料，並先寫入 SQLite 測試資料庫。
 
 Header 範例：
 
@@ -159,7 +159,7 @@ curl -X POST "http://127.0.0.1:8000/events" \
 }
 ```
 
-如果 token 錯誤，會回傳 `401 Unauthorized`。
+如果上傳驗證碼錯誤，會回傳 `401 Unauthorized`。
 
 ### GET /events
 

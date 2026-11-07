@@ -1,0 +1,71 @@
+{
+  "captured_at": "2026-09-30T00:00:00+08:00",
+  "source": "Tokyo staging",
+  "destination": "Singapore staging",
+  "source_table_count": 12,
+  "destination_table_count": 0,
+  "tables": {
+    "match": [],
+    "missing_in_singapore": [
+      "audio_stream_sessions",
+      "device_commands",
+      "device_connections",
+      "device_locations",
+      "device_status",
+      "event_group_observations",
+      "event_groups",
+      "events",
+      "localization_pair_results",
+      "localization_results",
+      "target_track_points",
+      "target_tracks"
+    ],
+    "extra_in_singapore": []
+  },
+  "target_tracks": {
+    "exists": true,
+    "schema": "public",
+    "object_type": "base table",
+    "estimated_row_count": 17,
+    "pk": [
+      "id"
+    ],
+    "referenced_by": [
+      "target_track_points.track_id -> target_tracks.id"
+    ],
+    "reason_previous_output_omitted": "The earlier accessibility output was truncated after the first visible rows; the SQL filter itself was not excluding target_tracks. A direct catalog query now returns public.target_tracks.",
+    "exact_row_count": 17
+  },
+  "extensions_source": [
+    "pg_stat_statements",
+    "pgcrypto",
+    "plpgsql",
+    "supabase_vault",
+    "uuid-ossp"
+  ],
+  "rls_source": "all public tables observed have relrowsecurity=false and relforcerowsecurity=false; pg_policies returned 0 rows",
+  "functions_source_public_count": 0,
+  "triggers_source_public_count": 0,
+  "sequence_source": {
+    "device_commands_id_seq": {
+      "last_value": 13,
+      "start_value": 1,
+      "increment": 1
+    },
+    "events_id_seq": {
+      "last_value": 532,
+      "start_value": 1,
+      "increment": 1
+    }
+  },
+  "schema_rehearsal": "NOT_RUN",
+  "data_migration": "NOT_RUN",
+  "safety": {
+    "production_touched": false,
+    "database_url_changed": false,
+    "runtime_data_moved": false,
+    "destructive_sql_run": false,
+    "secrets_emitted": false
+  },
+  "go_no_go": "NO-GO"
+}

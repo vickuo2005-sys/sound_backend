@@ -1,0 +1,67 @@
+{
+  "status": "DEPLOYED_AND_VERIFIED_SHADOW_OFF",
+  "branch": "feat/event-driven-redis-staging-shadow",
+  "v2a_validated_sha": "a12a32b8b9dd38a8b3c58c2e9b291f1e508b0af6",
+  "deployed_commit": "ae2b81b07cddf32e9a2df7c88979696c591e06c1",
+  "staging_service": "sound-backend-staging",
+  "staging_service_id": "srv-da6kdn61egvs7392r92g",
+  "final_deploy_id": "dep-db1mpoh7lnhs73dlpj50",
+  "deploy_sequence": [
+    {
+      "id": "dep-db1mifnavr4c73clh91g",
+      "commit": "5c128c0c0c0724d647c55a9a9624157d769d41b1",
+      "shadow": false,
+      "verified": "HTTP health/dashboard/WebSocket, worker/pool/localization parity"
+    },
+    {
+      "id": "dep-db1mka942hec73dd9su0",
+      "commit": "5c128c0c0c0724d647c55a9a9624157d769d41b1",
+      "shadow": false,
+      "note": "First env save did not update previously masked flag; corrected with revealed editable field before next deploy"
+    },
+    {
+      "id": "dep-db1mml8u01pc73f6bm9g",
+      "commit": "5c128c0c0c0724d647c55a9a9624157d769d41b1",
+      "shadow": true,
+      "verified": "Managed TLS/auth connection, primary stream empty, PEL/queue/lag zero"
+    },
+    {
+      "id": "dep-db1mo2ad0e5s738gel9g",
+      "commit": "ae2b81b07cddf32e9a2df7c88979696c591e06c1",
+      "shadow": true,
+      "probe": true,
+      "verified": "Managed isolated namespace recovery PASS"
+    },
+    {
+      "id": "dep-db1mpoh7lnhs73dlpj50",
+      "commit": "ae2b81b07cddf32e9a2df7c88979696c591e06c1",
+      "shadow": false,
+      "probe": false,
+      "verified": "Final HTTP DB-read endpoints/dashboard/WebSocket all pass"
+    }
+  ],
+  "final_flags": {
+    "REDIS_SHADOW_ENABLED": false,
+    "REDIS_SHADOW_TRANSPORT_PROBE": false,
+    "EVENT_DRIVEN_PIPELINE_ENABLED": false,
+    "REDIS_REAL_TRAFFIC_ENABLED": false,
+    "EVENT_DRIVEN_SHADOW_ENABLED": false
+  },
+  "build_command": "pip install -r requirements-staging-shadow.txt",
+  "start_command": "uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1",
+  "auto_deploy": "Off",
+  "preserved": {
+    "post_ingest_workers": 2,
+    "device_status_workers": 1,
+    "postgres_pool_min": 1,
+    "postgres_pool_max": 20,
+    "localization_enabled": false,
+    "instance": "Free",
+    "DATABASE_URL_modified": false
+  },
+  "final_checks_file": "redis_shadow_final_validation.json",
+  "shadow_on_evidence_file": "redis_shadow_on_runtime_status.json",
+  "production_changed": false,
+  "pr5_state": "OPEN DRAFT UNMERGED",
+  "physical_test_deferred_by_user": true
+}

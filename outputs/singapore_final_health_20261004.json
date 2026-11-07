@@ -1,0 +1,34 @@
+{
+  "/health": {
+    "http": 200
+  },
+  "/runtime-status": {
+    "http": 200
+  },
+  "/database-status": {
+    "http": 200,
+    "status": "success"
+  },
+  "/events": {
+    "http": 200
+  },
+  "/event-groups": {
+    "http": 200
+  },
+  "/tracks": {
+    "http": 200
+  },
+  "/device-status": {
+    "http": 200
+  },
+  "/device-locations": {
+    "http": 200
+  },
+  "/dashboard": {
+    "http": 200
+  },
+  "probe_disabled": {
+    "http": 404
+  },
+  "dashboard_websocket_connected": true
+}
