@@ -167,3 +167,13 @@ cleanupModel.clearTargets();
 assert.equal(cleanupModel.targets.length,0);
 assert.equal(cleanupModel.trackers.size,0,'clearTargets removes alpha-beta tracker state');
 assert.equal(cleanupModel.kalmanTrackers.size,0,'clearTargets removes Kalman tracker state');
+
+
+// Research pipeline must describe the intended sequence without overstating TDOA validation.
+assert(source.includes('從多節點定位到 ETA 的研究流程'));
+assert(source.includes('TDOA target / simulation proxy'));
+assert(source.includes('Kalman Filter'));
+assert(source.includes('Trajectory Prediction'));
+assert(source.includes('ETA / Approach'));
+assert(source.includes('並未真正模擬聲波到達時間差'),'Simulation Lab must not claim true TDOA solving');
+assert(source.includes('現階段仍由既有 Alpha-Beta 路徑驅動'),'ETA ownership must remain explicit');
