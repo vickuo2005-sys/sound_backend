@@ -233,3 +233,26 @@ def test_events_api_adds_presentation_without_removing_legacy_fields(
     assert event["label"] == "drone"
     assert event["classification"]["model_label"] == "Drone"
     assert event["dashboard_presentation"]["is_target"] is True
+
+
+def test_demo_stable_mode_hides_experimental_demo_surfaces() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=True,
+        simulation_enabled=True,
+        demo_stable_mode=True,
+    )
+
+    assert "正式展示模式" in html
+    assert "連線、裝置與服務狀態" in html
+    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}" in html
+    assert "const dashboardSimulationEnabled = false" in html
+    assert "const experimentalMotionEnabled = false" in html
+    assert "Simulation / 模擬展示" not in html
+
+
+def test_demo_stable_mode_is_exposed_in_runtime_status(monkeypatch) -> None:
+    monkeypatch.setattr(main, "DEMO_STABLE_MODE", True)
+    status = main.runtime_status()
+
+    assert status["demo_stable_mode"] is True
