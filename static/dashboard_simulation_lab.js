@@ -2,9 +2,11 @@
     'use strict';
     const Eta = root.DashboardSimulationEta || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_eta.js') : null);
     const Tracking = root.DashboardSimulationTracker || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_tracker.js') : null);
+    const Kalman = root.DashboardSimulationKalman || (typeof module==='object'&&module.exports ? require('./dashboard_simulation_kalman.js') : null);
     const Visuals = root.DashboardMapVisuals || (typeof module==='object'&&module.exports ? require('./dashboard_map_visuals.js') : null);
     if(!Eta)throw new Error('DashboardSimulationEta must load before DashboardSimulationLab');
     if(!Tracking)throw new Error('DashboardSimulationTracker must load before DashboardSimulationLab');
+    if(!Kalman)throw new Error('DashboardSimulationKalman must load before DashboardSimulationLab');
     if(!Visuals)throw new Error('DashboardMapVisuals must load before DashboardSimulationLab');
     // This workspace owns all of its state. It must never import live dashboard state,
     // call application APIs, or publish simulated events onto the real event bus.
@@ -121,7 +123,7 @@
         constructor() { this.sequence=0; this.reset(); }
         reset() {
             this.time=0; this.playing=false; this.rate=1; this.nodes=[]; this.targets=[]; this.events=[]; this.alerts=[]; this.selectedId=null;this.nodeSequence=0;this.nodeDetectionRadius=450;
-            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;this.etaStabilizers=new Map();this.trackers=new Map();
+            this.site={ x:0,y:0,name:'模擬據點',radius:150,arrivalRadius:20 }; this.replay=null;this.etaStabilizers=new Map();this.trackers=new Map();this.kalmanTrackers=new Map();
         }
         id(prefix) { return `SIM-${prefix}-${++this.sequence}`; }
         addNode(position) {
@@ -145,7 +147,7 @@
             const target={ id:this.id('TARGET'),kind,position:point(options.position)?{x:options.position.x,y:options.position.y}:null,
                 speed:clamp(finite(options.speed)?options.speed:15,0,100),heading:((finite(options.heading)?options.heading:90)%360+360)%360,
                 waypoints:[],waypointIndex:0,startPosition:point(options.position)?{x:options.position.x,y:options.position.y}:null,routeRunCount:0,routeReady:false,reporters,lost:false,inside:false,trail:[],estimatedTrail:[],estimatedPosition:null,detectedNodeIds:[],score:clamp(finite(options.score)?options.score:.95,0,1),
-                motionSegment:0,sitePrediction:null,etaEvaluation:[],replayFrames:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null };
+                motionSegment:0,sitePrediction:null,etaEvaluation:[],replayFrames:[],rawEstimatedPosition:null,trackState:null,trackingDiagnostics:null,kalmanState:null,kalmanPosition:null,kalmanTrail:[],kalmanDiagnostics:null };
             if(target.position) target.trail.push({...target.position,time:this.time});
             this.targets.push(target);this.selectedId=target.id;
             const event={ id:this.id('EVENT'),targetId:target.id,kind,time:this.time,reporters:reporters.slice(),simulation:true };
@@ -166,6 +168,10 @@
             if(!this.trackers.has(target.id))this.trackers.set(target.id,new Tracking.AlphaBetaTracker());
             return this.trackers.get(target.id);
         }
+        kalmanTracker(target) {
+            if(!this.kalmanTrackers.has(target.id))this.kalmanTrackers.set(target.id,new Kalman.ConstantVelocityKalman2D());
+            return this.kalmanTrackers.get(target.id);
+        }
         stabilizers(target) {
             if(!this.etaStabilizers.has(target.id))this.etaStabilizers.set(target.id,{zone:new Eta.EtaStabilizer(),arrival:new Eta.EtaStabilizer()});
             return this.etaStabilizers.get(target.id);
@@ -173,11 +179,16 @@
         resetTracking(target) {
             if(!target)return;
             this.trackers.delete(target.id);
+            this.kalmanTrackers.delete(target.id);
             target.rawEstimatedPosition=null;
             target.trackState=null;
             target.trackingDiagnostics=null;
             target.estimatedPosition=null;
             target.estimatedTrail=[];
+            target.kalmanState=null;
+            target.kalmanPosition=null;
+            target.kalmanTrail=[];
+            target.kalmanDiagnostics=null;
         }
         resetPrediction(target,incrementSegment=false) {
             if(!target)return;
@@ -222,8 +233,8 @@
             const measurement=target.kind==='drone'&&!target.lost?estimateFromDetections(detected,target):null;
             target.rawEstimatedPosition=measurement;
             const localization=localizationQuality(detected);
-            const timeMs=this.time*1000,tracker=this.tracker(target);
-            let trackingResult=null;
+            const timeMs=this.time*1000,tracker=this.tracker(target),kalmanTracker=this.kalmanTracker(target);
+            let trackingResult=null,kalmanResult=null;
             if(measurement&&(!tracker.hasState()||tracker.shouldAcceptMeasurement(timeMs))){
                 trackingResult=tracker.update(measurement,timeMs,{
                     uncertaintyM:localization.uncertaintyM,
@@ -245,6 +256,34 @@
                     betaUsed:trackingResult.betaUsed??null,
                     measurement:{...measurement}
                 };
+            }
+            if(measurement&&(!kalmanTracker.hasState()||kalmanTracker.shouldAcceptMeasurement(timeMs))){
+                kalmanResult=kalmanTracker.update(measurement,timeMs,{uncertaintyM:localization.uncertaintyM});
+                target.kalmanDiagnostics={
+                    accepted:kalmanResult.accepted,
+                    reason:kalmanResult.reason,
+                    innovationM:kalmanResult.innovationM??0,
+                    gainPosition:kalmanResult.gainPosition??kalmanResult.state?.gainPosition??null,
+                    gainVelocity:kalmanResult.gainVelocity??kalmanResult.state?.gainVelocity??null,
+                    measurementSigmaM:kalmanResult.measurementSigmaM??kalmanResult.state?.measurementSigmaM??localization.uncertaintyM,
+                    nodeCount:detected.length
+                };
+            }
+            const kalmanState=kalmanTracker.predict(timeMs);
+            target.kalmanState=kalmanState;
+            target.kalmanPosition=kalmanState?{x:kalmanState.x,y:kalmanState.y}:null;
+            if(target.kalmanPosition&&(force||!target.kalmanTrail.length||this.time-target.kalmanTrail.at(-1).time>=.18)){
+                target.kalmanTrail.push({
+                    ...target.kalmanPosition,
+                    time:this.time,
+                    measurementTimeMs:timeMs,
+                    nodeCount:detected.length,
+                    source:'simulation_kalman_cv',
+                    vx:kalmanState.vx,vy:kalmanState.vy,
+                    innovationM:target.kalmanDiagnostics?.innovationM??0,
+                    uncertaintyM:kalmanState.uncertaintyM??null
+                });
+                target.kalmanTrail=target.kalmanTrail.slice(-LIMITS.points);
             }
             const state=tracker.predict(timeMs);
             target.trackState=state;
@@ -268,7 +307,7 @@
         }
         positionTarget(id,p) {
             const t=this.targets.find(t=>t.id===id);if(!t||!point(p)) return false;
-            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.routeReady=false;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
+            this.resetPrediction(t,true);this.resetTracking(t);t.position={x:p.x,y:p.y};t.startPosition={x:p.x,y:p.y};t.waypointIndex=0;t.routeRunCount=0;t.routeReady=false;t.lost=false;t.waypoints=[];t.trail=[{...t.position,time:this.time}];t.estimatedTrail=[];t.kalmanTrail=[];t.etaEvaluation=[];t.replayFrames=[];this.updateEstimate(t,true);this.inspect();return true;
         }
         resetTargetToStart(target,{preserveRoute=true}={}) {
             if(!target||!point(target.startPosition))return false;
@@ -280,6 +319,7 @@
             target.lost=false;
             target.trail=[{...target.position,time:this.time}];
             target.estimatedTrail=[];
+            target.kalmanTrail=[];
             target.etaEvaluation=[];
             target.replayFrames=[];
             this.resetPrediction(target,true);
@@ -317,6 +357,7 @@
             target.routeReady=false;
             target.trail=point(target.position)?[{...target.position,time:this.time}]:[];
             target.estimatedTrail=[];
+            target.kalmanTrail=[];
             target.etaEvaluation=[];
             target.replayFrames=[];
             target.inside=false;
@@ -345,6 +386,9 @@
                 truePosition:point(target.position)?{x:target.position.x,y:target.position.y}:null,
                 rawEstimatedPosition:point(target.rawEstimatedPosition)?copy(target.rawEstimatedPosition):null,
                 estimatedPosition:point(target.estimatedPosition)?copy(target.estimatedPosition):null,
+                kalmanPosition:point(target.kalmanPosition)?copy(target.kalmanPosition):null,
+                kalmanState:target.kalmanState?copy(target.kalmanState):null,
+                kalmanDiagnostics:target.kalmanDiagnostics?copy(target.kalmanDiagnostics):null,
                 trackState:target.trackState?copy(target.trackState):null,
                 trackingDiagnostics:target.trackingDiagnostics?copy(target.trackingDiagnostics):null,
                 system:copy(state||assessSystem(target,this.site)),
@@ -515,7 +559,7 @@
                 <div class="slab-presets"><label>快速展示 <select data-field="preset"><option value="approach">無人機接近 → 進入警戒</option><option value="idle">一般監控／沒有事件</option><option value="one">單節點偵測脈動</option><option value="two">兩節點連線</option><option value="three">三節點偵測範圍</option><option value="passby">旁側飛越、不會抵達</option><option value="depart">遠離據點</option><option value="inside">直接出現在警戒區內</option><option value="multiple">多目標、警戒優先</option><option value="missing">只有聲音回報、定位未完成</option><option value="lost">目標失聯</option><option value="offline">節點離線</option><option value="non_drone">非無人機聲音</option></select></label><button type="button" data-action="preset" class="slab-primary">載入展示</button><span>載入會取代目前的模擬內容。</span><div class="slab-clear-actions" aria-label="清除模擬資料"><button type="button" data-action="clear-targets">清空無人機／目標</button><button type="button" data-action="clear-nodes">清空節點</button><button type="button" data-action="clear-history">清空動畫回顧</button><button type="button" data-action="clear-all">全部清空</button></div></div>
                 <div class="slab-layout"><aside class="slab-tools"><section class="slab-card"><h3><span>01</span> 佈置場景</h3><button type="button" data-action="place-site" class="slab-wide">◎ 點圖設定據點</button><label>警戒半徑（公尺）<input data-field="radius" type="number" min="20" max="5000" value="150"></label><button type="button" data-action="radius">更新模擬警戒區</button><div data-slot="site" class="slab-hint"></div><details class="slab-node-config" open><summary><span>節點設定</span><small data-slot="node-summary"></small></summary><div class="slab-node-config-body"><button type="button" data-action="place-node" class="slab-wide">＋ 點圖新增節點</button><label>全部節點偵測半徑（公尺）<input data-field="node-radius" type="number" min="20" max="5000" value="450"></label><button type="button" data-action="node-radius" class="slab-wide">更新全部節點偵測範圍</button><p class="slab-hint">最多可放置 ${LIMITS.nodes} 個節點，並共用同一個偵測半徑。只有線上、已勾選且無人機位於範圍內的節點才參與系統估測。</p><details class="slab-node-list"><summary><span>已放置節點</span><small data-slot="node-list-summary"></small></summary><div data-slot="nodes" class="slab-node-list-body"></div></details></div></details></section>
                 <section class="slab-card"><h3><span>02</span> 逐台加入無人機</h3><label>聲音類型<select data-field="kind"><option value="drone">無人機 Drone</option><option value="car">汽車 Car</option><option value="airplane">飛機 Airplane</option><option value="rainfall">雨聲 Rainfall</option><option value="electric_saw">電鋸 Electric_saw</option></select></label><div class="slab-two"><label>速度（m/s）<input data-field="speed" type="number" min="0" max="100" value="25"></label><label>航向（度）<input data-field="heading" type="number" min="0" max="359" value="90"></label></div><p class="slab-hint">按下新增後直接在地圖點選這一架的起點，再從下方清單設定路徑。可逐架加入，單架也能直接模擬。</p><button type="button" data-action="create" class="slab-primary slab-wide">＋ 新增一架並點圖設起點</button><p data-slot="create-message" class="slab-create-message" role="status" aria-live="polite"></p><div data-slot="fleet" class="slab-fleet"></div></section></aside>
-                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>● 白色：在線／灰色×：離線／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ 系統估測路徑</span><span>橘色脈動／連線／區塊：正在參與系統估測</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="restart-simulation" disabled>↺ 重新模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色路徑只供觀察模擬真值；警示、接近狀態、距離與 ETA 全部依藍色系統估測結果。至少兩個節點同時偵測才會產生估測位置。</p></section>
+                <main class="slab-main"><section class="slab-card slab-map-card"><div class="slab-map-top"><h3>模擬現場</h3><span data-slot="clock">00:00</span><button type="button" data-action="fit">顯示全部位置</button></div><div data-slot="mode" class="slab-mode" role="status"></div><div class="slab-map-frame"><div data-slot="google" class="slab-google" hidden></div><svg data-slot="map" class="slab-map" viewBox="0 0 800 520" role="img" aria-label="可點擊的模擬位置圖"></svg><span class="slab-map-watermark">SIMULATION · 全部位置均為人為設定</span></div><div class="slab-legend"><span>● 白色：在線／灰色×：離線／淡圈：偵測範圍</span><span>◎ 據點／警戒圈</span><span class="slab-true-key">━ 真實飛行路線（觀察用）</span><span class="slab-estimate-key">┄ Alpha-Beta Track</span><span class="slab-kalman-key">━ Kalman CV（模擬比較）</span><span>橘色脈動／連線／區塊：正在參與系統估測</span></div><div class="slab-playbar"><button type="button" data-action="play" class="slab-primary">▶ 開始模擬</button><button type="button" data-action="restart-simulation" disabled>↺ 重新模擬</button><button type="button" data-action="step">前進 1 秒</button><label>播放速度<select data-field="rate"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label><button type="button" data-action="place-waypoint">點圖加入真實飛行路線</button><button type="button" data-action="stop-target">停止選取目標</button></div><p class="slab-hint">紫色為模擬真值；藍色為現有 Alpha-Beta Track；綠色為 Kalman CV 比較軌跡。警示與 ETA 仍只使用現有 Alpha-Beta Track，不讓 Kalman 影響正式邏輯。</p></section>
                 <section class="slab-card slab-history"><h3>動畫回顧 <small>只包含本工作區建立的事件</small></h3><div data-slot="replay"></div><div data-slot="events"></div></section></main>
                 <aside class="slab-detail"><section class="slab-card slab-important"><h3>重要資訊 <span class="slab-badge">主動更新</span></h3><div data-slot="targets"></div><div data-slot="detail"></div><div class="slab-two"><button type="button" data-action="lost">模擬目標失聯</button><button type="button" data-action="reconnect-target">恢復目標回報</button></div><button type="button" data-action="apply-motion" class="slab-wide">套用左側速度 / 航向至選取目標</button></section><section class="slab-card slab-notes"><h3>展示操作提示</h3><ul><li>節點設定可折疊，全部節點共用一個偵測半徑。</li><li>兩節點偵測時，可能聲源在線段中間；三個以上顯示包圍區域。</li><li>紫色真實路線只供比較；藍色系統估測路徑負責警示、接近判斷與 ETA。</li><li>節點離線或超出範圍後不參與推估，但位置仍保留。</li><li>有設定路徑的目標跑完後會停在終點；按「重新模擬」會回到起點並直接再跑一次。</li><li>離開工作區會暫停模擬並關閉警告。</li></ul></section></aside></div>
                 <div data-slot="message" class="slab-message" role="status"></div><div data-slot="alert" class="slab-alert-host" aria-live="assertive"></div>
@@ -700,8 +744,8 @@
             if(!t){slot.innerHTML=`<div class="slab-idle-icon">◎</div><h4>一般節點監控</h4><p>尚無模擬事件</p><div class="slab-metrics"><div><span>線上節點</span><b>${m.nodes.filter(n=>n.online).length} / ${m.nodes.length}</b></div><div><span>模擬警戒半徑</span><b>${m.site.radius} m</b></div></div><p class="slab-hint">建立事件後，這裡會自動顯示目標資訊。</p>`;return;}
             const a=assessSystem(t,m.site),position=point(t.position)?latLng(t.position):null,detected=m.reportingNodes(t),region=m.sourceRegion(t),estimated=point(t.estimatedPosition)?latLng(t.estimatedPosition):null,prediction=t.sitePrediction;
             const regionLabel={none:'無',circle:'單節點偵測圈',line:'兩節點之間',polygon:`${detected.length} 節點包圍區域`}[region.kind];
-            const error=point(t.estimatedPosition)&&point(t.position)?Math.round(distance(t.estimatedPosition,t.position)):null;
-            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>推估誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b><small>${t.kind==='drone'?escape(predictionStates[prediction?.display?.state]||'資料不足'):''}${prediction?.display?.displayEtaLowerSeconds!=null&&prediction?.display?.displayEtaUpperSeconds!=null?` · 約 ${Math.ceil(prediction.display.displayEtaLowerSeconds)}–${Math.ceil(prediction.display.displayEtaUpperSeconds)} 秒`:''}</small></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b><small>${prediction?.arrivalDisplay?.displayEtaLowerSeconds!=null&&prediction?.arrivalDisplay?.displayEtaUpperSeconds!=null?`約 ${Math.ceil(prediction.arrivalDisplay.displayEtaLowerSeconds)}–${Math.ceil(prediction.arrivalDisplay.displayEtaUpperSeconds)} 秒`:''}</small></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · 系統估測軌跡 ${t.estimatedTrail.length} 點</p>${t.kind==='drone'?predictionDebug(t):''}<p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
+            const error=point(t.estimatedPosition)&&point(t.position)?Math.round(distance(t.estimatedPosition,t.position)):null,kalmanError=point(t.kalmanPosition)&&point(t.position)?Math.round(distance(t.kalmanPosition,t.position)):null;
+            slot.innerHTML=`<div class="slab-target-heading"><span class="slab-target-icon">${t.kind==='drone'?'✣':'◉'}</span><div><h4>${escape(names[t.kind])}</h4><small>${t.id}</small></div></div><span class="slab-system-label">系統判斷（依藍色估測）</span><strong class="slab-target-status ${a.status==='inside'?'slab-danger':''}">${statuses[a.status]}${a.trend?` · ${trends[a.trend]}`:''}</strong><div class="slab-metrics"><div><span>系統估測距據點</span><b>${a.distance===null?'—':Math.round(a.distance)+' m'}</b></div><div><span>同時偵測節點</span><b>${detected.length}</b></div><div><span>可能聲源區域</span><b class="slab-metric-small">${regionLabel}</b></div><div><span>Alpha-Beta 誤差</span><b>${error===null?'—':error+' m'}</b></div><div><span>Kalman 誤差</span><b>${kalmanError===null?'—':kalmanError+' m'}</b></div><div><span>系統預估進入警戒</span><b>${t.kind==='drone'?duration(a.zoneEta):'不適用'}</b><small>${t.kind==='drone'?escape(predictionStates[prediction?.display?.state]||'資料不足'):''}${prediction?.display?.displayEtaLowerSeconds!=null&&prediction?.display?.displayEtaUpperSeconds!=null?` · 約 ${Math.ceil(prediction.display.displayEtaLowerSeconds)}–${Math.ceil(prediction.display.displayEtaUpperSeconds)} 秒`:''}</small></div><div><span>系統預估抵達據點</span><b>${t.kind==='drone'?duration(a.arrivalEta):'不適用'}</b><small>${prediction?.arrivalDisplay?.displayEtaLowerSeconds!=null&&prediction?.arrivalDisplay?.displayEtaUpperSeconds!=null?`約 ${Math.ceil(prediction.arrivalDisplay.displayEtaLowerSeconds)}–${Math.ceil(prediction.arrivalDisplay.displayEtaUpperSeconds)} 秒`:''}</small></div></div><p class="slab-hint">${position?`${t.lost?'最後模擬真實位置':'模擬真實位置（僅供比較）'}：${position.lat.toFixed(5)}, ${position.lng.toFixed(5)}`:'尚未設定模擬起點。'}${estimated?`<br>系統估測位置：${estimated.lat.toFixed(5)}, ${estimated.lng.toFixed(5)}`:'<br>系統估測位置：至少需兩個節點同時偵測'}</p><p class="slab-hint">偵測節點：${detected.map(n=>escape(n.name)).join('、')||'目前沒有'}<br>真實軌跡 ${t.trail.length} 點 · Alpha-Beta ${t.estimatedTrail.length} 點 · Kalman ${t.kalmanTrail.length} 點</p>${t.kind==='drone'?predictionDebug(t):''}<p class="slab-disclaimer">警示、接近狀態、距離與 ETA 只採用系統估測。紫色真實路徑只供模擬比較；Kalman 僅為模擬比較，不影響 ETA/警示；實際定位仍需 TDOA／時間同步資料與實地驗證。</p>`;
         }
         renderAlert() {
             const alerts=this.active&&!this.model.replay?this.model.alerts:[],alert=alerts[0];
@@ -723,7 +767,7 @@
         bounds() {
             const replayFrames=this.model.replay?.frames||[];
             const historicalNodes=replayFrames.flatMap(frame=>frame.nodes||[]),historicalSites=replayFrames.map(frame=>frame.site).filter(point);
-            const points=[this.model.site,...this.model.nodes,...historicalSites,...historicalNodes,...this.model.targets.filter(t=>point(t.position)).map(t=>t.position),...this.model.targets.flatMap(t=>t.waypoints),...this.model.targets.flatMap(t=>t.estimatedTrail),...(this.model.replay?.points||[]),...(this.model.replay?.estimatedPoints||[])];
+            const points=[this.model.site,...this.model.nodes,...historicalSites,...historicalNodes,...this.model.targets.filter(t=>point(t.position)).map(t=>t.position),...this.model.targets.flatMap(t=>t.waypoints),...this.model.targets.flatMap(t=>t.estimatedTrail),...this.model.targets.flatMap(t=>t.kalmanTrail||[]),...(this.model.replay?.points||[]),...(this.model.replay?.estimatedPoints||[])];
             let minX=-600,maxX=600,minY=-390,maxY=390;
             for(const p of points){minX=Math.min(minX,p.x-100);maxX=Math.max(maxX,p.x+100);minY=Math.min(minY,p.y-100);maxY=Math.max(maxY,p.y+100);}
             const site=this.model.site;minX=Math.min(minX,site.x-site.radius-80);maxX=Math.max(maxX,site.x+site.radius+80);minY=Math.min(minY,site.y-site.radius-80);maxY=Math.max(maxY,site.y+site.radius+80);
@@ -742,11 +786,12 @@
             const region=geometry.length>=2?`<${geometry.length===2?'polyline':'polygon'} class="slab-reporting-region" points="${geometry.map(n=>{const q=p(n);return `${q.x},${q.y}`;}).join(' ')}"/>`:'';
             let targets='';
             if(replay){const current=replayPoint(replay),estimated=current?replayPointAtTime(replay.estimatedPoints,current.time):null;if(current){const q=p(current),path=replay.points.slice(0,current.index+1).concat(current);targets=`<polyline class="slab-true-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.targetSvg(q,replay.kind,'真實路徑',false,true)}`;}if(estimated){const q=p(estimated),path=replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);targets+=`<polyline class="slab-estimated-trail" points="${path.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>${this.estimateSvg(q)}`;}}
-            else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(target.waypoints.length&&point(target.startPosition))targets+=`<polyline class="slab-waypoints" points="${[target.startPosition,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));}
+            else for(const target of m.targets){if(!point(target.position))continue;const q=p(target.position);const path=target.trail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),estimated=target.estimatedTrail.map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' '),kalman=(target.kalmanTrail||[]).map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ');targets+=`<polyline class="slab-true-trail ${target.id===m.selectedId?'':'is-muted'}" points="${path}"/>`;if(estimated)targets+=`<polyline class="slab-estimated-trail ${target.id===m.selectedId?'':'is-muted'}" points="${estimated}"/>`;if(kalman)targets+=`<polyline class="slab-kalman-trail ${target.id===m.selectedId?'':'is-muted'}" points="${kalman}"/>`;if(target.waypoints.length&&point(target.startPosition))targets+=`<polyline class="slab-waypoints" points="${[target.startPosition,...target.waypoints].map(n=>{const r=p(n);return `${r.x},${r.y}`;}).join(' ')}"/>`;targets+=this.targetSvg(q,target.kind,target.id.replace('SIM-TARGET-','#'),target.lost,target.id===m.selectedId);if(point(target.estimatedPosition)&&target.id===m.selectedId)targets+=this.estimateSvg(p(target.estimatedPosition));if(point(target.kalmanPosition)&&target.id===m.selectedId)targets+=this.kalmanSvg(p(target.kalmanPosition));}
             this.$('[data-slot="map"]').innerHTML=`<defs><pattern id="slab-grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="currentColor" stroke-opacity=".1"/></pattern></defs><rect width="800" height="520" fill="url(#slab-grid)"/><text class="slab-north" x="770" y="30">N ↑</text><circle class="slab-zone" cx="${site.x}" cy="${site.y}" r="${siteModel.radius*this.mapBounds.scale}"/>${region}<g class="slab-site" transform="translate(${site.x},${site.y})"><circle r="8"/><path d="M-13 0H13M0-13V13"/><text y="28">模擬據點</text></g>${nodes}${targets}<text class="slab-scale" x="20" y="495">${Math.round(100/this.mapBounds.scale)} m / 圖上 100 單位 · 相對位置圖</text>`;
             if(this.googleMap)this.renderGoogle();
         }
         targetSvg(p,kind,label,lost,selected){return `<g class="slab-aircraft ${lost?'is-lost':''} ${selected?'is-selected':''}" transform="translate(${p.x},${p.y})"><circle class="slab-target-halo" r="24"/>${kind==='drone'?`<path d="${DRONE_PATH}"/>`:'<circle r="7"/>'}<text y="39">${escape(label)}${lost?' · 失聯':''}</text></g>`;}
+        kalmanSvg(p){return `<g class="slab-kalman-marker" transform="translate(${p.x},${p.y})"><circle r="9"/><text y="31">Kalman</text></g>`;}
         estimateSvg(p){return `<g class="slab-estimate-marker" transform="translate(${p.x},${p.y})"><circle class="slab-estimate-halo" r="24"/><path d="${DRONE_PATH}"/><text y="39">節點推估</text></g>`;}
         tryGoogle(){
             if(this.googleMap||!root.google?.maps?.Map)return;
@@ -778,6 +823,7 @@
             else if(geometry.length>=3)put('source-polygon',g.Polygon,{paths:geometry.map(latLng),...Visuals.regionStyle('polygon'),clickable:false});
             const trueLine=(key,trail,muted=false)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#C4B5FD',strokeOpacity:muted?.3:.9,strokeWeight:4,clickable:false});};
             const estimateLine=(key,trail)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#60A5FA',strokeOpacity:0,strokeWeight:2,icons:[{icon:{path:'M 0,-1 0,1',strokeColor:'#60A5FA',strokeOpacity:1,strokeWeight:3,scale:3},offset:'0',repeat:'14px'}],clickable:false});};
+            const kalmanLine=(key,trail)=>{if(trail.length>1)put(key,g.Polyline,{path:trail.map(latLng),strokeColor:'#34D399',strokeOpacity:.95,strokeWeight:3,clickable:false});};
             const trueMarker=(key,position,kind,label,lost=false)=>put(key,g.Marker,{position:latLng(position),title:label,icon:{path:kind==='drone'?DRONE_PATH:g.SymbolPath.CIRCLE,scale:kind==='drone'?1.1:8,strokeColor:lost?'#9EACC0':'#FBBF24',strokeWeight:2,fillColor:'#142033',fillOpacity:1},clickable:false});
             const estimateMarker=(key,position)=>put(key,g.Marker,{position:latLng(position),title:'節點推估位置',icon:{path:DRONE_PATH,scale:1.1,strokeColor:'#60A5FA',strokeWeight:2.4,fillColor:'#142033',fillOpacity:1},clickable:false});
             if(m.replay){
@@ -786,7 +832,7 @@
                 if(estimated){const trail=m.replay.estimatedPoints.slice(0,estimated.index+1).concat(estimated);estimateLine('replay-estimate',trail);estimateMarker('replay-estimate-marker',estimated);}
             } else for(const t of m.targets){
                 if(point(t.position)){trueLine(`true:${t.id}`,t.trail,t.id!==m.selectedId);trueMarker(`target:${t.id}`,t.position,t.kind,t.id,t.lost);}
-                estimateLine(`estimate:${t.id}`,t.estimatedTrail);if(point(t.estimatedPosition)&&t.id===m.selectedId)estimateMarker(`estimate-marker:${t.id}`,t.estimatedPosition);
+                estimateLine(`estimate:${t.id}`,t.estimatedTrail);kalmanLine(`kalman:${t.id}`,t.kalmanTrail||[]);if(point(t.estimatedPosition)&&t.id===m.selectedId)estimateMarker(`estimate-marker:${t.id}`,t.estimatedPosition);
                 if(t.waypoints.length&&point(t.startPosition))put(`waypoints:${t.id}`,g.Polyline,{path:[t.startPosition,...t.waypoints].map(latLng),strokeColor:'#FBBF24',strokeWeight:2,strokeOpacity:.65,clickable:false});
             }
             for(const [key,overlay] of this.googleOverlays)if(!used.has(key)){overlay.setMap(null);this.googleOverlays.delete(key);}
