@@ -74,26 +74,26 @@ def render_dashboard_v2_4(
         <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
             <div class="simulation-banner">
                 <div><strong>情境模擬展示</strong><span id="simulationScenarioName">無人機接近據點</span></div>
-                <button id="simulationExitButton" class="ghost-button" type="button">Exit simulation</button>
+                <button id="simulationExitButton" class="ghost-button" type="button">結束模擬</button>
             </div>
             <p class="simulation-disclaimer">此區使用模擬資料示範系統流程，與即時監控資料完全分離。</p>
             <div class="simulation-controls">
-                <button id="simulationPlayButton" class="action-button primary" type="button">Play</button>
-                <button id="simulationRestartButton" class="action-button" type="button">Restart</button>
-                <label>Scenario
+                <button id="simulationPlayButton" class="action-button primary" type="button">開始播放</button>
+                <button id="simulationRestartButton" class="action-button" type="button">重新開始</button>
+                <label>情境
                     <select id="simulationScenario" class="select-control" aria-label="模擬情境">
                         <option value="approach_site_demo_v1">A · Direct Approach</option>
                         <option value="parallel_flyby_demo_v1">B · Parallel Fly-by</option>
                         <option value="departing_demo_v1">C · Departing</option>
                     </select>
                 </label>
-                <label>Speed
+                <label>播放速度
                     <select id="simulationSpeed" class="select-control" aria-label="模擬播放速度">
                         <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
                     </select>
                 </label>
-                <label class="simulation-follow"><input id="simulationFollowTarget" type="checkbox" checked> Follow target</label>
-                <span id="simulationStateBadge" class="badge experimental">READY</span>
+                <label class="simulation-follow"><input id="simulationFollowTarget" type="checkbox" checked> 跟隨目標</label>
+                <span id="simulationStateBadge" class="badge experimental">待命</span>
             </div>
             <div class="simulation-timeline">
                 <input id="simulationSeek" type="range" min="0" max="90" value="0" step="0.1" list="simulationTimelineTicks" aria-label="模擬時間軸">
@@ -111,7 +111,7 @@ def render_dashboard_v2_4(
             + "\n</script>"
         )
     demo_stable_style = (
-        ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}"
+        ".demo-experimental,.demo-diagnostics,.demo-validation-scope,.advanced-control,.slab-prediction-debug{display:none!important}"
         if demo_stable_mode
         else ""
     )
