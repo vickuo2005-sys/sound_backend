@@ -50,19 +50,19 @@ def render_dashboard_v2_4(
     if simulation_enabled:
         simulation_controls = """
         <button id="simulationOpenButton" class="ghost-button simulation-entry" type="button">
-            Simulation / 模擬展示
+            情境模擬展示
         </button>
         """
         simulation_topbar_badge = """
         <span id="simulationTopbarBadge" class="simulation-topbar-badge" hidden>
-            <strong>SIMULATION / 模擬展示</strong><span>NOT FIELD VALIDATED</span>
+            <strong>情境模擬</strong><span>模擬資料 · 非實地驗證</span>
             <button id="simulationQuickExitButton" class="action-button simulation-quick-exit" type="button">✕ 結束模擬</button>
         </span>
         """
         simulation_watermark = """
         <div id="simulationWatermark" class="simulation-watermark" hidden>
-            <strong>SIMULATION / 模擬展示</strong>
-            <span>NOT FIELD VALIDATED</span>
+            <strong>情境模擬</strong>
+            <span>模擬資料 · 非實地驗證</span>
         </div>
         """
         simulation_map_legend = """
@@ -73,27 +73,27 @@ def render_dashboard_v2_4(
         simulation_panel = """
         <section id="simulationPanel" class="simulation-panel" aria-label="動態軌跡模擬控制" hidden>
             <div class="simulation-banner">
-                <div><strong>SIMULATION / 模擬展示</strong><span id="simulationScenarioName">approach_site_demo_v1 · NOT FIELD VALIDATED</span></div>
-                <button id="simulationExitButton" class="ghost-button" type="button">Exit simulation</button>
+                <div><strong>情境模擬展示</strong><span id="simulationScenarioName">無人機接近據點</span></div>
+                <button id="simulationExitButton" class="ghost-button" type="button">結束模擬</button>
             </div>
-            <p class="simulation-disclaimer">此畫面為展示用模擬資料，不代表目前實際偵測結果或已驗證預測能力。</p>
+            <p class="simulation-disclaimer">此區使用模擬資料示範系統流程，與即時監控資料完全分離。</p>
             <div class="simulation-controls">
-                <button id="simulationPlayButton" class="action-button primary" type="button">Play</button>
-                <button id="simulationRestartButton" class="action-button" type="button">Restart</button>
-                <label>Scenario
+                <button id="simulationPlayButton" class="action-button primary" type="button">開始播放</button>
+                <button id="simulationRestartButton" class="action-button" type="button">重新開始</button>
+                <label>情境
                     <select id="simulationScenario" class="select-control" aria-label="模擬情境">
                         <option value="approach_site_demo_v1">A · Direct Approach</option>
                         <option value="parallel_flyby_demo_v1">B · Parallel Fly-by</option>
                         <option value="departing_demo_v1">C · Departing</option>
                     </select>
                 </label>
-                <label>Speed
+                <label>播放速度
                     <select id="simulationSpeed" class="select-control" aria-label="模擬播放速度">
                         <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option>
                     </select>
                 </label>
-                <label class="simulation-follow"><input id="simulationFollowTarget" type="checkbox" checked> Follow target</label>
-                <span id="simulationStateBadge" class="badge experimental">READY</span>
+                <label class="simulation-follow"><input id="simulationFollowTarget" type="checkbox" checked> 跟隨目標</label>
+                <span id="simulationStateBadge" class="badge experimental">待命</span>
             </div>
             <div class="simulation-timeline">
                 <input id="simulationSeek" type="range" min="0" max="90" value="0" step="0.1" list="simulationTimelineTicks" aria-label="模擬時間軸">
@@ -111,12 +111,12 @@ def render_dashboard_v2_4(
             + "\n</script>"
         )
     demo_stable_style = (
-        ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}"
+        ".demo-experimental,.demo-diagnostics,.demo-validation-scope,.advanced-control,.slab-prediction-debug{display:none!important}"
         if demo_stable_mode
         else ""
     )
     sidebar_note = (
-        "正式展示模式<br>僅顯示已驗證或可明確說明的功能"
+        "系統展示模式<br>即時監控與情境模擬資料分流顯示"
         if demo_stable_mode
         else "測試環境<br>軌跡與抵達時間仍待實地驗證"
     )
@@ -159,7 +159,7 @@ def render_dashboard_v2_4(
         .replace("__SIMULATION_CONTROLS__", simulation_controls)
         .replace(
             "__SIMULATION_NAV__",
-            '<button class="nav-button" data-view-target="simulation"><span class="nav-icon">▷</span>模擬工作區</button>' if simulation_enabled else '',
+            '<button class="nav-button" data-view-target="simulation"><span class="nav-icon">▷</span>情境模擬</button>' if simulation_enabled else '',
         )
         .replace("__SIMULATION_TOPBAR_BADGE__", simulation_topbar_badge)
         .replace("__SIMULATION_WATERMARK__", simulation_watermark)

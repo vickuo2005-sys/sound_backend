@@ -643,10 +643,10 @@
 <body>
     <header class="topbar">
         <div class="brand">
-            <div class="brand-mark" aria-hidden="true">SD</div>
+            <div class="brand-mark" aria-hidden="true">DA</div>
             <div>
-                <div class="brand-title">Sound Detection</div>
-                <div class="brand-subtitle">聲音偵測監控</div>
+                <div class="brand-title">Drone Acoustic Monitoring</div>
+                <div class="brand-subtitle">無人機聲學監控系統</div>
             </div>
         </div>
         <div class="command-status" aria-label="連線狀態">
@@ -680,7 +680,7 @@
                 <div class="page-heading">
                     <div>
                         <h1 id="dashboardTitle" class="page-title">監控總覽</h1>
-                        <p class="page-description">先確認監聽狀態，再查看偵測與位置</p>
+                        <p class="page-description">整合節點連線、聲音偵測、事件與位置資訊</p>
                     </div>
                 </div>
 
@@ -692,7 +692,7 @@
                 <div class="metric-grid" aria-label="操作狀態摘要">
                     <article class="card metric-card"><div class="metric-top"><span>在線節點</span><span class="metric-icon">◉</span></div><div id="nodesOnlineMetric" class="metric-value">—</div><div id="nodesOnlineDetail" class="metric-detail">等待節點資料</div></article>
                     <article class="card metric-card"><div class="metric-top"><span>正在監聽</span><span class="metric-icon">◌</span></div><div id="listeningMetric" class="metric-value">—</div><div class="metric-detail">手機回報的監聽狀態</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
+                    <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">等待服務同步</div></article>
                 </div>
 
                 <article class="card overview-location-card"><h2 class="card-title">監控資料狀態</h2><div id="overviewPipeline" class="overview-pipeline" aria-live="polite">正在連接服務…</div><button class="action-button" data-view-target="system" type="button">查看服務詳情 →</button></article>
@@ -730,12 +730,12 @@
                 <div class="page-heading"><div><h1 id="detectionsTitle" class="page-title">偵測摘要</h1><p class="page-description">最新紀錄、完整模型分數與最近事件</p></div><button class="ghost-button" data-view-target="events">查詢全部事件 →</button></div>
                 <div class="hero-grid">
                     <article class="card live-card" aria-live="polite">
-                        <div class="card-header"><h2 class="card-title">最新偵測紀錄</h2><span id="liveBadge" class="badge legacy">WAITING</span></div>
+                        <div class="card-header"><h2 class="card-title">最新偵測紀錄</h2><span id="liveBadge" class="badge legacy">等待資料</span></div>
                         <div id="liveDetectionBody" class="card-body"><div class="empty-state"><div><strong>等待偵測</strong>尚未收到偵測紀錄；請先確認上方監聽狀態</div></div></div>
                     </article>
                     <details class="card scores-disclosure" open>
-                        <summary>查看五類模型分數</summary>
-                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 classification.v1 後顯示五類分數</div></div></div></div>
+                        <summary>AI 分類信心度</summary>
+                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 AI 分類結果後顯示各類信心度</div></div></div></div>
                     </details>
                 </div>
 
@@ -745,7 +745,7 @@
                 </article>
             </section>
             <section id="view-simulation" class="view" aria-labelledby="simulationTitle">
-                <div class="page-heading"><div><h1 id="simulationTitle" class="page-title">模擬工作區</h1><p class="page-description">模擬資料・未經實地驗證</p></div></div>
+                <div class="page-heading"><div><h1 id="simulationTitle" class="page-title">情境模擬展示</h1><p class="page-description">示範多節點偵測、軌跡與警戒流程｜模擬資料，非實地驗證結果</p></div></div>
                 <div id="simulationLabRoot"></div><div class="simulation-page-grid" hidden><div id="simulationMapSlot"></div><div id="simulationAnalysisSlot"></div></div>
             </section>
             <section id="view-events" class="view" aria-labelledby="eventsTitle">
@@ -759,16 +759,16 @@
                     <select id="timeFilter" class="select-control" aria-label="時間範圍"><option value="all">所有時間</option><option value="1">最近 1 小時</option><option value="24">最近 24 小時</option><option value="168">最近 7 天</option></select>
                 </div>
                 <div class="event-browser">
-                    <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
-                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div><section id="audioEvidence" class="card-body audio-evidence" aria-label="錄音證據檢視" hidden></section></article>
+                    <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>信心度</th><th>上傳狀態</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
+                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與事件識別資訊</div></div></div><section id="audioEvidence" class="card-body audio-evidence" aria-label="錄音證據檢視" hidden></section></article>
                 </div>
             </section>
 
             <section id="view-tracks" class="view" aria-labelledby="tracksTitle">
-                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
+                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">多節點區域估測、歷史位置與軌跡回顧</p></div></div>
                 <div class="intelligence-grid">
-                    <article class="card"><div class="card-header"><h2 class="card-title">歷史事件與區域估測</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
-                    <article class="card"><div class="card-header"><h2 class="card-title">已儲存軌跡</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">依已儲存觀測重播事件背景；平滑過場僅為視覺示意，不修改觀測資料或預測未來路徑。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">歷史事件與區域估測</h2><span id="estimateCountBadge" class="badge legacy">0 筆位置</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">已儲存軌跡</h2><span id="trackCountBadge" class="badge legacy">0 條軌跡</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">依已儲存觀測重播事件背景；平滑過場僅為視覺示意，不修改觀測資料或預測未來路徑。</div></div></article>
                 </div>
                 <div id="motionHome" class="demo-experimental">                    <details id="motionDetails" class="card motion-disclosure"><summary>移動分析與模擬（實驗功能）</summary><article id="motionCard" class="motion-card">
                         <div class="card-header"><h2 id="motionCardTitle" class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span id="motionCardBadge" class="badge experimental">EXPERIMENTAL</span></div>
@@ -965,13 +965,13 @@
             if (!visible) return;
             const duration = simulationPlayback.scenario.duration_seconds;
             const playButton = document.getElementById('simulationPlayButton');
-            playButton.textContent = simulationPlayback.phase === 'playing' ? 'Pause' : (simulationPlayback.phase === 'completed' ? 'Replay' : 'Play');
+            playButton.textContent = simulationPlayback.phase === 'playing' ? '暫停' : (simulationPlayback.phase === 'completed' ? '重新播放' : '開始播放');
             playButton.setAttribute('aria-pressed', simulationPlayback.phase === 'playing' ? 'true' : 'false');
-            document.getElementById('simulationStateBadge').textContent = simulationPlayback.phase === 'playing' ? 'RUNNING' : simulationPlayback.phase.toUpperCase();
+            document.getElementById('simulationStateBadge').textContent = ({idle:'待命',ready:'待命',playing:'播放中',paused:'已暫停',completed:'已完成'})[simulationPlayback.phase] || '待命';
             const seek = document.getElementById('simulationSeek');
             seek.max = String(duration); seek.value = String(simulationPlayback.elapsed);
             document.getElementById('simulationTime').textContent = `${formatSimulationClock(simulationPlayback.elapsed)} / ${formatSimulationClock(duration)}`;
-            document.getElementById('simulationScenarioName').textContent = `${simulationPlayback.scenario.id} · NOT FIELD VALIDATED`;
+            document.getElementById('simulationScenarioName').textContent = simulationPlayback.scenario.name || '情境模擬';
         }
         function renderSimulationMotion() {
             document.getElementById('motionDetails').open = true;
@@ -1014,7 +1014,7 @@
             const reasonCode = result.status_reasons[0] || approach.eta_reason || 'TREND_UNCERTAIN';
             const statusReason = etaReasonLabels[reasonCode] || `目前運動資料不足以估算抵達時間（${reasonCode}）。`;
             document.getElementById('motionBody').innerHTML = `<div class="site-approach-primary">
-                <div><div class="site-approach-eyebrow">SITE APPROACH · SIMULATION</div><h3 class="site-approach-name">${safe(result.site.name || 'DEMO SITE ALPHA')}</h3></div>
+                <div><div class="site-approach-eyebrow">據點接近分析 · 模擬</div><h3 class="site-approach-name">${safe(result.site.name || '展示據點')}</h3></div>
                 <div class="site-approach-trend" data-trend="${safe(trendCopy[0])}"><div><strong>${safe(trendCopy[0])}</strong><span>${safe(trendCopy[1])}</span></div><span>距離 ${result.site.current_distance_m === null ? '—' : formatSimulationDistance(result.site.current_distance_m)}</span></div>
                 <div class="site-approach-eta"><span>${approach.eta_reason === 'AT_SITE' ? '目前位於保護範圍' : '預測進入保護範圍'}</span><strong>${eta}</strong><small>SIMULATED ETA</small></div>
                 <div class="site-approach-summary">
@@ -1024,17 +1024,17 @@
                     <div><span>最近接近</span><strong>${cpaTimeDisplay}</strong></div>
                 </div>
                 <div class="site-approach-message">${safe(statusReason)}</div>
-                <section class="distance-forecast"><h3>DISTANCE TO SITE</h3><div class="simulation-distance-grid">
+                <section class="distance-forecast"><h3>距據點預測</h3><div class="simulation-distance-grid">
                     ${distanceCell('CURRENT', result.site.current_distance_m)}${distanceCell('+5 s', predictionDistance(5))}${distanceCell('+10 s', predictionDistance(10))}${distanceCell('+15 s', predictionDistance(15))}${distanceCell('+30 s', predictionDistance(30))}
                 </div></section>
                 <details class="prediction-details"><summary>Prediction Details / 預測細節</summary><div class="motion-grid">
-                    <div class="motion-value"><span>Speed</span><strong>${speed}</strong></div>
+                    <div class="motion-value"><span>速度</span><strong>${speed}</strong></div>
                     <div class="motion-value"><span>Heading</span><strong>${heading}</strong></div>
                     <div class="motion-value"><span>Bearing to Site</span><strong>${result.site.bearing_to_site_deg === null ? '—' : headingText(result.site.bearing_to_site_deg)}</strong></div>
-                    <div class="motion-value"><span>Closing Speed</span><strong>${closing}</strong></div>
+                    <div class="motion-value"><span>接近速度</span><strong>${closing}</strong></div>
                     <div class="motion-value detail-wide"><span>Model</span><strong>Constant Velocity (CV)</strong></div>
                 </div></details>
-                <div class="site-approach-disclaimer"><strong>SIMULATION / 模擬展示 · NOT FIELD VALIDATED</strong><br>Based on current motion vector. Fixed site is reference geometry only and never changes the predicted trajectory.</div>
+                <div class="site-approach-disclaimer"><strong>模擬資料 · 非實地驗證結果</strong><br>依目前移動向量進行展示性推估；固定據點僅作為警戒區參考。</div>
             </div>`;
         }
         function renderSimulationMap(metrics) {
@@ -1058,7 +1058,7 @@
                 marker.addListener('click', () => {
                     const prediction = marker.__simulationPrediction;
                     if (!prediction || !mapInfoWindow) return;
-                    mapInfoWindow.setContent(`<strong>SIMULATION prediction +${prediction.horizon_sec}s</strong><br>${prediction.lat.toFixed(6)}, ${prediction.lng.toFixed(6)}<br>Distance to ${safe(scenario.site.name)}: ${formatSimulationDistance(prediction.distance_to_site_m)}<br><em>Simulation only · not field validated</em>`);
+                    mapInfoWindow.setContent(`<strong>模擬預測 +${prediction.horizon_sec}s</strong><br>${prediction.lat.toFixed(6)}, ${prediction.lng.toFixed(6)}<br>距 ${safe(scenario.site.name)}：${formatSimulationDistance(prediction.distance_to_site_m)}<br><em>模擬資料 · 非實地驗證結果</em>`);
                     mapInfoWindow.open({map, anchor:marker});
                 });
                 simulationMapObjects.predictionMarkers.push(marker);
@@ -1168,7 +1168,7 @@
         function classificationOf(event) { return event && event.classification && typeof event.classification === 'object' ? event.classification : null; }
         function modelLabel(event) { return classificationOf(event)?.model_label || event?.dashboard_presentation?.model_label || null; }
         function isTarget(event) { return classificationOf(event)?.is_target === true || event?.dashboard_presentation?.is_target === true; }
-        function classLabel(event) { return modelLabel(event) || event?.label || 'Legacy'; }
+        function classLabel(event) { return modelLabel(event) || event?.label || '未分類'; }
         function classNameZh(event) { return classNamesZh[modelLabel(event)] || event?.dashboard_presentation?.name_zh || '舊版事件'; }
         // Reuse the V2.2 droneTargetIcon silhouette; color distinguishes simulation.
         function droneSvg(color = '#f97316', heading = 0, backdrop = false) {
@@ -1321,7 +1321,7 @@
             const trackList = document.getElementById('historyTrackList');
             if (!estimateList || !trackList) return;
             const groups = [...state.groups.values()].filter(group => groupLocation(group)).sort((a,b) => groupTime(b) - groupTime(a));
-            document.getElementById('estimateCountBadge').textContent = `${groups.length} LOCATED`;
+            document.getElementById('estimateCountBadge').textContent = `${groups.length} 筆位置`;
             estimateList.innerHTML = groups.length ? groups.map(group => {
                 const id = groupId(group); const location = groupLocation(group); const devices = groupDeviceIds(group);
                 const uncertainty = finite(group.uncertainty_radius_m); const selected = id === state.selectedGroupId;
@@ -1329,10 +1329,10 @@
             }).join('') : '<div class="empty-state"><div><strong>尚無可定位區域</strong>等待 Backend fusion 提供中心座標</div></div>';
 
             const tracks = [...state.tracks.values()].filter(track => trackPath(track).length >= 2).sort((a,b) => trackEndTime(b) - trackEndTime(a));
-            document.getElementById('trackCountBadge').textContent = `${tracks.length} TRACKS`;
+            document.getElementById('trackCountBadge').textContent = `${tracks.length} 條軌跡`;
             trackList.innerHTML = tracks.length ? tracks.map(track => {
                 const id = trackId(track); const points = trackPath(track); const selected = id === state.selectedTrackId;
-                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(track.label || 'Target track')}</strong><span>${safe(track.status || 'unknown')}</span></div><span>${safe(formatDateTime(track.last_event_time || track.updated_at))}</span></div><div class="intelligence-meta"><div>Recorded points<strong>${points.length}</strong></div><div>Speed<strong>${formatNumber(track.last_speed_mps,1,' m/s')}</strong></div><div>Heading<strong>${safe(headingText(track.last_heading_deg))}</strong></div><div>Confidence<strong>${formatPercent(track.last_confidence)}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-replay-track="${safe(id)}">${selected ? '重新回放' : '播放歷史軌跡'}</button>${selected ? '<button class="action-button" type="button" data-close-track>關閉回放</button>' : ''}</div></article>`;
+                return `<article class="intelligence-item ${selected ? 'selected' : ''}"><div class="intelligence-item-head"><div><strong>${safe(track.label || '目標軌跡')}</strong><span>${safe(track.status || '狀態未知')}</span></div><span>${safe(formatDateTime(track.last_event_time || track.updated_at))}</span></div><div class="intelligence-meta"><div>紀錄點數<strong>${points.length}</strong></div><div>速度<strong>${formatNumber(track.last_speed_mps,1,' m/s')}</strong></div><div>航向<strong>${safe(headingText(track.last_heading_deg))}</strong></div><div>信心度<strong>${formatPercent(track.last_confidence)}</strong></div></div><div class="intelligence-actions"><button class="action-button ${selected ? 'primary' : ''}" type="button" data-replay-track="${safe(id)}">${selected ? '重新回放' : '播放歷史軌跡'}</button>${selected ? '<button class="action-button" type="button" data-close-track>關閉回放</button>' : ''}</div></article>`;
             }).join('') : '<div class="empty-state"><div><strong>尚無歷史軌跡</strong>至少需要兩個已儲存 track points</div></div>';
             estimateList.querySelectorAll('[data-preview-group]').forEach(button => button.addEventListener('click', () => window.DashboardOperationsUI?.group(button.dataset.previewGroup)));
             trackList.querySelectorAll('[data-replay-track]').forEach(button => button.addEventListener('click', () => startTrackReplay(button.dataset.replayTrack)));
