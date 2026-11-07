@@ -1,0 +1,9 @@
+{
+  "length_after_ack": 6,
+  "pending_before_trim": 3,
+  "trim_policy": "isolated single-group exact MINID below oldest pending; all entries delivered",
+  "acknowledged_removed": 3,
+  "pending_recovered": 3,
+  "final_pending": 0,
+  "automatic_retention_enabled": false
+}

@@ -1,0 +1,41 @@
+{
+  "cases": [
+    {
+      "case": "small",
+      "serialized_bytes": 409,
+      "metadata_padding_bytes": 0,
+      "samples": 10,
+      "memory_usage_stream_bytes": 9871,
+      "server_memory_delta_bytes": 32643
+    },
+    {
+      "case": "normal",
+      "serialized_bytes": 1433,
+      "metadata_padding_bytes": 1024,
+      "samples": 10,
+      "memory_usage_stream_bytes": 19246,
+      "server_memory_delta_bytes": 16122
+    },
+    {
+      "case": "large",
+      "serialized_bytes": 65945,
+      "metadata_padding_bytes": 65536,
+      "samples": 10,
+      "memory_usage_stream_bytes": 665890,
+      "server_memory_delta_bytes": 707821
+    },
+    {
+      "case": "oversized_synthetic",
+      "serialized_bytes": 1048985,
+      "metadata_padding_bytes": 1048576,
+      "samples": 10,
+      "memory_usage_stream_bytes": 10496290,
+      "server_memory_delta_bytes": 11523485
+    }
+  ],
+  "recommendation_max_envelope_bytes": 65536,
+  "recommendation_only_not_enforced": true,
+  "expected_metadata_budget_bytes": 8192,
+  "actual_application_max_metadata_size": "not established by synthetic tests",
+  "audio": "references only; no raw WAV/base64"
+}

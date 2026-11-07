@@ -1,0 +1,29 @@
+{
+  "single_consumer_same_partition_order": [
+    "0",
+    "1",
+    "2"
+  ],
+  "multi_consumer_same_partition_completion_counterexample": [
+    "11",
+    "10"
+  ],
+  "independent_partition_intervals_monotonic_ns": {
+    "site_C": [
+      811256070123800,
+      811256100440800
+    ],
+    "site_B": [
+      811256070152300,
+      811256100651800
+    ],
+    "site_A": [
+      811256070164500,
+      811256101077600
+    ]
+  },
+  "independent_partitions_overlap": true,
+  "strict_per_partition_multi_consumer_guarantee": false,
+  "ORDERING_MODEL_VERIFIED": "PARTIAL",
+  "blocker": "No partition ownership/fencing dispatcher exists in V1 adapter"
+}

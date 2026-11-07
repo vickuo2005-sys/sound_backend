@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-04 Asia/Taipei",
+  "STAGING_CUTOVER": "PASS",
+  "STAGING_RUNNING_ON_SINGAPORE": true,
+  "render_service": "sound-backend-staging",
+  "service_id": "srv-da6kdn61egvs7392r92g",
+  "validated_runtime_commit": "b3ed190738930ca7e9305a4f08cb593120e6912c",
+  "final_settings_deploy": "dep-db0jsnfavr4c73828meg",
+  "TLS_REQUIRE_BOTH_REGIONS": "PASS",
+  "reconciliation": "staging_final_reconciliation_20261004.json",
+  "frozen_quiescent": true,
+  "write_freeze_final": false,
+  "probe_enabled_final": false,
+  "read_checks_200": 9,
+  "dashboard_websocket": "PASS",
+  "synthetic_smoke": {
+    "id": "staging-cutover-smoke-20261004-01",
+    "events_tokyo": 0,
+    "events_singapore": 1,
+    "observations_singapore": 1,
+    "track_points_singapore": 0,
+    "retained_for_audit": true
+  },
+  "fk_orphans_after_smoke": {
+    "Tokyo": 0,
+    "Singapore": 0
+  },
+  "local_tests": {
+    "command": "python -m pytest -q tests/test_staging_write_freeze.py",
+    "passed": 6,
+    "warnings": 1
+  },
+  "android_field_test_this_round": false,
+  "localization_enabled": false,
+  "tracking_persistence_test": "NOT_EXERCISED: no track point created",
+  "formal_latency_AB": "NOT_RUN",
+  "bounded_db_probe": "PASS",
+  "rollback": {
+    "performed": false,
+    "Tokyo_retained": true,
+    "requires_write_freeze_and_reconcile_new_Singapore_writes": true
+  },
+  "production_touched": false,
+  "PR_draft": true,
+  "PR_merged": false,
+  "secrets_in_artifacts": false
+}

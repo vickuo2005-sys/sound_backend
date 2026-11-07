@@ -1,0 +1,14 @@
+{
+  "restart_mode": "forced server process kill + same AOF directory",
+  "appendonly": true,
+  "appendfsync": "always",
+  "connection_recovered": true,
+  "pending_survived_restart": true,
+  "original_message_recovered": true,
+  "new_publish_consume_ack_passed": true,
+  "final_pending": 0,
+  "outage_error_class": "TimeoutError",
+  "bounded_failure_elapsed_ms": 6069.183400017209,
+  "nonpersistent_durability_tested": false,
+  "power_loss_durability_claim": false
+}

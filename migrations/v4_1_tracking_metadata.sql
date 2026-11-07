@@ -1,0 +1,28 @@
+-- V4.1 tracking metadata.
+-- Safe to run multiple times.
+
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS avg_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS peak_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS estimated_avg_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS estimated_peak_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION;
+
+ALTER TABLE event_group_observations
+ADD COLUMN IF NOT EXISTS avg_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS peak_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS estimated_avg_db DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS estimated_peak_db DOUBLE PRECISION;
+
+ALTER TABLE device_status
+ADD COLUMN IF NOT EXISTS gps_speed_mps DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS gps_heading_deg DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS gps_accuracy_m DOUBLE PRECISION;
+
+CREATE INDEX IF NOT EXISTS events_gps_movement_idx
+ON events (device_id, gps_speed_mps, gps_heading_deg);
+
+CREATE INDEX IF NOT EXISTS target_track_points_time_idx
+ON target_track_points (measurement_time_ms DESC);

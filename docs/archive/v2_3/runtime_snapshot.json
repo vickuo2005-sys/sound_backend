@@ -1,0 +1,90 @@
+{
+  "schema_version": "sound-detector.archive-runtime-snapshot.v1",
+  "product_release": "V2.3",
+  "captured_at_utc": "2026-09-04T02:25:57.4020803Z",
+  "source": {
+    "backend": {
+      "branch": "feat/v2-4-dashboard-simulation",
+      "functional_baseline_sha": "256f44548c8375c544d3d6bc972e126041746232"
+    },
+    "flutter": {
+      "branch": "feat/v2-4-bi2-motion-field-validation",
+      "baseline_sha": "e593007cfd9df9c969ff6cfdd89ff8c9c9288121",
+      "package_id": "com.example.sound_detector_clean.staging",
+      "version_name": "1.0.2-staging",
+      "version_code": 3
+    }
+  },
+  "staging": {
+    "isolated": true,
+    "service_name": "sound-backend-staging",
+    "status": "success",
+    "deployed_sha": "256f44548c8375c544d3d6bc972e126041746232",
+    "database_engine": "postgres",
+    "gcs_configured": false,
+    "node_websocket_connections": 0,
+    "live_node_ids": [],
+    "device_count": 1,
+    "attached_android_device_count": 0,
+    "track_count": 0,
+    "event_group_count": 20,
+    "flags": {
+      "dashboard_simulation_enabled": true,
+      "observation_shadow_enabled": true,
+      "observation_tracking_enabled": true,
+      "tracking_reorder_buffer_enabled": false,
+      "staging_db_latency_probe_enabled": false
+    },
+    "last_known_device": {
+      "device_id": "node_A01",
+      "status": "offline",
+      "last_seen": "2026-09-02T11:32:20.648313+08:00",
+      "is_listening": false,
+      "upload_mode": "detection",
+      "ai_status": "loaded",
+      "audio_upload_status": "Audio upload failed, metadata saved",
+      "last_event_id": "event_1788312711282_node_A01",
+      "last_command_id": 12,
+      "precise_location_included": false
+    }
+  },
+  "production": {
+    "service_name": "sound-backend",
+    "status": "success",
+    "deployed_sha": "5babe2bafaffbb77b48d16a5e1675f202ae7286b",
+    "database_engine": "postgres",
+    "gcs_configured": true,
+    "node_websocket_connections": 0,
+    "flags": {
+      "observation_shadow_enabled": false,
+      "observation_tracking_enabled": false,
+      "tracking_reorder_buffer_enabled": false,
+      "staging_db_latency_probe_enabled": false
+    },
+    "mutated_by_archive_operation": false
+  },
+  "validation": {
+    "backend_tests": {
+      "passed": 226,
+      "warnings": 2
+    },
+    "dashboard_viewports": [
+      "1366x768",
+      "1920x1080"
+    ],
+    "browser_console_errors": 0,
+    "fixed_site_simulation": {
+      "direct_approach": "pass",
+      "parallel_flyby": "pass",
+      "departing": "pass",
+      "field_validated": false
+    },
+    "speaker_playback_is_physical_drone_evidence": false
+  },
+  "privacy": {
+    "credentials_included": false,
+    "database_urls_included": false,
+    "tokens_included": false,
+    "precise_device_coordinates_included": false
+  }
+}

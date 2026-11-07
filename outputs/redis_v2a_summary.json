@@ -1,0 +1,39 @@
+{
+  "flags": {
+    "LEGACY_PATH_PRESERVED": "YES",
+    "REAL_REDIS_INTEGRATION_TESTED": "YES",
+    "REDIS_STREAMS_ADAPTER_READY": "YES",
+    "CRASH_RECOVERY_VERIFIED": "YES",
+    "PENDING_RECOVERY_VERIFIED": "YES",
+    "AMBIGUOUS_ACK_IDEMPOTENCY_VERIFIED": "YES",
+    "ORDERING_MODEL_VERIFIED": "PARTIAL",
+    "OVERLOAD_BEHAVIOR_CHARACTERIZED": "YES",
+    "REDIS_REAL_TRAFFIC_ENABLED": "NO",
+    "STAGING_REAL_TRAFFIC_CHANGED": "NO",
+    "PRODUCTION_CHANGED": "NO",
+    "READY_FOR_REDIS_STAGING_SHADOW": "YES"
+  },
+  "python": {
+    "tests": 403,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "passed": 402
+  },
+  "real_redis_cases_passed": 18,
+  "real_redis_unavailable_skips": 0,
+  "local_postgres_passed": 3,
+  "js_files_passed": 21,
+  "inline_scripts_passed": 2,
+  "sustainable_rate_observed_all_trials_eps": 50,
+  "marginal_rate_eps": 150,
+  "first_observed_overload_eps": 150,
+  "first_observed_overload_trial": "20 nodes, 1 consumer",
+  "overload_in_all_single_consumer_trials_eps": 400,
+  "scope": "3-second synthetic trials, 5 ms handler, Windows Cygwin Redis, AOF always; not real Fusion capacity",
+  "application_flags": {
+    "EVENT_DRIVEN_PIPELINE_ENABLED": false,
+    "REDIS_REAL_TRAFFIC_ENABLED": false
+  },
+  "measurements_reclassified_from_original_samples": true
+}

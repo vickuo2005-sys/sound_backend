@@ -1,0 +1,169 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const lab=require('../../static/dashboard_simulation_lab.js');
+const near=(actual,expected,tolerance=.01)=>assert(Math.abs(actual-expected)<tolerance,`${actual} != ${expected}`);
+let model=new lab.LabModel();
+model.preset('approach');
+let target=model.selected(),a=lab.assess(target,model.site);
+assert.equal(a.status,'outside');assert.equal(a.trend,'approaching');near(a.zoneEta,14);near(a.arrivalEta,19.2);
+model.step(14);assert.equal(model.alerts.length,1);assert.equal(lab.assess(target,model.site).status,'inside');
+model.acknowledge(model.alerts[0].id);model.step(1);assert.equal(model.alerts.length,0,'same entry does not repeatedly alert');
+model.positionTarget(target.id,{x:300,y:0});model.positionTarget(target.id,{x:20,y:0});assert.equal(model.alerts.length,1,'re-entry starts a new episode');
+model.loseTarget(target.id);assert.equal(lab.assess(target,model.site).status,'lost');assert.equal(lab.assess(target,model.site).arrivalEta,null);assert.equal(model.alerts.length,0);
+model.leave();assert.equal(model.playing,false);assert.equal(model.alerts.length,0);
+
+const fittedIntegration=new lab.LabModel();fittedIntegration.preset('approach');for(let i=0;i<8;i++)fittedIntegration.step(1);const fittedTarget=fittedIntegration.selected();
+assert.equal(fittedTarget.sitePrediction.raw.motion.source,'simulation_alpha_beta_track','live lab ETA uses the alpha-beta tracked motion state directly');
+assert(fittedTarget.etaEvaluation.length>0,'each simulation frame records ETA evaluation data');
+assert(Object.hasOwn(fittedTarget.etaEvaluation.at(-1),'truthEtaSeconds'),'ground truth is retained only as an evaluation field');
+
+// A node-set change produces a new localization measurement, but the displayed track is corrected rather than teleported.
+const nodeTransition=new lab.LabModel();
+nodeTransition.setSite({x:0,y:0},150);
+nodeTransition.addNode({x:-300,y:-100});
+nodeTransition.addNode({x:100,y:-100});
+nodeTransition.setAllNodeDetectionRadius(500);
+const transitionTarget=nodeTransition.createEvent({kind:'drone',position:{x:-100,y:0},speed:20,heading:90});
+nodeTransition.step(1);
+const beforeTransition={...transitionTarget.estimatedPosition};
+nodeTransition.addNode({x:350,y:0});
+nodeTransition.refreshEstimates(true);
+nodeTransition.step(1);
+const rawAfter=transitionTarget.rawEstimatedPosition;
+const trackedAfter=transitionTarget.estimatedPosition;
+assert(rawAfter&&trackedAfter,'new node set should produce both a raw localization measurement and a tracked position');
+assert.notDeepEqual(trackedAfter,rawAfter,'node-set changes are corrected through the tracker instead of teleporting to the new centroid');
+assert.equal(transitionTarget.trackState.source,'simulation_alpha_beta_track');
+assert(Number.isFinite(transitionTarget.trackState.vx)&&Number.isFinite(transitionTarget.trackState.vy));
+
+// Replay snapshots preserve the system state from that exact simulation time.
+const replaySnapshots=new lab.LabModel();
+replaySnapshots.setSite({x:0,y:0},150);
+const rsNodeA=replaySnapshots.addNode({x:-200,y:-100});
+const rsNodeB=replaySnapshots.addNode({x:200,y:-100});
+replaySnapshots.setAllNodeDetectionRadius(600);
+const rsTarget=replaySnapshots.createEvent({kind:'drone',position:{x:-400,y:0},speed:20,heading:90});
+replaySnapshots.step(2);
+assert(rsTarget.replayFrames.length>=2,'simulation records replay system frames');
+let latestFrame=rsTarget.replayFrames.at(-1);
+assert.equal(latestFrame.nodes.length,2);
+assert(latestFrame.prediction&&Object.hasOwn(latestFrame.prediction,'display'),'replay frame stores ETA prediction output');
+assert(latestFrame.system&&Object.hasOwn(latestFrame.system,'zoneEta'),'replay frame stores system assessment');
+
+rsNodeB.online=false;
+replaySnapshots.refreshEstimates(true);
+latestFrame=rsTarget.replayFrames.at(-1);
+assert.equal(latestFrame.time,replaySnapshots.time,'paused node changes overwrite the same simulation-time frame');
+assert.equal(latestFrame.nodes.find(n=>n.id===rsNodeB.id).online,false,'historical frame records node offline state');
+
+const rsEventId=replaySnapshots.events.find(e=>e.targetId===rsTarget.id).id;
+const frozenSnapshot=JSON.stringify(latestFrame);
+assert.equal(replaySnapshots.replayEvent(rsEventId),true);
+const frameAtEnd=lab.replayFrameAtTime(replaySnapshots.replay.frames,lab.replayTime({...replaySnapshots.replay,fraction:1}));
+assert.equal(JSON.stringify(frameAtEnd),frozenSnapshot,'replay returns the stored frame instead of recomputing current state');
+rsNodeB.online=true;rsNodeB.x=999;
+assert.equal(JSON.stringify(replaySnapshots.replay.frames.at(-1)),frozenSnapshot,'editing live nodes cannot mutate an active replay snapshot');
+
+replaySnapshots.clearTargets();
+assert.equal(replaySnapshots.replayEvent(rsEventId),true,'event remains replayable after live targets are cleared');
+assert(replaySnapshots.replay.frames.length,'preserved event keeps historical system frames after target clear');
+assert.equal(replaySnapshots.replay.frames.at(-1).nodes.find(n=>n.id===rsNodeB.id).online,false,'preserved replay keeps the historical node state');
+assert(replaySnapshots.replay.frames.at(-1).prediction,'preserved replay keeps historical ETA/CPA prediction data');
+
+const systemAlarm=new lab.LabModel();systemAlarm.setSite({x:0,y:0},20);systemAlarm.addNode({x:-200,y:0});systemAlarm.addNode({x:100,y:0});systemAlarm.setAllNodeDetectionRadius(500);
+const truthInside=systemAlarm.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'inside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'outside');assert.equal(systemAlarm.alerts.length,0,'truth path alone cannot trigger a system warning');
+systemAlarm.positionTarget(truthInside.id,{x:80,y:0});assert.equal(lab.assess(truthInside,systemAlarm.site).status,'outside');assert.equal(lab.assessSystem(truthInside,systemAlarm.site).status,'inside');assert.equal(systemAlarm.alerts.length,1,'the warning follows the estimated system path even while truth is outside');
+
+model.preset('one');assert.equal(model.nodes[0].detectionRadius,450);assert.equal(model.reportingNodes().length,1);assert.equal(model.sourceRegion().kind,'circle');assert.equal(model.selected().estimatedPosition,null,'one detection cannot estimate a route');
+model.preset('two');assert.equal(model.reportingNodes().length,2);assert.equal(model.geometry().length,2);assert.equal(model.sourceRegion().kind,'line');near(model.selected().estimatedPosition.x,0);near(model.selected().estimatedPosition.y,-120);
+model.positionTarget(model.selectedId,{x:40,y:-100});model.replayEvent(model.events[0].id);assert.deepEqual(model.replay.estimatedPoints,model.selected().estimatedTrail,'reposition starts a new segment and replay copies its observations');assert.notStrictEqual(model.replay.estimatedPoints,model.selected().estimatedTrail,'replay owns its snapshot');model.replay=null;model.positionTarget(model.selectedId,{x:0,y:-120});
+assert.equal(model.setAllNodeDetectionRadius(100),true);assert(model.nodes.every(n=>n.detectionRadius===100),'one control updates every node range');assert.equal(model.reportingNodes().length,0,'nodes outside the shared radius are excluded');assert(model.selected().estimatedPosition,'tracker briefly coasts after observations stop');model.time+=4;model.refreshEstimates(true);assert.equal(model.selected().estimatedPosition,null,'prediction expires after the shared freshness limit');
+assert.equal(model.setAllNodeDetectionRadius(10),false);assert.equal(model.setAllNodeDetectionRadius(5001),false);
+model.setAllNodeDetectionRadius(450);assert.equal(model.addNode({x:0,y:0}).detectionRadius,450,'new nodes inherit the shared range');model.nodes.pop();model.nodes[0].online=false;model.refreshEstimates(true);assert.equal(model.geometry().length,1);model.nodes[0].online=true;model.nodes[0].reporting=false;model.refreshEstimates(true);assert.equal(model.reportingNodes().length,1,'disabled nodes do not participate');
+model.preset('three');assert.equal(model.reportingNodes().length,3);assert.equal(model.geometry().length,3);assert.equal(model.sourceRegion().kind,'polygon');assert(model.selected().estimatedPosition);const positions=model.nodes.map(n=>({x:n.x,y:n.y}));model.step(1);assert.deepEqual(model.nodes.map(n=>({x:n.x,y:n.y})),positions,'fixed nodes remain stable during motion');
+assert.deepEqual([1,2,3,4,5].map(n=>lab.nodeVisual(n).shape),['circle','circle','circle','circle','circle'],'all nodes share one circle icon');
+assert.equal(lab.nodeVisual(1,true,false).fill,'#F8FAFC');assert.equal(lab.nodeVisual(2,true,true,0).scale,14);assert.equal(lab.nodeVisual(2,true,true,1).scale,20);assert.equal(lab.nodeVisual(2,true,true).fill,'#F97316');
+assert.equal(lab.nodeVisual(3,false,true).fill,'#475569','offline nodes stay gray even when a recent detection references them');assert.equal(lab.nodeVisual(3,false,true).opacity,.95);assert.equal(lab.nodeVisual(3,false,true).scale,14,'offline nodes never use the reporting pulse');
+const stableOrdinal=model.nodes[1].ordinal;model.nodes.shift();assert.equal(model.nodes[0].ordinal,stableOrdinal,'deleting another node does not change this node shape');
+assert.equal(lab.hull([{x:0,y:0},{x:1,y:0},{x:2,y:0}]).length,2,'collinear nodes do not create a fictitious polygon');
+assert.equal(lab.hull([{x:0,y:0},{x:0,y:0},{x:2,y:0}]).length,2,'coincident nodes are deduplicated');
+model.preset('missing');assert.equal(model.selected().position,null);assert.equal(model.selected().trail.length,0);assert.equal(model.alerts.length,0);assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.replayEvent(model.events[0].id);assert.equal(model.replay.playing,false);assert.equal(lab.replayPoint(model.replay),null);
+model.preset('non_drone');model.positionTarget(model.selectedId,{x:0,y:0});assert.equal(model.alerts.length,0,'non-drone events never trigger drone geofence alarms');
+model.preset('passby');assert.equal(lab.assess(model.selected(),model.site).arrivalEta,null);assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.preset('depart');assert.equal(lab.assess(model.selected(),model.site).trend,'departing');assert.equal(lab.assess(model.selected(),model.site).zoneEta,null);
+model.preset('multiple');assert.equal(model.targets.length,2);assert.equal(model.selectedId,model.alerts[0].targetId);
+model.createEvent({position:{x:-500,y:0},speed:10,heading:90});assert.equal(model.selectedId,model.alerts[0].targetId,'new outside events do not steal pending warning focus');
+model.preset('idle');assert.equal(model.targets.length,0);assert.equal(model.nodes.length,3);assert.equal(model.playing,false);
+
+model=new lab.LabModel();model.addNode({x:1,y:2});target=model.createEvent({position:{x:0,y:0},speed:10,heading:90});
+target.waypoints=[{x:10,y:0},{x:10,y:10}];model.step(1.5);near(target.position.x,10);near(target.position.y,5);model.step(1);
+near(target.position.x,10);near(target.position.y,10);assert.equal(target.routeReady,true,'completed route stays at its endpoint until restart');
+assert.equal(target.routeRunCount,1);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'completed route keeps every configured waypoint');
+assert.equal(target.waypointIndex,2,'completed route keeps its cursor at the route end while inspecting results');
+const completedEvent=model.events.find(e=>e.targetId===target.id);assert(completedEvent.points.some(p=>p.x===10&&p.y===10),'completed route is preserved in event replay while target remains at endpoint');
+const firstRunHistory=JSON.stringify(completedEvent.points);
+assert.equal(model.restartSimulation(),true,'restart resets routed targets for another run');
+near(target.position.x,0);near(target.position.y,0);assert.equal(target.routeReady,false);assert.equal(target.waypointIndex,0);assert.equal(model.time,0);assert.equal(model.playing,true);
+assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'restart preserves the configured route');
+assert.equal(JSON.stringify(completedEvent.points),firstRunHistory,'restart preserves the completed run for history replay');
+model.step(1);near(target.position.x,10);near(target.position.y,0);assert.deepEqual(target.waypoints,[{x:10,y:0},{x:10,y:10}],'restarted run follows the same route');
+model.replayEvent(model.events[0].id);const saved=JSON.stringify(model.replay.points);target.trail.push({x:200,y:200,time:50});assert.equal(JSON.stringify(model.replay.points),saved,'replay owns a stable snapshot');
+assert.equal(model.playing,false);assert(model.replay.playing);model.replay.fraction=.5;assert(lab.replayPoint(model.replay));model.leave();assert.equal(model.replay.playing,false);
+model.replay=null;
+assert.equal(model.clearRoute(target.id),true);
+assert.equal(target.waypoints.length,0,'clear route removes configured waypoints');
+near(target.position.x,target.startPosition.x);near(target.position.y,target.startPosition.y);
+assert(completedEvent.points?.length,'clearRoute preserves a replayable event snapshot');
+assert.equal(target.routeReady,false);
+assert.equal(model.replayEvent(completedEvent.id),true,'cleared route can still replay the saved event');
+assert(model.replay.points.length,'saved replay path remains available after route clear');
+const sharedReplay={points:[{x:0,y:0,time:0},{x:100,y:0,time:10}],fraction:.25};const trueAtQuarter=lab.replayPoint(sharedReplay);assert.equal(trueAtQuarter.time,2.5);assert.equal(lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],trueAtQuarter.time),null,'estimate waits for its real timestamp instead of starting early');
+const estimateAtSharedTime=lab.replayPointAtTime([{x:20,y:0,time:5},{x:40,y:0,time:10}],7.5);near(estimateAtSharedTime.x,30);
+assert.equal(model.setSite({x:0,y:0},-2),false);assert.equal(model.setSite({x:0,y:0},6000),false);assert.equal(model.addNode({x:Infinity,y:0}),null);
+assert.equal(model.moveNode(model.nodes[0].id,{x:22,y:31}),true);assert.equal(model.nodes[0].x,22);
+model=new lab.LabModel();const fleet=[model.createEvent({kind:'drone',position:{x:-100,y:0},speed:12,heading:90}),model.createEvent({kind:'drone',position:{x:0,y:100},speed:8,heading:180}),model.createEvent({kind:'drone',position:{x:100,y:0},speed:5,heading:270})];assert.equal(fleet.length,3);assert.equal(new Set(fleet.map(t=>`${t.position.x},${t.position.y}`)).size,3,'users can add drones one by one at separate positions');assert.equal(model.playing,false,'adding one or more drones does not start playback');model.step(1);assert(fleet.every((t,i)=>t.trail.length===2),'one playback clock advances every configured drone');
+model.addNode({x:0,y:0});model.events[0].points=undefined;model.clearTargets();assert.equal(model.targets.length,0);assert.equal(model.nodes.length,1);assert.equal(model.events.length,3);assert.equal(model.replayEvent(model.events[0].id),true);assert(model.replay.points.length,'clearing active targets preserves independent history playback');model.clearHistory();assert.equal(model.events.length,0);assert.equal(model.replay,null);model.clearNodes();assert.equal(model.nodes.length,0);
+const clearNodesModel=new lab.LabModel();clearNodesModel.addNode({x:-100,y:0});clearNodesModel.addNode({x:100,y:0});const sensed=clearNodesModel.createEvent({kind:'drone',position:{x:0,y:0},speed:0});assert(sensed.estimatedTrail.length);clearNodesModel.clearNodes();assert.equal(sensed.estimatedTrail.length,0,'clearing nodes removes their live estimate');clearNodesModel.replayEvent(clearNodesModel.events[0].id);assert(clearNodesModel.replay.estimatedPoints.length,'clearing nodes preserves the independent history snapshot');
+model.reset();for(let i=0;i<125;i++)model.addNode({x:i,y:i});assert.equal(model.nodes.length,lab.LIMITS.nodes);
+for(let i=0;i<100;i++)model.createEvent({position:null});assert.equal(model.targets.length,lab.LIMITS.targets);
+const p={x:150,y:-800};const restored=lab.offset(lab.latLng(p));near(restored.x,p.x);near(restored.y,p.y);
+
+const isolated=new lab.LabModel();assert.equal(isolated.targets.length,0,'separate model instances never share state');
+const source=fs.readFileSync(path.join(__dirname,'../../static/dashboard_simulation_lab.js'),'utf8');
+assert(!/\bfetch\s*\(|\bWebSocket\s*\(|\bXMLHttpRequest\b|\blocalStorage\b|\bsessionStorage\b|\bEventSource\s*\(/.test(source),'simulation performs no API, socket, or shared persistence operations');
+assert(!/root\.(?:state|map|broadcast|renderDashboard|loadDashboard)/.test(source),'simulation does not modify real dashboard globals');
+assert(source.includes('this.googleOverlays=new Map()'),'Google overlays use stable keyed objects');
+assert(!/renderGoogle\(\)\s*\{[^}]*this\.clearGoogle\(\)/s.test(source),'animation does not delete every Google overlay on each frame');
+assert(!source.includes('data-field="unlocated"')&&!source.includes('data-action="place-target"'),'redundant pre-create location and sound-only controls are removed');
+assert(source.includes('<details class="slab-node-list">')&&!source.includes('<details class="slab-node-list" open>'),'long placed-node lists are independently collapsed by default');
+console.log('simulation lab: sensor ranges, estimated path, isolated state, alerts, ETA, movement and dual-path replay passed');
+
+// Regression: adding a drone without placing it must not activate every node.
+const pending=new lab.LabModel();
+pending.addNode({x:0,y:0});pending.addNode({x:2000,y:0});
+const draft=pending.createEvent({kind:'drone'});
+assert.deepEqual(pending.reportingNodes(draft),[]);
+assert.deepEqual(draft.detectedNodeIds,[]);
+assert.equal(pending.sourceRegion(draft).kind,'none');
+assert.equal(pending.alerts.length,0);
+pending.positionTarget(draft.id,{x:50,y:0});
+assert.deepEqual(pending.reportingNodes(draft).map(n=>n.id),[pending.nodes[0].id]);
+pending.loseTarget(draft.id);
+assert.deepEqual(pending.reportingNodes(draft),[]);
+
+
+// Regression: clearing targets must remove both tracker implementations.
+const cleanupModel=new lab.LabModel();
+cleanupModel.addNode({x:-100,y:0});
+cleanupModel.addNode({x:100,y:0});
+const cleanupTarget=cleanupModel.createEvent({kind:'drone',position:{x:0,y:0},speed:10,heading:90});
+cleanupModel.step(2);
+assert(cleanupModel.trackers.has(cleanupTarget.id),'alpha-beta tracker should exist before clear');
+assert(cleanupModel.kalmanTrackers.has(cleanupTarget.id),'Kalman tracker should exist before clear');
+assert(cleanupTarget.kalmanTrail.length>0,'Kalman trail should exist before clear');
+cleanupModel.clearTargets();
+assert.equal(cleanupModel.targets.length,0);
+assert.equal(cleanupModel.trackers.size,0,'clearTargets removes alpha-beta tracker state');
+assert.equal(cleanupModel.kalmanTrackers.size,0,'clearTargets removes Kalman tracker state');

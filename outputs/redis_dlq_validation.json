@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "case": "malformed",
+      "dlq_record": {
+        "source_id": "1791096668137-0",
+        "event_id": "",
+        "trace_id": "",
+        "error_class": "JSONDecodeError"
+      },
+      "final_pending": 0,
+      "delivery_attempts": 1,
+      "injected_transaction_errors": 0
+    },
+    {
+      "case": "permanent",
+      "dlq_record": {
+        "source_id": "1791096668168-0",
+        "event_id": "99",
+        "trace_id": "trace-99",
+        "error_class": "SyntheticFailure"
+      },
+      "final_pending": 0,
+      "delivery_attempts": 1,
+      "injected_transaction_errors": 0
+    },
+    {
+      "case": "retry_exhausted",
+      "dlq_record": {
+        "source_id": "1791096668199-0",
+        "event_id": "99",
+        "trace_id": "trace-99",
+        "error_class": "SyntheticFailure"
+      },
+      "final_pending": 0,
+      "delivery_attempts": 2,
+      "injected_transaction_errors": 0
+    },
+    {
+      "case": "transaction_retry",
+      "dlq_record": {
+        "source_id": "1791096668230-0",
+        "event_id": "99",
+        "trace_id": "trace-99",
+        "error_class": "SyntheticFailure"
+      },
+      "final_pending": 0,
+      "delivery_attempts": 1,
+      "injected_transaction_errors": 1
+    }
+  ],
+  "atomic_scope": "Redis MULTI/EXEC DLQ append plus ACK",
+  "malformed_identity": "Unknown; invalid JSON cannot safely supply validated identity",
+  "ambiguous_EXEC_duplicate_DLQ_possible": true,
+  "credential_or_audio_payload_stored": false
+}
