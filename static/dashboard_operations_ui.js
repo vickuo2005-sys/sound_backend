@@ -183,7 +183,7 @@
                 ...(historical?{}:{icons:[{icon:{path:'M 0,-1 0,1',strokeOpacity:1,scale:3},offset:'0',repeat:'12px'}]})}));
         }
         if(replay.site){
-            add(new api.Marker({map:historyMap,position:replay.site,icon:siteMarkerIcon(),title:`${replay.site.name}（目前設定）`}));
+            add(new api.Marker({map:historyMap,position:replay.site,...(typeof siteMarkerIcon==='function'?{icon:siteMarkerIcon()}:{}),title:`${replay.site.name}（目前設定）`}));
             add(new api.Circle({map:historyMap,center:replay.site,radius:replay.site.radius,strokeColor:'#ef4444',strokeWeight:2,fillColor:'#ef4444',fillOpacity:.04}));
         }
     }
