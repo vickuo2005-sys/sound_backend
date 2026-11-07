@@ -333,4 +333,4 @@ def test_demo_stable_can_keep_explicit_simulation_workspace() -> None:
     assert "const experimentalMotionEnabled = false" in html
     assert "const dashboardSimulationEnabled = true" in html
     assert "情境模擬展示" in html
-    assert "NOT FIELD VALIDATED" in html
+    assert "模擬資料 · 非實地驗證" in html
