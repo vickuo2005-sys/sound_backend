@@ -643,10 +643,10 @@
 <body>
     <header class="topbar">
         <div class="brand">
-            <div class="brand-mark" aria-hidden="true">SD</div>
+            <div class="brand-mark" aria-hidden="true">DA</div>
             <div>
-                <div class="brand-title">Sound Detection</div>
-                <div class="brand-subtitle">聲音偵測監控</div>
+                <div class="brand-title">Drone Acoustic Monitoring</div>
+                <div class="brand-subtitle">無人機聲學監控系統</div>
             </div>
         </div>
         <div class="command-status" aria-label="連線狀態">
@@ -680,7 +680,7 @@
                 <div class="page-heading">
                     <div>
                         <h1 id="dashboardTitle" class="page-title">監控總覽</h1>
-                        <p class="page-description">先確認監聽狀態，再查看偵測與位置</p>
+                        <p class="page-description">整合節點連線、聲音偵測、事件與位置資訊</p>
                     </div>
                 </div>
 
@@ -692,7 +692,7 @@
                 <div class="metric-grid" aria-label="操作狀態摘要">
                     <article class="card metric-card"><div class="metric-top"><span>在線節點</span><span class="metric-icon">◉</span></div><div id="nodesOnlineMetric" class="metric-value">—</div><div id="nodesOnlineDetail" class="metric-detail">等待節點資料</div></article>
                     <article class="card metric-card"><div class="metric-top"><span>正在監聽</span><span class="metric-icon">◌</span></div><div id="listeningMetric" class="metric-value">—</div><div class="metric-detail">手機回報的監聽狀態</div></article>
-                    <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">Initial snapshot pending</div></article>
+                    <article class="card metric-card"><div class="metric-top"><span>服務連線</span><span class="metric-icon">↔</span></div><div id="backendMetric" class="metric-value">—</div><div id="backendDetail" class="metric-detail">等待服務同步</div></article>
                 </div>
 
                 <article class="card overview-location-card"><h2 class="card-title">監控資料狀態</h2><div id="overviewPipeline" class="overview-pipeline" aria-live="polite">正在連接服務…</div><button class="action-button" data-view-target="system" type="button">查看服務詳情 →</button></article>
@@ -730,12 +730,12 @@
                 <div class="page-heading"><div><h1 id="detectionsTitle" class="page-title">偵測摘要</h1><p class="page-description">最新紀錄、完整模型分數與最近事件</p></div><button class="ghost-button" data-view-target="events">查詢全部事件 →</button></div>
                 <div class="hero-grid">
                     <article class="card live-card" aria-live="polite">
-                        <div class="card-header"><h2 class="card-title">最新偵測紀錄</h2><span id="liveBadge" class="badge legacy">WAITING</span></div>
+                        <div class="card-header"><h2 class="card-title">最新偵測紀錄</h2><span id="liveBadge" class="badge legacy">等待資料</span></div>
                         <div id="liveDetectionBody" class="card-body"><div class="empty-state"><div><strong>等待偵測</strong>尚未收到偵測紀錄；請先確認上方監聽狀態</div></div></div>
                     </article>
                     <details class="card scores-disclosure" open>
-                        <summary>查看五類模型分數</summary>
-                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 classification.v1 後顯示五類分數</div></div></div></div>
+                        <summary>AI 分類信心度</summary>
+                        <div class="card-body"><div id="scoreList" class="score-list"><div class="empty-state"><div><strong>尚無分類</strong>收到 AI 分類結果後顯示各類信心度</div></div></div></div>
                     </details>
                 </div>
 
@@ -745,7 +745,7 @@
                 </article>
             </section>
             <section id="view-simulation" class="view" aria-labelledby="simulationTitle">
-                <div class="page-heading"><div><h1 id="simulationTitle" class="page-title">模擬工作區</h1><p class="page-description">模擬資料・未經實地驗證</p></div></div>
+                <div class="page-heading"><div><h1 id="simulationTitle" class="page-title">情境模擬展示</h1><p class="page-description">示範多節點偵測、軌跡與警戒流程｜模擬資料，非實地驗證結果</p></div></div>
                 <div id="simulationLabRoot"></div><div class="simulation-page-grid" hidden><div id="simulationMapSlot"></div><div id="simulationAnalysisSlot"></div></div>
             </section>
             <section id="view-events" class="view" aria-labelledby="eventsTitle">
@@ -759,16 +759,16 @@
                     <select id="timeFilter" class="select-control" aria-label="時間範圍"><option value="all">所有時間</option><option value="1">最近 1 小時</option><option value="24">最近 24 小時</option><option value="168">最近 7 天</option></select>
                 </div>
                 <div class="event-browser">
-                    <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>Score</th><th>Upload</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
-                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與 raw IDs</div></div></div><section id="audioEvidence" class="card-body audio-evidence" aria-label="錄音證據檢視" hidden></section></article>
+                    <article class="card"><div class="table-wrap"><table><thead><tr><th>時間</th><th>節點</th><th>分類</th><th>信心度</th><th>上傳狀態</th></tr></thead><tbody id="allEventsBody"><tr><td colspan="5" class="table-empty">載入中…</td></tr></tbody></table></div></article>
+                    <article class="card detail-panel"><div class="card-header"><h2 class="card-title">事件詳情</h2></div><div id="eventDetail" class="card-body"><div class="empty-state"><div><strong>選擇事件</strong>查看分類、時間、訊號、位置與事件識別資訊</div></div></div><section id="audioEvidence" class="card-body audio-evidence" aria-label="錄音證據檢視" hidden></section></article>
                 </div>
             </section>
 
             <section id="view-tracks" class="view" aria-labelledby="tracksTitle">
-                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">既有 fusion 區域估算與歷史軌跡；不在瀏覽器產生預測資料</p></div></div>
+                <div class="page-heading"><div><h1 id="tracksTitle" class="page-title">位置與軌跡</h1><p class="page-description">多節點區域估測、歷史位置與軌跡回顧</p></div></div>
                 <div class="intelligence-grid">
-                    <article class="card"><div class="card-header"><h2 class="card-title">歷史事件與區域估測</h2><span id="estimateCountBadge" class="badge legacy">0 LOCATED</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
-                    <article class="card"><div class="card-header"><h2 class="card-title">已儲存軌跡</h2><span id="trackCountBadge" class="badge legacy">0 TRACKS</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">依已儲存觀測重播事件背景；平滑過場僅為視覺示意，不修改觀測資料或預測未來路徑。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">歷史事件與區域估測</h2><span id="estimateCountBadge" class="badge legacy">0 筆位置</span></div><div class="card-body"><div id="targetEstimateList" class="intelligence-list"></div><div class="intelligence-note">僅顯示 Backend 已提供的中心點與 uncertainty；缺少座標時不建立地圖標記。</div></div></article>
+                    <article class="card"><div class="card-header"><h2 class="card-title">已儲存軌跡</h2><span id="trackCountBadge" class="badge legacy">0 條軌跡</span></div><div class="card-body"><div id="historyTrackList" class="intelligence-list"></div><div class="intelligence-note">依已儲存觀測重播事件背景；平滑過場僅為視覺示意，不修改觀測資料或預測未來路徑。</div></div></article>
                 </div>
                 <div id="motionHome" class="demo-experimental">                    <details id="motionDetails" class="card motion-disclosure"><summary>移動分析與模擬（實驗功能）</summary><article id="motionCard" class="motion-card">
                         <div class="card-header"><h2 id="motionCardTitle" class="card-title">Motion <span style="color:var(--experimental)">實驗功能</span></h2><span id="motionCardBadge" class="badge experimental">EXPERIMENTAL</span></div>
