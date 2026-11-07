@@ -32,6 +32,10 @@
     document.body.append(siteDialog);
     const form=el('siteForm');
     let pickerMap=null,pickerMarker=null,pickerCircle=null,pickerListeners=[];
+    function siteMarkerIcon() {
+        const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">\n            <circle cx="22" cy="22" r="18" fill="#0f1f33" stroke="#ffffff" stroke-width="2.5"/>\n            <circle cx="22" cy="22" r="11" fill="#fb923c" fill-opacity=".18" stroke="#fb923c" stroke-width="2"/>\n            <circle cx="22" cy="22" r="3.5" fill="#fb923c"/>\n            <path d="M22 8v7M22 29v7M8 22h7M29 22h7" stroke="#fb923c" stroke-width="2.4" stroke-linecap="round"/>\n        </svg>`;
+        return {url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg),scaledSize:new google.maps.Size(44,44),anchor:new google.maps.Point(22,22)};
+    }
     function summarySite(){el('siteSummary').textContent=config?`${config.name} · 警戒 ${config.radius} m · 抵達範圍 ${config.arrivalRadius} m`:'尚未設定。點選地圖位置，建立據點與警戒範圍。';}
     function fillSite(){const values=config||{name:'主要據點',lat:'',lng:'',radius:150,arrivalRadius:20};for(const key of ['name','lat','lng','radius','arrivalRadius'])form.elements[key].value=values[key];}
     function clearPicker(){pickerListeners.forEach(l=>l.remove());pickerListeners=[];pickerMarker?.setMap(null);pickerCircle?.setMap(null);pickerMap=null;pickerMarker=null;pickerCircle=null;el('sitePickerMap').replaceChildren();}
@@ -40,7 +44,7 @@
         const lat=form.elements.lat.value.trim(),lng=form.elements.lng.value.trim();
         const position=lat&&lng?O.coordinate(Number(lat),Number(lng)):null;
         if(!position){pickerMarker?.setMap(null);pickerCircle?.setMap(null);return;}
-        if(!pickerMarker){pickerMarker=new google.maps.Marker({map:pickerMap,position,draggable:true,label:'據',title:'據點預覽（尚未儲存）'});pickerListeners.push(pickerMarker.addListener('dragend',e=>pickSite(e.latLng)));}
+        if(!pickerMarker){pickerMarker=new google.maps.Marker({map:pickerMap,position,draggable:true,icon:siteMarkerIcon(),title:'據點預覽（尚未儲存）'});pickerListeners.push(pickerMarker.addListener('dragend',e=>pickSite(e.latLng)));}
         else{pickerMarker.setMap(pickerMap);pickerMarker.setPosition(position);}
         const radius=Number(form.elements.radius.value);
         if(radius>0 && radius<=10000){
@@ -88,7 +92,7 @@
         if(config){
             const position={lat:config.lat,lng:config.lng};
             const siteKey=JSON.stringify([position.lat,position.lng,config.name]);
-            const siteOptions={map:operationalVisible?map:null,position,title:config.name,label:'據',zIndex:35};
+            const siteOptions={map:operationalVisible?map:null,position,title:config.name,icon:siteMarkerIcon(),zIndex:35};
             if(!siteMarker){
                 siteMarker=new google.maps.Marker(siteOptions);
                 siteMarker.__dashboardRenderKey=siteKey;
@@ -179,7 +183,7 @@
                 ...(historical?{}:{icons:[{icon:{path:'M 0,-1 0,1',strokeOpacity:1,scale:3},offset:'0',repeat:'12px'}]})}));
         }
         if(replay.site){
-            add(new api.Marker({map:historyMap,position:replay.site,label:'據',title:`${replay.site.name}（目前設定）`}));
+            add(new api.Marker({map:historyMap,position:replay.site,icon:siteMarkerIcon(),title:`${replay.site.name}（目前設定）`}));
             add(new api.Circle({map:historyMap,center:replay.site,radius:replay.site.radius,strokeColor:'#ef4444',strokeWeight:2,fillColor:'#ef4444',fillOpacity:.04}));
         }
     }
