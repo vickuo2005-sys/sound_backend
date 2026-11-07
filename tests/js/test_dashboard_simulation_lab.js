@@ -167,5 +167,3 @@ cleanupModel.clearTargets();
 assert.equal(cleanupModel.targets.length,0);
 assert.equal(cleanupModel.trackers.size,0,'clearTargets removes alpha-beta tracker state');
 assert.equal(cleanupModel.kalmanTrackers.size,0,'clearTargets removes Kalman tracker state');
-
-
