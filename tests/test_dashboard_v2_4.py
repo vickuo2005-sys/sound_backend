@@ -238,6 +238,7 @@ def test_events_api_adds_presentation_without_removing_legacy_fields(
 def test_demo_stable_style_does_not_emit_nested_style_tag() -> None:
     html = render_dashboard_v2_4(
         maps_api_key="",
+        experimental_motion_enabled=False,
         simulation_enabled=True,
         demo_stable_mode=True,
     )
