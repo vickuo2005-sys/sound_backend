@@ -42,6 +42,10 @@ def classify_route(method: str, path: str) -> RouteClass:
         # Shadow ingest is bounded in-memory state; it does not write the
         # application database.  Its optional shadow tracker is also in-memory.
         return RouteClass.EXEMPT_INTERNAL_IF_REQUIRED
+    if method == "POST" and path == "/api/test-gateway":
+        # Connectivity-only vendor integration probe. It authenticates and
+        # echoes the JSON payload without writing application state.
+        return RouteClass.EXEMPT_INTERNAL_IF_REQUIRED
     if method in {"POST", "PUT", "PATCH", "DELETE"}:
         return RouteClass.WRITE_BLOCKED_DURING_FREEZE
     return RouteClass.READ_ONLY
