@@ -193,6 +193,33 @@ async def request_validation_exception_handler(
     detail = _json_safe_validation_detail(jsonable_encoder(exc.errors()))
     return JSONResponse(status_code=422, content={"detail": detail})
 
+
+@app.post("/api/test-gateway")
+async def test_gateway_ingest(
+    payload: dict[str, Any],
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+) -> dict[str, Any]:
+    """Connectivity-only Gateway ingest endpoint.
+
+    Accepts any JSON object, performs no database writes, and echoes the
+    payload so Wi-SUN Gateway vendors can verify end-to-end API connectivity
+    before the production schema is frozen.
+    """
+
+    verify_upload_token(upload_token)
+    received_at_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    logger.info(
+        "Gateway test payload received keys=%s received_at_ms=%s",
+        sorted(payload.keys()),
+        received_at_ms,
+    )
+    return {
+        "status": "ok",
+        "message": "gateway payload received",
+        "received_at_ms": received_at_ms,
+        "received": payload,
+    }
+
 DB_NAME = "sound_events.db"
 DEFAULT_UPLOAD_TOKEN = ""
 logger = logging.getLogger("sound_backend")
