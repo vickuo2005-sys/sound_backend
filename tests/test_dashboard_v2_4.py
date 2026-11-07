@@ -254,6 +254,7 @@ def test_demo_stable_mode_hides_live_experiments_but_keeps_labeled_simulation() 
 
 def test_demo_stable_mode_is_exposed_in_runtime_status(monkeypatch) -> None:
     monkeypatch.setattr(main, "DEMO_STABLE_MODE", True)
-    status = main.runtime_status()
+    response = TestClient(main.app).get("/runtime-status")
 
-    assert status["demo_stable_mode"] is True
+    assert response.status_code == 200
+    assert response.json()["demo_stable_mode"] is True
