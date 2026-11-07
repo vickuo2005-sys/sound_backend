@@ -467,7 +467,7 @@
         preserveHistory() {
             for(const target of this.targets)this.preserveTargetHistory(target);
         }
-        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();this.trackers.clear();}
+        clearTargets(){this.preserveHistory();this.targets=[];this.alerts=[];this.selectedId=null;this.playing=false;this.etaStabilizers.clear();this.trackers.clear();this.kalmanTrackers.clear();}
         clearNodes(){this.preserveHistory();this.nodes=[];for(const target of this.targets){target.detectedNodeIds=[];target.etaEvaluation=[];this.resetTracking(target);this.resetPrediction(target);}}
         clearHistory(){this.events=[];this.replay=null;this.targets.forEach(t=>{t.etaEvaluation=[];t.replayFrames=[];});}
         leave() { this.playing=false;this.alerts=[];if(this.replay)this.replay.playing=false; }
