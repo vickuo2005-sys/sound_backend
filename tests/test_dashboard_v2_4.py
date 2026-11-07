@@ -271,3 +271,13 @@ def test_demo_stable_mode_is_exposed_in_runtime_status(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["demo_stable_mode"] is True
+
+
+def test_operational_site_marker_uses_custom_crosshair_icon() -> None:
+    source = (Path(__file__).resolve().parents[1] / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
+    assert "function siteMarkerIcon()" in source
+    assert 'fill="#0f1f33"' in source
+    assert 'fill="#fb923c"' in source
+    assert 'stroke="#ffffff"' in source
+    assert "icon:siteMarkerIcon()" in source
+    assert "label:\'據\'" not in source
