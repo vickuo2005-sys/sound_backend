@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/dashboard-alert-map-latency
+      - demo-stable-v1
   pull_request:
     branches:
       - feat/event-driven-redis-staging-shadow
