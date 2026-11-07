@@ -55,10 +55,10 @@ def test_flag_off_omits_entry_panel_and_scenario_payload() -> None:
 def test_flag_on_renders_explicit_demo_only_labels() -> None:
     html = simulation_html()
     assert 'id="simulationOpenButton"' in html
-    assert "SIMULATION / 模擬展示" in html
-    assert "NOT FIELD VALIDATED" in html
+    assert "情境模擬展示" in html
+    assert "模擬資料 · 非實地驗證" in html
     assert "approach_site_demo_v1" in html
-    assert "不代表目前實際偵測結果或已驗證預測能力" in html
+    assert "與即時監控資料完全分離" in html
 
 
 def test_runtime_status_exposes_additive_flag(monkeypatch) -> None:
@@ -186,7 +186,7 @@ def test_site_approach_is_primary_and_motion_details_are_secondary() -> None:
         "最近接近",
         "SIMULATED ETA",
         "Prediction Details / 預測細節",
-        "Closing Speed",
+        "接近速度",
     ):
         assert label in html
     assert "APPROACHING" in html and "DEPARTING" in html and "STATIONARY" in html
@@ -302,7 +302,7 @@ def test_watermark_is_fixed_and_timeline_has_ticks() -> None:
     assert "topbarBadge.hidden = !visible" in html
     assert 'id="simulationTimelineTicks"' in html
     assert "00:15" in html and "01:30" in html
-    assert "Based on current motion vector" in html
+    assert "依目前移動向量進行展示性推估" in html
 
 
 def test_isolated_staging_manifests_enable_the_flag() -> None:
@@ -332,5 +332,5 @@ def test_demo_stable_can_keep_explicit_simulation_workspace() -> None:
     )
     assert "const experimentalMotionEnabled = false" in html
     assert "const dashboardSimulationEnabled = true" in html
-    assert "Simulation / 模擬展示" in html
+    assert "情境模擬展示" in html
     assert "NOT FIELD VALIDATED" in html
