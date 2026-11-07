@@ -298,3 +298,18 @@ def test_demo_dashboard_uses_formal_presentation_copy() -> None:
     assert "模擬資料 · 非實地驗證" in html
     assert "Simulation / 模擬展示" not in html
     assert ">STAGING<" not in html or "APP_ENV" not in html
+
+
+def test_demo_stable_hides_engineering_only_controls() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=True,
+        simulation_enabled=True,
+        location_token_required=False,
+        demo_stable_mode=True,
+    )
+    assert ".advanced-control" in html
+    assert ".slab-prediction-debug" in html
+    assert "NOT FIELD VALIDATED" not in html
+    assert "Exit simulation" not in html
+    assert ">READY<" not in html
