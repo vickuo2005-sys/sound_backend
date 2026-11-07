@@ -111,7 +111,7 @@ def render_dashboard_v2_4(
             + "\n</script>"
         )
     demo_stable_style = (
-        "<style>.demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}</style>"
+        ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}"
         if demo_stable_mode
         else ""
     )
