@@ -1,0 +1,1198 @@
+{
+  "environment": "LOCAL_SQLITE_IN_MEMORY_WEBSOCKET",
+  "synthetic": true,
+  "baseline_ref": "f56faae",
+  "FIRST_POSITION_P95_LT_1S": "INSUFFICIENT_SAMPLE",
+  "INSUFFICIENT_SAMPLE_FOR_FIELD_SLA": true,
+  "android_events_this_round": 0,
+  "staging_benchmark_this_round": false,
+  "measured_events_each_run": 550,
+  "iterations_each_scenario": 50,
+  "measurement": "Backend handler entry to completed valid event_group broadcast to memory socket; browser visibility/paint and HTTP/DB network excluded",
+  "aggregate_before": {
+    "first_position_backend_ms": {
+      "n": 550,
+      "p50_ms": 104.48524996172637,
+      "p95_ms": 268.1247249944134,
+      "max_ms": 933.6741000879556
+    },
+    "fusion_ms": {
+      "n": 550,
+      "p50_ms": 35.025799996219575,
+      "p95_ms": 125.20522492122835,
+      "max_ms": 917.2636999282986
+    },
+    "tracking_ms": {
+      "n": 550,
+      "p50_ms": 11.330550070852041,
+      "p95_ms": 77.02135509462083,
+      "max_ms": 232.5707001145929
+    },
+    "queue_wait_ms": {
+      "n": 550,
+      "p50_ms": 0.7140999659895897,
+      "p95_ms": 65.39617496891876,
+      "max_ms": 214.27480003330857
+    },
+    "tracking_followup_ms": {
+      "n": 441,
+      "p50_ms": 13.637900003232062,
+      "p95_ms": 82.69559999462217,
+      "max_ms": 233.21730003226548
+    }
+  },
+  "aggregate_after": {
+    "first_position_backend_ms": {
+      "n": 550,
+      "p50_ms": 149.71319993492216,
+      "p95_ms": 340.25587000651285,
+      "max_ms": 405.85920005105436
+    },
+    "fusion_ms": {
+      "n": 550,
+      "p50_ms": 45.008899993263185,
+      "p95_ms": 156.4449699711985,
+      "max_ms": 216.78140002768487
+    },
+    "tracking_ms": {
+      "n": 550,
+      "p50_ms": 22.507350076921284,
+      "p95_ms": 103.03241501096636,
+      "max_ms": 159.53280008397996
+    },
+    "queue_wait_ms": {
+      "n": 550,
+      "p50_ms": 1.3677499955520034,
+      "p95_ms": 153.48786999820715,
+      "max_ms": 197.98309996258467
+    },
+    "tracking_followup_ms": {
+      "n": 450,
+      "p50_ms": 24.866199935786426,
+      "p95_ms": 109.20077994815065,
+      "max_ms": 161.04720009025186
+    }
+  },
+  "comparisons": {
+    "single_event": {
+      "iterations_each": 50,
+      "measured_events_each": 50,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 54.66124997474253,
+          "p95": 104.0063700114842,
+          "max": 933.6741000879556
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 44.60849997121841,
+          "p95": 86.47929505677894,
+          "max": 925.8962000021711
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 0.3770499606616795,
+          "p95": 0.8302349539007985,
+          "max": 1.1490999022498727
+        },
+        "tracking_followup_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 35.361549991648644,
+          "p95": 76.43309496925212,
+          "max": 917.2636999282986
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 7.780250045470893,
+          "p95": 12.448945007054128,
+          "max": 48.89880015980452
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.09750004392117262,
+          "p95": 0.14500499237328762,
+          "max": 0.18269999418407679
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 65.47385000158101,
+          "p95": 86.89137002802451,
+          "max": 134.8227000562474
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 51.30919994553551,
+          "p95": 69.1235899750609,
+          "max": 119.25410002004355
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 0.7048000115901232,
+          "p95": 0.95653006574139,
+          "max": 1.1418999638408422
+        },
+        "tracking_followup_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 37.537099968176335,
+          "p95": 51.221785042434924,
+          "max": 104.92369998246431
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 12.565599987283349,
+          "p95": 17.542620043968782,
+          "max": 19.415699993260205
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.16440002946183085,
+          "p95": 0.22566490806639194,
+          "max": 0.2587999915704131
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 28.0,
+          "p95": 28.0,
+          "max": 28
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 19.0,
+          "p95": 19.0,
+          "max": 19
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 27.0,
+          "p95": 27.0,
+          "max": 27
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 18.0,
+          "p95": 18.0,
+          "max": 18
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "2_node_burst": {
+      "iterations_each": 50,
+      "measured_events_each": 100,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 100,
+          "p50": 117.12584999622777,
+          "p95": 200.5275499192066,
+          "max": 332.9312999267131
+        },
+        "fusion_to_position_ms": {
+          "n": 100,
+          "p50": 86.713700031396,
+          "p95": 160.62138499110003,
+          "max": 311.1179999541491
+        },
+        "queue_wait_ms": {
+          "n": 100,
+          "p50": 0.3200999926775694,
+          "p95": 1.0036899824626737,
+          "max": 1.9458000315353274
+        },
+        "tracking_followup_ms": {
+          "n": 97,
+          "p50": 32.262700027786195,
+          "p95": 88.68994005024422,
+          "max": 233.21730003226548
+        },
+        "fusion_ms": {
+          "n": 100,
+          "p50": 54.54494996229187,
+          "p95": 103.42223996412937,
+          "max": 132.9810000024736
+        },
+        "tracking_ms": {
+          "n": 100,
+          "p50": 31.3802000018768,
+          "p95": 86.21040984871794,
+          "max": 232.5707001145929
+        },
+        "websocket_broadcast_ms": {
+          "n": 100,
+          "p50": 0.13189995661377907,
+          "p95": 0.21242998191155493,
+          "max": 0.43620006181299686
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 100,
+          "p50": 162.51225001178682,
+          "p95": 191.0952900070697,
+          "max": 223.67779992055148
+        },
+        "fusion_to_position_ms": {
+          "n": 100,
+          "p50": 128.34995001321658,
+          "p95": 169.2520899930969,
+          "max": 207.21629995387048
+        },
+        "queue_wait_ms": {
+          "n": 100,
+          "p50": 0.5097500397823751,
+          "p95": 0.9394600463565439,
+          "max": 0.9929999941959977
+        },
+        "tracking_followup_ms": {
+          "n": 100,
+          "p50": 48.25644992524758,
+          "p95": 92.23018501070324,
+          "max": 118.63839998841286
+        },
+        "fusion_ms": {
+          "n": 100,
+          "p50": 75.88170003145933,
+          "p95": 124.88772496581078,
+          "max": 153.42350001446903
+        },
+        "tracking_ms": {
+          "n": 100,
+          "p50": 47.386249992996454,
+          "p95": 91.26154500991103,
+          "max": 117.18329996801913
+        },
+        "websocket_broadcast_ms": {
+          "n": 100,
+          "p50": 0.22495008306577802,
+          "p95": 0.2958599361591041,
+          "max": 0.33599999733269215
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 100,
+          "p50": 34.0,
+          "p95": 46.0,
+          "max": 49
+        },
+        "fusion": {
+          "n": 100,
+          "p50": 19.0,
+          "p95": 39.0,
+          "max": 39
+        },
+        "tracking": {
+          "n": 100,
+          "p50": 7.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 100,
+          "p50": 33.0,
+          "p95": 46.0,
+          "max": 46
+        },
+        "fusion": {
+          "n": 100,
+          "p50": 18.0,
+          "p95": 36.0,
+          "max": 36
+        },
+        "tracking": {
+          "n": 100,
+          "p50": 8.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      }
+    },
+    "4_node_burst": {
+      "iterations_each": 50,
+      "measured_events_each": 200,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 200,
+          "p50": 194.55755001399666,
+          "p95": 306.16132497671055,
+          "max": 479.87700009252876
+        },
+        "fusion_to_position_ms": {
+          "n": 200,
+          "p50": 74.99849994201213,
+          "p95": 200.89946998632507,
+          "max": 287.7135999733582
+        },
+        "queue_wait_ms": {
+          "n": 200,
+          "p50": 0.3156500170007348,
+          "p95": 124.78469500201743,
+          "max": 214.27480003330857
+        },
+        "tracking_followup_ms": {
+          "n": 194,
+          "p50": 13.791249948553741,
+          "p95": 91.90334502491169,
+          "max": 182.34350008424371
+        },
+        "fusion_ms": {
+          "n": 200,
+          "p50": 53.15825005527586,
+          "p95": 143.4053349425085,
+          "max": 224.9677999643609
+        },
+        "tracking_ms": {
+          "n": 200,
+          "p50": 12.995949946343899,
+          "p95": 91.18345509632489,
+          "max": 181.8194999359548
+        },
+        "websocket_broadcast_ms": {
+          "n": 200,
+          "p50": 0.1269500353373587,
+          "p95": 0.20065500866621727,
+          "max": 0.4480000352486968
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 200,
+          "p50": 287.22245001699775,
+          "p95": 360.31898001674557,
+          "max": 405.85920005105436
+        },
+        "fusion_to_position_ms": {
+          "n": 200,
+          "p50": 127.68744997447357,
+          "p95": 263.18904003710486,
+          "max": 303.36590006481856
+        },
+        "queue_wait_ms": {
+          "n": 200,
+          "p50": 0.6638999911956489,
+          "p95": 178.06968999211676,
+          "max": 197.98309996258467
+        },
+        "tracking_followup_ms": {
+          "n": 200,
+          "p50": 35.84324999246746,
+          "p95": 132.02028991654512,
+          "max": 161.04720009025186
+        },
+        "fusion_ms": {
+          "n": 200,
+          "p50": 72.97144999029115,
+          "p95": 189.17598502011964,
+          "max": 216.78140002768487
+        },
+        "tracking_ms": {
+          "n": 200,
+          "p50": 34.761350019834936,
+          "p95": 130.87381999939677,
+          "max": 159.53280008397996
+        },
+        "websocket_broadcast_ms": {
+          "n": 200,
+          "p50": 0.2379500074312091,
+          "p95": 0.30552999232895667,
+          "max": 0.5836999043822289
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 200,
+          "p50": 27.5,
+          "p95": 49.0,
+          "max": 49
+        },
+        "fusion": {
+          "n": 200,
+          "p50": 17.0,
+          "p95": 39.0,
+          "max": 39
+        },
+        "tracking": {
+          "n": 200,
+          "p50": 7.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 200,
+          "p50": 26.0,
+          "p95": 46.0,
+          "max": 46
+        },
+        "fusion": {
+          "n": 200,
+          "p50": 16.0,
+          "p95": 36.0,
+          "max": 36
+        },
+        "tracking": {
+          "n": 200,
+          "p50": 6.5,
+          "p95": 12.0,
+          "max": 12
+        }
+      }
+    },
+    "repeated_same_group": {
+      "iterations_each": 50,
+      "measured_events_each": 50,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 52.320800023153424,
+          "p95": 103.2857000071088,
+          "max": 162.62760001700372
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 42.19944996293634,
+          "p95": 61.102184985065826,
+          "max": 151.35239996016026
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.2610499979928136,
+          "p95": 1.9441600365098564,
+          "max": 2.149700070731342
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 12.421399995218962,
+          "p95": 15.846299979602918,
+          "max": 52.19369998667389
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 29.740750032942742,
+          "p95": 46.31651997333392,
+          "max": 136.10279990825802
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 11.71370001975447,
+          "p95": 14.891350001562387,
+          "max": 51.59639997873455
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.13065006351098418,
+          "p95": 0.19074510782957077,
+          "max": 0.20549993496388197
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 77.65170000493526,
+          "p95": 87.9003900277894,
+          "max": 119.69229998067021
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 63.34045005496591,
+          "p95": 73.30126999877393,
+          "max": 102.9710000148043
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.8443999579176307,
+          "p95": 2.6598549855407327,
+          "max": 2.980500110425055
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 21.646050037816167,
+          "p95": 25.291234988253564,
+          "max": 29.359999927692115
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 42.207200021948665,
+          "p95": 49.066079978365444,
+          "max": 83.01529998425394
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 20.64320002682507,
+          "p95": 24.17553000850603,
+          "max": 27.99510001204908
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.22154994076117873,
+          "p95": 0.2931549563072621,
+          "max": 0.41990005411207676
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 26.0,
+          "p95": 26.0,
+          "max": 26
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 17.0,
+          "p95": 17.0,
+          "max": 17
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 25.0,
+          "p95": 25.0,
+          "max": 25
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 16.0,
+          "p95": 16.0,
+          "max": 16
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "new_group": {
+      "iterations_each": 50,
+      "measured_events_each": 50,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 52.308499929495156,
+          "p95": 231.4619949611369,
+          "max": 331.3942999811843
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 42.28479997254908,
+          "p95": 59.057594940532,
+          "max": 243.07629989925772
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.0881000198423862,
+          "p95": 1.3545699825044721,
+          "max": 1.437600003555417
+        },
+        "tracking_followup_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 32.134750043042004,
+          "p95": 46.68935498339124,
+          "max": 229.5656999340281
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 9.763650072272867,
+          "p95": 11.69177500414662,
+          "max": 12.70200009457767
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.12450001668184996,
+          "p95": 0.1493099087383598,
+          "max": 0.17110002227127552
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 71.2027499685064,
+          "p95": 75.14366999967024,
+          "max": 165.82080000080168
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 57.53619997994974,
+          "p95": 61.25979506759904,
+          "max": 152.37939998041838
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.412699930369854,
+          "p95": 2.1075499767903234,
+          "max": 2.2490000119432807
+        },
+        "tracking_followup_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 42.807199934031814,
+          "p95": 46.33522001095116,
+          "max": 139.52490000519902
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 13.811149983666837,
+          "p95": 16.360485000768676,
+          "max": 17.322200001217425
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.16470003174617887,
+          "p95": 0.24540998274460418,
+          "max": 0.3272999310865998
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 28.0,
+          "p95": 28.0,
+          "max": 28
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 19.0,
+          "p95": 19.0,
+          "max": 19
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 27.0,
+          "p95": 27.0,
+          "max": 27
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 18.0,
+          "p95": 18.0,
+          "max": 18
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "merge_case": {
+      "iterations_each": 50,
+      "measured_events_each": 50,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 51.90345004666597,
+          "p95": 124.81926500331595,
+          "max": 220.85749998223037
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 43.76629996113479,
+          "p95": 61.53038502088748,
+          "max": 141.98029995895922
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.05339998845011,
+          "p95": 1.9454999826848502,
+          "max": 2.126900013536215
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 11.402549978811294,
+          "p95": 17.94641499291174,
+          "max": 20.82860004156828
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 31.142599997110665,
+          "p95": 46.29196499008685,
+          "max": 121.20990001130849
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 10.955700068734586,
+          "p95": 17.179135035257787,
+          "max": 19.94380005635321
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.12605002848431468,
+          "p95": 0.19057505414821208,
+          "max": 0.20460004452615976
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 81.38639997923747,
+          "p95": 88.56675997958519,
+          "max": 103.20020001381636
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 65.64510002499446,
+          "p95": 73.50275997887366,
+          "max": 87.03429996967316
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.8084999755956233,
+          "p95": 2.418894990114495,
+          "max": 5.622499971650541
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 22.85455004312098,
+          "p95": 26.361030002590265,
+          "max": 48.723399988375604
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 43.197649996727705,
+          "p95": 48.83001498528756,
+          "max": 52.25599999539554
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 21.877549996133894,
+          "p95": 25.38966502179391,
+          "max": 48.18020004313439
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.21020002895966172,
+          "p95": 0.25041992776095867,
+          "max": 0.28929999098181725
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 47.0,
+          "p95": 47.0,
+          "max": 47
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 37.0,
+          "p95": 37.0,
+          "max": 37
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 7.0,
+          "p95": 7.0,
+          "max": 7
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 44.0,
+          "p95": 44.0,
+          "max": 44
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 34.0,
+          "p95": 34.0,
+          "max": 34
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 7.0,
+          "p95": 7.0,
+          "max": 7
+        }
+      }
+    },
+    "tracking_update": {
+      "iterations_each": 50,
+      "measured_events_each": 50,
+      "before_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 45.81224999856204,
+          "p95": 69.97105003683826,
+          "max": 169.76730001624674
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 38.6689500301145,
+          "p95": 60.305559984408305,
+          "max": 161.3515999633819
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 0.9606499806977808,
+          "p95": 1.663910062052309,
+          "max": 1.8489999929443002
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 10.224199970252812,
+          "p95": 14.266390010016039,
+          "max": 18.511899979785085
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 29.217499948572367,
+          "p95": 46.5865200269036,
+          "max": 149.28149990737438
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 9.595900017302483,
+          "p95": 13.475805026246235,
+          "max": 17.452899948693812
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.11214998085051775,
+          "p95": 0.18389501492492855,
+          "max": 0.21820003166794777
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "after_metrics": {
+        "first_position_backend_ms": {
+          "n": 50,
+          "p50": 77.58829998783767,
+          "p95": 86.85557997087017,
+          "max": 128.72369994875044
+        },
+        "fusion_to_position_ms": {
+          "n": 50,
+          "p50": 62.28175002615899,
+          "p95": 70.59730502660386,
+          "max": 112.07169992849231
+        },
+        "queue_wait_ms": {
+          "n": 50,
+          "p50": 1.859900017734617,
+          "p95": 2.733805018942803,
+          "max": 2.7664999943226576
+        },
+        "tracking_followup_ms": {
+          "n": 50,
+          "p50": 22.17274997383356,
+          "p95": 28.59928498510271,
+          "max": 69.62550000753254
+        },
+        "fusion_ms": {
+          "n": 50,
+          "p50": 41.64950002450496,
+          "p95": 45.46193997375667,
+          "max": 47.73600003682077
+        },
+        "tracking_ms": {
+          "n": 50,
+          "p50": 21.147199964616448,
+          "p95": 27.415189979365092,
+          "max": 68.67330009117723
+        },
+        "websocket_broadcast_ms": {
+          "n": 50,
+          "p50": 0.22149999858811498,
+          "p95": 0.29422497609630227,
+          "max": 0.3236999036744237
+        },
+        "pool_acquisition_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        },
+        "advisory_lock_wait_ms": {
+          "n": 0,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": null
+        }
+      },
+      "before_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 26.0,
+          "p95": 26.0,
+          "max": 26
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 17.0,
+          "p95": 17.0,
+          "max": 17
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after_sql_statements": {
+        "total": {
+          "n": 50,
+          "p50": 25.0,
+          "p95": 25.0,
+          "max": 25
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 16.0,
+          "p95": 16.0,
+          "max": 16
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    }
+  },
+  "timing_conclusion": "Query reduction reproduced; wall-time benefit NOT established. Latest after P95 improved in some cases and increased in others. Prior after trials had >1 second tails; no field SLA claim.",
+  "trial_history": {
+    "initial_before": "critical_path_before_initial.json",
+    "initial_after": "critical_path_after_initial.json",
+    "final_runs": "Before exported from f56faae with git archive, then after run sequentially; no live deployments. Machine load/OS file I/O was not controlled.",
+    "initial_after_confound": "Concurrent local PostgreSQL initialization/tests; retained without discarding outliers.",
+    "prior_sequential_after": "critical_path_after_sequential_review.json",
+    "final_after": "Rerun after fixing successful-socket milestone attribution; includes full correlated timestamps/stages. Same 50 iterations per scenario. Earlier trials retained."
+  },
+  "tests": {
+    "pytest": {
+      "passed": 339,
+      "skipped": 1,
+      "warnings": 3
+    },
+    "disposable_postgresql": {
+      "passed": 3,
+      "skipped": 0
+    },
+    "javascript_files": 21,
+    "syntax_and_git_diff_check": "PASS"
+  },
+  "production_modified": false,
+  "workers_changed": false,
+  "math_changed": false,
+  "localization_enabled": false,
+  "production_deploy": false,
+  "validated_code_commit": "9ba7f800fe30e361b9c07e7dd1c8211dba5a7596"
+}

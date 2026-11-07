@@ -1,0 +1,47 @@
+{
+  "publish_time": {
+    "utc": "2026-10-04T06:51:00.893113+00:00",
+    "monotonic_ns": 811248885842700
+  },
+  "first_delivery_time": {
+    "utc": "2026-10-04T06:51:01.378679+00:00",
+    "monotonic_ns": 811249371407900
+  },
+  "message_id": "1791096660893-0",
+  "effect_applied": true,
+  "consumer_failure_time": {
+    "utc": "2026-10-04T06:51:01.395922+00:00",
+    "monotonic_ns": 811249388657800
+  },
+  "claim_time": {
+    "utc": "2026-10-04T06:51:01.398312+00:00",
+    "monotonic_ns": 811249391038800
+  },
+  "recovery_complete_time": {
+    "utc": "2026-10-04T06:51:01.399379+00:00",
+    "monotonic_ns": 811249392104400
+  },
+  "consumer_A_killed": true,
+  "pending_before": {
+    "pending": 1,
+    "min": "1791096660893-0",
+    "max": "1791096660893-0",
+    "consumers": [
+      {
+        "name": "crash-A",
+        "pending": 1
+      }
+    ]
+  },
+  "pending_after": {
+    "pending": 0,
+    "min": null,
+    "max": null,
+    "consumers": []
+  },
+  "duplicate_observed": true,
+  "effect_count": 1,
+  "message_retained": true,
+  "xdel_used": false,
+  "ledger": "Redis SET NX, synthetic only"
+}

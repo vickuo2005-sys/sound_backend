@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-09-30T00:00:00+08:00",
+  "source_project": {
+    "name": "sound-detector-staging",
+    "ref": "reamgpuvjfvmsouipvom",
+    "region": "Tokyo (ap-northeast-1)",
+    "access": "Supabase SQL Editor",
+    "tables": {
+      "audio_stream_sessions": 0,
+      "device_commands": 13,
+      "device_connections": 0,
+      "device_locations": 4,
+      "device_status": 4,
+      "event_group_observations": 372,
+      "event_groups": 183,
+      "events": 375,
+      "localization_pair_results": 0,
+      "localization_results": 0,
+      "target_track_points": 90
+    },
+    "sequences": [
+      {"name":"device_commands_id_seq","last_value":13,"start_value":1,"increment":1},
+      {"name":"events_id_seq","last_value":532,"start_value":1,"increment":1}
+    ],
+    "foreign_keys": [
+      {"table":"event_group_observations","column":"event_db_id","ref_table":"events","ref_column":"id"},
+      {"table":"event_group_observations","column":"event_id","ref_table":"events","ref_column":"event_id"},
+      {"table":"event_group_observations","column":"group_id","ref_table":"event_groups","ref_column":"id"},
+      {"table":"localization_pair_results","column":"group_id","ref_table":"event_groups","ref_column":"id"},
+      {"table":"localization_pair_results","column":"localization_result_id","ref_table":"localization_results","ref_column":"id"},
+      {"table":"localization_results","column":"group_id","ref_table":"event_groups","ref_column":"id"},
+      {"table":"target_track_points","column":"group_id","ref_table":"event_groups","ref_column":"id"},
+      {"table":"target_track_points","column":"localization_result_id","ref_table":"localization_results","ref_column":"id"},
+      {"table":"target_track_points","column":"track_id","ref_table":"target_tracks","ref_column":"id"}
+    ]
+  },
+  "destination_project": {
+    "name": "sound-detector-staging2",
+    "ref": "jlkjmyhxmwgaalkrpaow",
+    "region": "Singapore (ap-southeast-1)",
+    "access": "Supabase SQL Editor",
+    "public_tables": [],
+    "public_table_count": 0,
+    "note": "No public base tables observed; data/schema migration has not been performed."
+  },
+  "safety": {"destructive_statements_run": false,"production_touched": false,"database_url_changed": false,"credentials_recorded": false},
+  "limitations": ["SQL Editor metadata queries only; no pg_dump or DSN-based verify run","Tokyo FK inventory references target_tracks, which was not listed by the public-table query; reconcile before migration","Singapore project is empty in public schema and is not migration-ready"]
+}

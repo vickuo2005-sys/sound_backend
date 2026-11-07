@@ -55,7 +55,7 @@ async def run_pipeline() -> None:
                 time_sync_synced_at_ms=int(device_time - 1000),
                 time_sync_age_ms=1000,
             )
-            await main.create_event(event, upload_token="test-only-token")
+            await main.create_event(event, response=main.Response(), upload_token="test-only-token")
 
         groups = []
         group = None

@@ -211,7 +211,7 @@ AI valid hop
 
 第一輪 shadow implementation 保持上述 `observation.v1` ID 與欄位語意，並採以下限制：
 
-- Flutter `OBSERVATION_SHADOW_ENABLED=false` 預設關閉。有效 target 在 alert admission 之前產生 observation，使用獨立 persistent HTTP client fire-and-forget 上傳至 `/observations/shadow`。
+- Flutter `OBSERVATION_SHADOW_ENABLED=false` 預設關閉。有效 target 在 alert admission 之前產生 observation，先 transaction 寫入獨立 SQLite queue，再由 retry worker 使用 persistent HTTP client 上傳至 `/observations/shadow`；Alert admission 不等待 SQLite 或 HTTP。完整語意見 `observation_offline_retry.md`。
 - `sequence` 從每個 App process/device 的 1 開始單調增加；`process_session_id` 讓 App restart 後的新 sequence domain 不和舊 process 混合。
 - Backend `OBSERVATION_SHADOW_ENABLED=false` 與 `OBSERVATION_TRACKING_ENABLED=false` 預設皆關閉。
 - Shadow ingest 使用 bounded in-memory registry；不建立、讀取或修改 production observation/event/track table。相同 `observation_id` idempotent；`observed_at`/`event_time_ms` 與 server `received_at` 同時保留。
@@ -228,7 +228,7 @@ Phase 4 保留 `observation.v1` 與 Phase 3 Alert 邊界，新增 production-ori
 - `observed_at`/`event_time_ms` 仍是 measurement time；sequence 只做 dedup、gap、out-of-order 與 bounded missing timeout。
 - Sequence gate 之後使用 per-region serialized mailbox。同一 region update 不並行；不同 region 由獨立 worker 平行，禁止 global queue。
 - 跨裝置 fusion 依 event-time hop bucket 合併。已存在 bucket 的晚到節點形成明確 revision/late attach；超出 bounded window 的資料增加 `fusion_late_drop_count`，不得 silent corruption。
-- Registry、dedup、sequence keys、mailbox、fusion buckets 與 tracks 都有 TTL/max/cleanup。Backend restart 會清空全部 shadow state，因此目前 reliability 是 best effort。
+- Registry、dedup tombstones、sequence keys、mailbox、fusion buckets 與 tracks 都有 TTL/max/cleanup。Backend restart 仍會清空 in-memory shadow state；App queue 可重送，但跨 Backend restart 的 idempotency 仍是已知風險。
 - `time_sync` 增加 device wall/monotonic snapshot。Monotonic drift/jump 只在同一 device/process session 內計算，不跨裝置相減。
 - App field log 與 Backend metrics 可 reconciliation `raw target -> created -> attempted -> uploaded -> received -> unique -> sequence -> fusion -> tracking -> point`。
 - `audio_ref` 仍只能是 null；Phase 4 不寫 production DB、不送 Dashboard、不觸發 audio pipeline。

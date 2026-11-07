@@ -1,0 +1,2 @@
+# Optional test/adapter dependency. Default application requirements are unchanged.
+redis>=5,<7

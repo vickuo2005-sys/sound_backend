@@ -16,16 +16,15 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args()
 
-    results = []
+    if not 10 <= args.samples <= 50:
+        parser.error("--samples must be between 10 and 50")
     with httpx.Client(timeout=args.timeout) as client:
-        for _ in range(max(1, args.samples)):
-            response = client.post(
-                f"{args.base_url.rstrip('/')}/diagnostics/db-latency",
+        response = client.post(
+                f"{args.base_url.rstrip('/')}/diagnostics/db-latency?samples={args.samples}",
                 headers={"x-upload-token": args.upload_token},
             )
-            response.raise_for_status()
-            results.append(response.json())
-    print(json.dumps({"samples": results}, indent=2))
+        response.raise_for_status()
+    print(json.dumps(response.json(), indent=2))
 
 
 if __name__ == "__main__":

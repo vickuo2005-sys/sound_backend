@@ -568,3 +568,25 @@ def test_device_location_api_crud_allows_internal_dashboard_without_token(tmp_pa
     assert fallback_status["effective_latitude"] == 25.9
     assert fallback_status["effective_longitude"] == 121.9
     assert fallback_status["effective_location_source"] == "event_gps"
+
+
+def test_location_development_policy_is_scoped_to_staging(monkeypatch):
+    monkeypatch.setenv('DASHBOARD_WRITE_TOKEN_REQUIRED', 'true')
+    monkeypatch.setenv('UPLOAD_TOKEN', 'test-only-token')
+    monkeypatch.setenv('RENDER_SERVICE_ID', 'srv-da6kdn61egvs7392r92g')
+    monkeypatch.setenv('RENDER_SERVICE_NAME', 'sound-backend-staging')
+    assert main.location_write_token_required() is False
+    main.verify_location_write_token(None)
+    with pytest.raises(main.HTTPException):
+        main.verify_dashboard_write_token(None)
+    monkeypatch.setenv('RENDER_SERVICE_ID', 'production-service')
+    assert main.location_write_token_required() is True
+    with pytest.raises(main.HTTPException):
+        main.verify_location_write_token(None)
+
+
+def test_location_editor_hides_token_in_development():
+    from services.dashboard_v2_4 import render_dashboard_v2_4
+    html = render_dashboard_v2_4(maps_api_key='', experimental_motion_enabled=False, location_token_required=False)
+    assert 'const locationTokenRequired = false;' in html
+    assert '<label hidden>儲存授權碼' in html

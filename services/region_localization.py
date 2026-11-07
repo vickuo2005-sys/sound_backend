@@ -164,6 +164,10 @@ def _base_region(
         "region_geojson": geometry,
         "reporting_node_count": len(device_ids),
         "reporting_device_ids": device_ids,
+        "reporting_nodes": [
+            {"device_id": item["device_id"], "lat": item["latitude"], "lng": item["longitude"]}
+            for item in reports
+        ],
         "localization_method": REGION_METHOD,
         "estimated_lat": center_lat,
         "estimated_lng": center_lng,

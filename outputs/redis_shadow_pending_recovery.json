@@ -1,0 +1,31 @@
+{
+  "status": "PASS",
+  "environment": "RENDER_STAGING_TO_MANAGED_REDIS_TLS",
+  "commit": "ae2b81b07cddf32e9a2df7c88979696c591e06c1",
+  "deploy_id": "dep-db1mo2ad0e5s738gel9g",
+  "evidence": {
+    "status": "PASS",
+    "population": "synthetic_transport_only",
+    "stream": "staging:shadow-probe:d5b0af0a600441519abcad6a97e0ce93",
+    "group": "staging-shadow-probe",
+    "method": "consumer connection closed after read, before ACK",
+    "os_process_killed": false,
+    "domain_db_writes": false,
+    "websocket_broadcasts": false,
+    "entries_retained": true,
+    "ping": true,
+    "server_version": "7.2.4",
+    "pending_before_disconnect": 1,
+    "pending_final": 0,
+    "claimed_count": 1,
+    "ack_count": 1,
+    "ordering_violations": 0,
+    "history_replayed": 1
+  },
+  "scope_limit": "Connection-abandon-before-ACK recovery; not OS-process kill and not Android traffic",
+  "synthetic_observations_published": 2,
+  "synthetic_observations_consumed": 2,
+  "total_ack_operations": 2,
+  "recovery_ack_operations": 1,
+  "cleanup_performed": false
+}

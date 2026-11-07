@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "ack_executed_on_server": false,
+      "pending_after_uncertain_ack": 1,
+      "replay_mode": "pending claim",
+      "duplicate_observed": true,
+      "effect_count": 1,
+      "final_pending": 0
+    },
+    {
+      "ack_executed_on_server": true,
+      "pending_after_uncertain_ack": 0,
+      "replay_mode": "explicit semantic republish",
+      "duplicate_observed": true,
+      "effect_count": 1,
+      "final_pending": 0
+    }
+  ],
+  "exactly_once_claim": false,
+  "fault": "real Redis command with injected redis-py ConnectionError before/after ACK",
+  "idempotency_scope": "synthetic Redis SET NX ledger; production DB idempotency still required"
+}

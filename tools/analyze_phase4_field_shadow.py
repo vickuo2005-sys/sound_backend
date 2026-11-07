@@ -1,26 +1,63 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 APP_MARKER = "[OBSERVATION_SHADOW_FIELD_JSON]"
+APP_B64_MARKER = "[OBSERVATION_SHADOW_FIELD_JSON_B64]"
+APP_B64_PATTERN = re.compile(
+    r"observation_id=(?P<observation_id>\S+) "
+    r"chunk=(?P<part>\d+)/(?P<total>\d+) data=(?P<data>\S+)"
+)
 FORBIDDEN_PRODUCTION_HOSTS = {"sound-backend.onrender.com"}
 
 
 def read_app_samples(path: Path) -> list[dict[str, Any]]:
     samples: list[dict[str, Any]] = []
+    pending_chunks: dict[str, dict[str, Any]] = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         marker_index = line.find(APP_MARKER)
+        if marker_index >= 0:
+            try:
+                value = json.loads(line[marker_index + len(APP_MARKER) :].strip())
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                samples.append(value)
+            continue
+
+        marker_index = line.find(APP_B64_MARKER)
         if marker_index < 0:
             continue
-        try:
-            value = json.loads(line[marker_index + len(APP_MARKER) :].strip())
-        except json.JSONDecodeError:
+        match = APP_B64_PATTERN.search(line[marker_index + len(APP_B64_MARKER) :])
+        if not match:
             continue
+        observation_id = unquote(match.group("observation_id"))
+        part = int(match.group("part"))
+        total = int(match.group("total"))
+        if part < 1 or total < 1 or part > total:
+            continue
+        if part == 1:
+            pending_chunks[observation_id] = {"total": total, "parts": {}}
+        pending = pending_chunks.get(observation_id)
+        if not pending or pending["total"] != total:
+            continue
+        pending["parts"][part] = match.group("data")
+        if len(pending["parts"]) != total:
+            continue
+        try:
+            encoded = "".join(pending["parts"][index] for index in range(1, total + 1))
+            value = json.loads(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        except (KeyError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            pending_chunks.pop(observation_id, None)
+            continue
+        pending_chunks.pop(observation_id, None)
         if isinstance(value, dict):
             samples.append(value)
     return samples
@@ -85,6 +122,7 @@ def analyze_field_run(
     clock = final_backend.get("clock_quality") or {}
 
     app_totals = _app_reconciliation_totals(app_samples)
+    app_queue = _app_queue_snapshot(app_samples)
     raw = int(app_totals.get("raw_valid_target_count") or 0)
     upload_success = int(app_totals.get("upload_success_count") or 0)
     backend_received = int(backend_reconciliation.get("backend_received_count") or 0)
@@ -164,6 +202,29 @@ def analyze_field_run(
                     ordering.get("sequence_timeout_advance_count") or 0
                 ),
             },
+            "observation_queue": app_queue,
+            "replay": {
+                "live_count": int(ingest.get("replay_live_count") or 0),
+                "late_recoverable_count": int(
+                    ingest.get("replay_late_recoverable_count") or 0
+                ),
+                "historical_only_count": int(
+                    ingest.get("replay_historical_only_count") or 0
+                ),
+                "expired_count": int(ingest.get("replay_expired_count") or 0),
+                "tracking_eligible_count": int(
+                    ingest.get("tracking_eligible_count") or 0
+                ),
+                "tracking_historical_suppressed_count": int(
+                    ingest.get("tracking_historical_suppressed_count") or 0
+                ),
+                "tracking_expired_suppressed_count": int(
+                    ingest.get("tracking_expired_suppressed_count") or 0
+                ),
+                "idempotency_tombstone_count": int(
+                    ingest.get("idempotency_tombstone_count") or 0
+                ),
+            },
             "control_vs_shadow": {
                 "alert_admitted_count": alert_admitted,
                 "cooldown_rejected_count": cooldown_rejected,
@@ -204,12 +265,18 @@ def analyze_field_run(
             "memory": _memory_summary(backend_snapshots),
             "mailbox": mailbox,
             "restart_semantics": {
-                "flutter_restart": "new process_session_id; sequence restarts at 1",
+                "flutter_restart": (
+                    "new process_session_id; old SQLite queue rows retain their "
+                    "original process_session_id and sequence"
+                ),
                 "backend_restart": (
                     "bounded in-memory observations, sequence state, fusion buckets, "
                     "and shadow tracks are cleared; shadow delivery is best effort"
                 ),
-                "retry": "same observation_id is idempotent while dedup TTL retains it",
+                "retry": (
+                    "same observation_id is idempotent while the bounded Backend "
+                    "tombstone TTL retains it"
+                ),
             },
             "smoothing": "disabled",
         },
@@ -234,6 +301,42 @@ def _app_reconciliation_totals(samples: list[dict[str, Any]]) -> dict[str, int]:
     )
     return {
         field: sum(int(snapshot.get(field) or 0) for snapshot in final_by_process.values())
+        for field in fields
+    }
+
+
+def _app_queue_snapshot(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    fields = (
+        "observation_queue_depth",
+        "observation_queue_bytes",
+        "observation_queued_total",
+        "observation_upload_attempt_total",
+        "observation_upload_success_total",
+        "observation_upload_failure_total",
+        "observation_retry_total",
+        "observation_retry_success_total",
+        "observation_retry_failure_total",
+        "observation_expired_total",
+        "observation_overflow_total",
+        "observation_recovered_after_restart_total",
+        "observation_failed_permanent_total",
+        "oldest_pending_age_ms",
+        "retry_delay_ms",
+    )
+    snapshots = [
+        reconciliation
+        for sample in samples
+        if isinstance((reconciliation := sample.get("reconciliation")), dict)
+    ]
+    if not snapshots:
+        return {field: None for field in fields}
+    final = snapshots[-1]
+    return {
+        field: (
+            max(int(snapshot.get(field) or 0) for snapshot in snapshots)
+            if field.endswith("_total")
+            else final.get(field)
+        )
         for field in fields
     }
 

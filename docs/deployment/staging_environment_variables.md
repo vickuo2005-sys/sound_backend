@@ -34,6 +34,16 @@ Backend Phase 4 flags:
 | `COMMAND_REST_FALLBACK_ENABLED` | `true` |
 | `LIVE_AUDIO_ENABLED` | `false` for the first smoke |
 
+Backend Observation replay policy (staging only until field acceptance):
+
+| Variable | Value | Meaning |
+|---|---:|---|
+| `OBSERVATION_LIVE_MAX_AGE_MS` | `5000` | Upper age for `live`. |
+| `OBSERVATION_LIVE_TRACKING_MAX_AGE_MS` | `120000` | Upper age for replay into shadow tracking. |
+| `OBSERVATION_HISTORICAL_MAX_AGE_MS` | `21600000` | Six-hour historical/expired boundary. |
+| `OBSERVATION_IDEMPOTENCY_TTL_SECONDS` | `21600` | Six-hour in-memory duplicate tombstone retention. |
+| `OBSERVATION_IDEMPOTENCY_MAX_IDS` | `50000` | Bounded tombstone capacity. |
+
 The remaining sizing/TTL variables in `.env.staging.example` have safe code
 defaults but are pinned there for repeatability.
 

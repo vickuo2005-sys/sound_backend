@@ -1,0 +1,39 @@
+{
+  "status": "event_roundtrip_pass_observation_registry_in_memory",
+  "staging_project_ref": "reamgpuvjfvmsouipvom",
+  "production_project_ref_compared": "zlwunuycbcycpbongtxw",
+  "migration": {
+    "status": "pass",
+    "additive_only": true,
+    "nullable_columns": 9,
+    "jsonb_column": "class_scores_json",
+    "indexes": [
+      "events_model_label_idx",
+      "events_operational_class_idx"
+    ]
+  },
+  "real_event": {
+    "event_id": "event_1788105163431_node_A01",
+    "android_backend_db_websocket_semantic_equality": true,
+    "classification": {
+      "schema_version": "classification.v1",
+      "model_id": "v1_1_0_flower_drone_audio",
+      "model_version": "1.1.0",
+      "model_label": "Drone",
+      "confidence": 0.6086772680282593,
+      "class_scores": {
+        "Airplane": 0.0002146155311493203,
+        "Car": 0.0000030053977297939127,
+        "Drone": 0.6086772680282593,
+        "Electric_saw": 0.366513729095459,
+        "Rainfall": 0.02459142915904522
+      },
+      "operational_class": "drone",
+      "aircraft_probability": 0.6088918835594086,
+      "is_target": true,
+      "drone_subtype": null
+    }
+  },
+  "legacy_refresh_null_overwrite": "pass",
+  "observation_storage_note": "The current observation shadow registry is bounded in-memory; PostgreSQL persistence applies to the classified event path, not to a standalone observation row."
+}

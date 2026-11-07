@@ -1,0 +1,13 @@
+{
+  "environment": "DISPOSABLE_LOCAL_POSTGRESQL_17_LOOPBACK",
+  "exit_code": 0,
+  "counts": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 3
+  },
+  "cloud_database_accessed": false,
+  "command": "python -m pytest -q tests/test_critical_path_optimization.py"
+}

@@ -1,4 +1,7 @@
-from tools.analyze_phase4_field_shadow import analyze_field_run
+import base64
+import json
+
+from tools.analyze_phase4_field_shadow import analyze_field_run, read_app_samples
 
 
 def manifest() -> dict:
@@ -29,6 +32,15 @@ def app_sample(sequence: int, raw: int, uploaded: int) -> dict:
             "observation_upload_failed_count": raw - uploaded,
             "alert_admitted_count": 2,
             "cooldown_rejected_count": raw - 2,
+            "observation_queue_depth": raw - uploaded,
+            "observation_queue_bytes": (raw - uploaded) * 700,
+            "observation_queued_total": raw,
+            "observation_retry_total": max(0, raw - uploaded),
+            "observation_retry_success_total": 0,
+            "observation_retry_failure_total": max(0, raw - uploaded),
+            "observation_expired_total": 0,
+            "observation_overflow_total": 0,
+            "observation_recovered_after_restart_total": 0,
         },
     }
 
@@ -82,6 +94,8 @@ def test_field_analyzer_reconciles_counts_and_measured_bandwidth() -> None:
     assert report["reconciliation"]["overall_observation_delivery_percent"] == 90
     assert report["bandwidth"]["json_payload_bytes"]["p50"] == 700
     assert report["bandwidth"]["projections"]["4"]["24h"]["requests"] > 0
+    assert report["observation_queue"]["observation_queued_total"] == 10
+    assert report["observation_queue"]["observation_queue_depth"] == 1
 
 
 def test_field_analyzer_rejects_production_or_synthetic_manifest() -> None:
@@ -94,3 +108,22 @@ def test_field_analyzer_rejects_production_or_synthetic_manifest() -> None:
     assert result["evidence_valid"] is False
     assert result["result"] is None
     assert len(result["errors"]) == 2
+
+
+def test_read_app_samples_reassembles_bounded_base64_chunks(tmp_path) -> None:
+    sample = app_sample(9, 10, 9)
+    encoded = base64.b64encode(json.dumps(sample).encode()).decode()
+    chunks = [encoded[index : index + 37] for index in range(0, len(encoded), 37)]
+    lines = [
+        "1787700000.0 I flutter : [OBSERVATION_SHADOW_FIELD_JSON_B64] "
+        f"observation_id=obs-9 chunk={index + 1}/{len(chunks)} data={chunk}"
+        for index, chunk in enumerate(chunks)
+    ]
+    lines.append(
+        "1787700001.0 I flutter : [OBSERVATION_SHADOW_FIELD_JSON_B64] "
+        "observation_id=incomplete chunk=1/2 data=eyJub3QiOiJjb21wbGV0ZSJ9"
+    )
+    log_path = tmp_path / "adb.log"
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+
+    assert read_app_samples(log_path) == [sample]

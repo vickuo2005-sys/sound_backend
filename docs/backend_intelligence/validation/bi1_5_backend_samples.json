@@ -1,0 +1,54 @@
+{
+  "status": "partial_pass",
+  "backend_local_head": "18c5df262892abc66f555a789ca3eaf3d340121d",
+  "backend_staging_deployed_head": "18c5df262892abc66f555a789ca3eaf3d340121d",
+  "staging_hostname": "sound-backend-staging.onrender.com",
+  "validator_run_id": "4b0ddd83ab7c",
+  "validator_checks_passed": 10,
+  "validator_checks_total": 10,
+  "api": {
+    "legacy_event_status": 200,
+    "classified_event_status": 200,
+    "legacy_observation_status": 202,
+    "classified_observation_status": 202,
+    "server_normalization": "pass",
+    "legacy_refresh_preserved_classification": true,
+    "websocket_roundtrip": "pass"
+  },
+  "invalid_cases": {
+    "partial_classification": 422,
+    "unknown_schema_version": 422,
+    "unknown_label": 422,
+    "missing_class_score": 422,
+    "wrong_type": 422,
+    "unexpected_drone_subtype": 422,
+    "nan_score": 422,
+    "infinite_score": 422
+  },
+  "duplicate_replay": {
+    "duplicate_flags": [false, true, true, true, true],
+    "logical_observations": 1,
+    "extra_tracking_measurements": 0,
+    "scope": "single backend runtime"
+  },
+  "real_android_network_on": {
+    "unique_observations": 2,
+    "tracking_eligible": 2,
+    "tracking_measurements": 2,
+    "track_points": 2,
+    "late_discard": 0,
+    "duplicate_discard": 0,
+    "sequence_out_of_order": 0
+  },
+  "real_android_restart_recovery": {
+    "observation_received_count": 6,
+    "observation_uploaded_count": 6,
+    "duplicate_observation_count": 0,
+    "historical_replay_count": 6,
+    "tracking_historical_suppressed_count": 6,
+    "request_payload_bytes": 9395
+  },
+  "backend_restart_duplicate_behavior": "not_validated",
+  "dashboard_visual_render": "not_validated",
+  "staging_audio_path": "blocked_staging_gcs_not_configured"
+}
