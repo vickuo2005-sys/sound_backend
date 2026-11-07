@@ -116,6 +116,17 @@ async function clearDuringSnapshot(kind, hasStatus) {
 }
 
 (async () => {
+    for (const kind of ['full', 'device']) {
+        const h = harness();
+        const request = kind === 'full' ? h.context.refreshSnapshot() : h.context.refreshDeviceSnapshot();
+        const update = {device_id:'node_A01', detection_state:{active:false,sequence:12,received_at_ms:Date.now()}};
+        h.context.handleWebSocketMessage({type:'node_live_update',node:update});
+        h.pending.forEach(p=>p.resolve(responseFor(p.url,[{...oldDevice,detection_state:{active:true,sequence:11}}])));
+        await request;
+        assert.equal(h.state.devices.get('node_A01').detection_state.active,false,'An older snapshot must not revive a negative inference');
+        assert.equal(h.state.devices.get('node_A01').detection_state.sequence,12);
+        assert.equal(h.state.snapshotDeviceUpdates,null);
+    }
     const websocket = harness();
     websocket.context.handleWebSocketMessage({type: 'device_location_updated', device_id: 'node_A01', device: null});
     assertCleared(websocket, false);

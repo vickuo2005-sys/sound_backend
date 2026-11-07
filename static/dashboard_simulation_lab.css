@@ -42,3 +42,13 @@
 @keyframes slab-node-bounce{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
 @keyframes slab-node-ripple{0%{transform:scale(.86);opacity:.9}100%{transform:scale(2.3);opacity:0}}
 @media(prefers-reduced-motion:reduce){.slab-node.is-active .slab-node-symbol{animation:none}}
+
+.slab-kalman-key { color: #6ee7b7; }
+.slab-kalman-trail { fill:none; stroke:#34d399; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+.slab-kalman-trail.is-muted { opacity:.28; }
+.slab-kalman-marker circle { fill:#052e2b; stroke:#6ee7b7; stroke-width:3; }
+.slab-kalman-marker text { fill:#a7f3d0; font-size:11px; font-weight:800; text-anchor:middle; }
+
+
+/* Formal demo presentation: keep engineering diagnostics out of the primary demo surface. */
+body.demo-stable .slab-prediction-debug{display:none!important}
