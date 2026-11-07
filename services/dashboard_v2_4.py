@@ -34,7 +34,6 @@ def render_dashboard_v2_4(
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
     if demo_stable_mode:
         experimental_motion_enabled = False
-        simulation_enabled = False
     maps_script_tag = ""
     if maps_api_key:
         maps_url = (
@@ -138,7 +137,7 @@ def render_dashboard_v2_4(
         .replace("__NODE_GEOMETRY_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_node_geometry.js").read_text(encoding="utf-8") + "</script>")
         .replace("__DASHBOARD_REFINEMENT_STYLES__", "<style>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_apk_theme.css").read_text(encoding="utf-8") + ((TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.css").read_text(encoding="utf-8") if simulation_enabled else "") + "</style>")
         .replace("__SIMULATION_LAB_SCRIPT__", ("<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_simulation_lab.js").read_text(encoding="utf-8") + "</script>") if simulation_enabled else "")
-        .replace("__OPERATIONS_SCRIPT__", "".join("<script>" + (TEMPLATE_PATH.parents[1] / "static" / name).read_text(encoding="utf-8") + "</script>" for name in ("dashboard_simulation_eta.js", "dashboard_simulation_tracker.js", "dashboard_operations.js", "dashboard_live_prediction.js")))
+        .replace("__OPERATIONS_SCRIPT__", "".join("<script>" + (TEMPLATE_PATH.parents[1] / "static" / name).read_text(encoding="utf-8") + "</script>" for name in ("dashboard_simulation_eta.js", "dashboard_simulation_tracker.js", "dashboard_simulation_kalman.js", "dashboard_operations.js", "dashboard_live_prediction.js")))
         .replace(
             "__OPERATIONS_UI_SCRIPT__",
             "<script>"
