@@ -39,3 +39,33 @@ assert.equal(duplicate.accepted,false);
 assert.equal(duplicate.reason,'NON_INCREASING_MEASUREMENT_TIME');
 
 console.log('dashboard_simulation_kalman: all assertions passed');
+
+
+// Deterministic straight-line noise regression: Kalman should reduce position RMSE
+// versus the raw measurements after the initial warm-up.
+const noisy = new Kalman.ConstantVelocityKalman2D({
+  processAccelerationSigmaMps2: 1,
+  defaultMeasurementSigmaM: 12,
+  measurementIntervalMs: 1000
+});
+const noisePattern = [8,-7,6,-9,7,-6,9,-8,5,-7,8,-5,6,-8,7,-6,5,-7,6,-5];
+let rawSq=0, filteredSq=0, n=0;
+for(let i=0;i<noisePattern.length;i++) {
+  const truthX=i*10;
+  const measuredX=truthX+noisePattern[i];
+  const out=noisy.update({x:measuredX,y:0},i*1000,{uncertaintyM:12});
+  const filteredX=out.state?.x;
+  if(i>=3 && Number.isFinite(filteredX)) {
+    rawSq += (measuredX-truthX)**2;
+    filteredSq += (filteredX-truthX)**2;
+    n++;
+  }
+}
+const rawRmse=Math.sqrt(rawSq/n);
+const filteredRmse=Math.sqrt(filteredSq/n);
+assert.ok(
+  filteredRmse < rawRmse,
+  `Kalman should reduce straight-line position RMSE (raw=${rawRmse.toFixed(2)}, filtered=${filteredRmse.toFixed(2)})`
+);
+
+console.log(`dashboard_simulation_kalman RMSE raw=${rawRmse.toFixed(2)}m filtered=${filteredRmse.toFixed(2)}m`);
