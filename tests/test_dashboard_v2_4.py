@@ -282,3 +282,19 @@ def test_operational_site_marker_uses_custom_crosshair_icon() -> None:
     assert 'stroke="#ffffff"' in source
     assert "icon:siteMarkerIcon()" in source
     assert "label:\'據\'" not in source
+
+
+def test_demo_dashboard_uses_formal_presentation_copy() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=False,
+        simulation_enabled=True,
+        location_token_required=False,
+        demo_stable_mode=True,
+    )
+    assert "Drone Acoustic Monitoring" in html
+    assert "無人機聲學監控系統" in html
+    assert "情境模擬展示" in html
+    assert "模擬資料 · 非實地驗證" in html
+    assert "Simulation / 模擬展示" not in html
+    assert ">STAGING<" not in html or "APP_ENV" not in html
