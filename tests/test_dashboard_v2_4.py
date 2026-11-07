@@ -246,7 +246,7 @@ def test_demo_stable_style_does_not_emit_nested_style_tag() -> None:
 
     assert "<style><style>" not in html
     assert "<style>.demo-experimental" not in html
-    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}" in html
+    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope,.advanced-control,.slab-prediction-debug{display:none!important}" in html
 
 
 def test_demo_stable_mode_hides_live_experiments_but_keeps_labeled_simulation() -> None:
@@ -257,13 +257,13 @@ def test_demo_stable_mode_hides_live_experiments_but_keeps_labeled_simulation() 
         demo_stable_mode=True,
     )
 
-    assert "正式展示模式" in html
+    assert "系統展示模式" in html
     assert "連線、裝置與服務狀態" in html
-    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}" in html
+    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope,.advanced-control,.slab-prediction-debug{display:none!important}" in html
     assert "const dashboardSimulationEnabled = true" in html
     assert "const experimentalMotionEnabled = false" in html
-    assert "Simulation / 模擬展示" in html
-    assert "NOT FIELD VALIDATED" in html
+    assert "情境模擬展示" in html
+    assert "模擬資料 · 非實地驗證" in html
 
 
 def test_demo_stable_mode_is_exposed_in_runtime_status(monkeypatch) -> None:
