@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 import main
@@ -233,3 +234,51 @@ def test_events_api_adds_presentation_without_removing_legacy_fields(
     assert event["label"] == "drone"
     assert event["classification"]["model_label"] == "Drone"
     assert event["dashboard_presentation"]["is_target"] is True
+
+
+def test_demo_stable_style_does_not_emit_nested_style_tag() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=False,
+        simulation_enabled=True,
+        demo_stable_mode=True,
+    )
+
+    assert "<style><style>" not in html
+    assert "<style>.demo-experimental" not in html
+    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}" in html
+
+
+def test_demo_stable_mode_hides_live_experiments_but_keeps_labeled_simulation() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=True,
+        simulation_enabled=True,
+        demo_stable_mode=True,
+    )
+
+    assert "正式展示模式" in html
+    assert "連線、裝置與服務狀態" in html
+    assert ".demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}" in html
+    assert "const dashboardSimulationEnabled = true" in html
+    assert "const experimentalMotionEnabled = false" in html
+    assert "Simulation / 模擬展示" in html
+    assert "NOT FIELD VALIDATED" in html
+
+
+def test_demo_stable_mode_is_exposed_in_runtime_status(monkeypatch) -> None:
+    monkeypatch.setattr(main, "DEMO_STABLE_MODE", True)
+    response = TestClient(main.app).get("/runtime-status")
+
+    assert response.status_code == 200
+    assert response.json()["demo_stable_mode"] is True
+
+
+def test_operational_site_marker_uses_custom_crosshair_icon() -> None:
+    source = (Path(__file__).resolve().parents[1] / "static" / "dashboard_operations_ui.js").read_text(encoding="utf-8")
+    assert "function siteMarkerIcon()" in source
+    assert 'fill="#0f1f33"' in source
+    assert 'fill="#fb923c"' in source
+    assert 'stroke="#ffffff"' in source
+    assert "icon:siteMarkerIcon()" in source
+    assert "label:\'據\'" not in source

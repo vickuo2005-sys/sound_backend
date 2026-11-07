@@ -152,3 +152,18 @@ pending.positionTarget(draft.id,{x:50,y:0});
 assert.deepEqual(pending.reportingNodes(draft).map(n=>n.id),[pending.nodes[0].id]);
 pending.loseTarget(draft.id);
 assert.deepEqual(pending.reportingNodes(draft),[]);
+
+
+// Regression: clearing targets must remove both tracker implementations.
+const cleanupModel=new lab.LabModel();
+cleanupModel.addNode({x:-100,y:0});
+cleanupModel.addNode({x:100,y:0});
+const cleanupTarget=cleanupModel.createEvent({kind:'drone',position:{x:0,y:0},speed:10,heading:90});
+cleanupModel.step(2);
+assert(cleanupModel.trackers.has(cleanupTarget.id),'alpha-beta tracker should exist before clear');
+assert(cleanupModel.kalmanTrackers.has(cleanupTarget.id),'Kalman tracker should exist before clear');
+assert(cleanupTarget.kalmanTrail.length>0,'Kalman trail should exist before clear');
+cleanupModel.clearTargets();
+assert.equal(cleanupModel.targets.length,0);
+assert.equal(cleanupModel.trackers.size,0,'clearTargets removes alpha-beta tracker state');
+assert.equal(cleanupModel.kalmanTrackers.size,0,'clearTargets removes Kalman tracker state');

@@ -164,7 +164,6 @@ def test_constant_velocity_prediction_has_required_horizons() -> None:
     assert "Object.freeze([5, 10, 15, 30])" in html
     assert "projectConstantVelocity(current, velocity, horizons)" in html
     assert "model:'CV'" in html
-    assert "Kalman" not in html
 
 
 def test_demo_site_and_uncertainty_are_simulation_overlays() -> None:
@@ -314,3 +313,24 @@ def test_isolated_staging_manifests_enable_the_flag() -> None:
     assert "DASHBOARD_SIMULATION_ENABLED=true" in (
         root / ".env.staging.example"
     ).read_text(encoding="utf-8")
+
+
+def test_simulation_loads_real_kalman_module_before_lab() -> None:
+    html = simulation_html()
+    assert "class ConstantVelocityKalman2D" in html
+    assert html.index("class ConstantVelocityKalman2D") < html.index("class LabModel")
+    assert "simulation_kalman_cv" in html
+    assert "Kalman CV（模擬比較）" in html
+
+
+def test_demo_stable_can_keep_explicit_simulation_workspace() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=True,
+        simulation_enabled=True,
+        demo_stable_mode=True,
+    )
+    assert "const experimentalMotionEnabled = false" in html
+    assert "const dashboardSimulationEnabled = true" in html
+    assert "Simulation / 模擬展示" in html
+    assert "NOT FIELD VALIDATED" in html
