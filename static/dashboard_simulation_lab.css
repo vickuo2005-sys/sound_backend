@@ -49,15 +49,3 @@
 .slab-kalman-marker circle { fill:#052e2b; stroke:#6ee7b7; stroke-width:3; }
 .slab-kalman-marker text { fill:#a7f3d0; font-size:11px; font-weight:800; text-anchor:middle; }
 
-/* Research pipeline: explicitly separates current simulation capability from future TDOA validation. */
-.slab-research-flow{margin:0 0 16px;padding:16px 18px;border:1px solid color-mix(in srgb,var(--slab-lavender) 30%,var(--slab-border));border-radius:16px;background:color-mix(in srgb,var(--slab-lavender) 5%,var(--slab-surface))}
-.slab-research-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:14px}.slab-research-head h3{margin:3px 0 0;font-size:16px}
-.slab-pipeline{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:stretch}
-.slab-pipeline-stage{display:flex;gap:10px;padding:12px;border:1px solid var(--slab-border);border-radius:12px;background:var(--slab-bg);min-width:0}
-.slab-pipeline-stage b{display:block;font-size:12px;color:var(--slab-text)}.slab-pipeline-stage small{display:block;margin:2px 0 7px;font-size:9px;color:var(--slab-primary);letter-spacing:.2px}.slab-pipeline-stage p{font-size:10px;color:var(--slab-muted);line-height:1.55}
-.slab-stage-index{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:9px;background:var(--primary-muted,#143B3A);color:var(--slab-primary);font-size:10px;font-weight:800}
-.slab-stage-kalman{border-color:color-mix(in srgb,#34d399 55%,var(--slab-border));background:color-mix(in srgb,#34d399 6%,var(--slab-bg))}.slab-stage-kalman .slab-stage-index{background:#052e2b;color:#6ee7b7}.slab-stage-kalman small{color:#6ee7b7}
-.slab-pipeline-arrow{align-self:center;color:var(--slab-muted);font-size:18px;font-weight:700}
-.slab-research-note{margin-top:12px!important;padding:9px 11px;border-left:2px solid var(--slab-warning);background:color-mix(in srgb,var(--slab-warning) 5%,transparent);font-size:10px!important;color:var(--slab-muted);line-height:1.55}.slab-research-note strong{color:var(--slab-warning)}
-@media(max-width:1100px){.slab-pipeline{grid-template-columns:1fr 1fr}.slab-pipeline-arrow{display:none}}
-@media(max-width:650px){.slab-research-head{align-items:flex-start;flex-direction:column}.slab-pipeline{grid-template-columns:1fr}}
