@@ -29,8 +29,12 @@ def render_dashboard_v2_4(
     experimental_motion_enabled: bool,
     simulation_enabled: bool = False,
     location_token_required: bool = True,
+    demo_stable_mode: bool = False,
 ) -> str:
     html = TEMPLATE_PATH.read_text(encoding="utf-8")
+    if demo_stable_mode:
+        experimental_motion_enabled = False
+        simulation_enabled = False
     maps_script_tag = ""
     if maps_api_key:
         maps_url = (
@@ -107,8 +111,27 @@ def render_dashboard_v2_4(
             + SIMULATION_SCENARIO_PATH.read_text(encoding="utf-8")
             + "\n</script>"
         )
+    demo_stable_style = (
+        "<style>.demo-experimental,.demo-diagnostics,.demo-validation-scope{display:none!important}</style>"
+        if demo_stable_mode
+        else ""
+    )
+    sidebar_note = (
+        "正式展示模式<br>僅顯示已驗證或可明確說明的功能"
+        if demo_stable_mode
+        else "測試環境<br>軌跡與抵達時間仍待實地驗證"
+    )
+    system_description = (
+        "連線、裝置與服務狀態"
+        if demo_stable_mode
+        else "連線、裝置與進階診斷"
+    )
+
     return (
         html.replace("__MAPS_SCRIPT_TAG__", maps_script_tag)
+        .replace("__DEMO_STABLE_STYLE__", demo_stable_style)
+        .replace("__SIDEBAR_NOTE__", sidebar_note)
+        .replace("__SYSTEM_DESCRIPTION__", system_description)
         .replace("__ENVIRONMENT_LABEL__", escape(os.getenv("APP_ENV", "staging").upper()))
         .replace("__OVERVIEW_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_overview.js").read_text(encoding="utf-8") + "</script>")
         .replace("__MAP_VISUALS_SCRIPT__", "<script>" + (TEMPLATE_PATH.parents[1] / "static/dashboard_map_visuals.js").read_text(encoding="utf-8") + "</script>")
