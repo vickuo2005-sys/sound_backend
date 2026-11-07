@@ -334,3 +334,18 @@ def test_demo_stable_can_keep_explicit_simulation_workspace() -> None:
     assert "const dashboardSimulationEnabled = true" in html
     assert "Simulation / 模擬展示" in html
     assert "NOT FIELD VALIDATED" in html
+
+
+def test_simulation_research_pipeline_is_explicit_and_non_overclaiming() -> None:
+    html = simulation_html()
+    for label in (
+        "從多節點定位到 ETA 的研究流程",
+        "TDOA target / simulation proxy",
+        "Kalman Filter",
+        "Trajectory Prediction",
+        "ETA / Approach",
+    ):
+        assert label in html
+    assert "並未真正模擬聲波到達時間差" in html
+    assert "現階段仍由既有 Alpha-Beta 路徑驅動" in html
+    assert "SIMULATION · NOT FIELD VALIDATED" in html
