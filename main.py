@@ -105,6 +105,9 @@ async def application_lifespan(application):
 
 
 app = FastAPI(lifespan=application_lifespan)
+from services.benchmark import router as benchmark_router, BenchmarkBodyLimit
+app.include_router(benchmark_router)
+app.add_middleware(BenchmarkBodyLimit)
 
 
 APP_ENV = os.getenv("APP_ENV", "").strip().lower()
