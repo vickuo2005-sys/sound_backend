@@ -4,12 +4,7 @@
 
 這是 Drone Acoustic Monitoring Backend，不是 MCU／Wi-SUN／Gateway 韌體 repo。正式專題 Demo 已有穩定監控介面與獨立 Simulation Lab；真實聲學定位、Kalman／prediction／ETA field validation 尚未完成。
 
-| 環境 | Branch | Runtime SHA |
-|---|---|---|
-| [Production](https://sound-backend.onrender.com/dashboard)，Render `sound_backend` | `staging` | `01f35377bcb1314d9f7f879d015920f79c9297f5` |
-| [Staging](https://sound-backend-staging.onrender.com/dashboard)，Render `sound-backend-staging` | `fix/dashboard-alert-map-latency` | `48705eb4817fa53f97ece896df11fd5d21b4e8ba` |
-
-兩者目前 source tree 相同。`main` 是舊預設 branch，不能當 production。版本、非 secret flags 與 smoke 見 [Demo baseline](DEMO_BASELINE_2026-11-07.md)。Production DB 已修復；不要重新「整理」連線設定。
+歸檔的驗收目標是讓新開發者以自己的資源重建功能等價系統。從 [13 步重建指南](FROM_SCRATCH_SETUP.md) 開始。既有網址、正式 SHA、非 secret flags 與過往 smoke 見 [Current Demo Baseline](DEMO_BASELINE_2026-11-07.md)。
 
 ## 2–4 分鐘：哪些不能亂動
 
@@ -29,7 +24,7 @@ Legacy `/dashboard/legacy` 仍是 fallback 且有測試；看似重複的 simula
 
 ## 6–8 分鐘：怎麼跑與驗證
 
-依 [根 README](../README.md) 建隔離 Python 3.11 venv，用 `tools/run_local.py` 啟動 loopback SQLite，不繼承雲端憑證。依 [Testing](TESTING.md) 跑 Python／JS、staging API／Browser／WSS 檢查。
+依 [Local Development](LOCAL_DEVELOPMENT.md) 建隔離 Python 3.11 venv。先用 loopback SQLite 跑通流程，再用自己的 PostgreSQL 執行空庫 migration，完成 [系統驗收](SYSTEM_ACCEPTANCE_CHECKLIST.md)。
 
 現有 CI 只涵蓋特定 push／PR base；新分支沒有 check 不代表通過。`/events`／`/tracks` 可能 HTTP 200 + degraded；`/health` 不能單獨證明 DB。舊 smoke 的 node WebSocket 也不是 Dashboard WebSocket。
 

@@ -1,13 +1,31 @@
 # 文件入口
 
-更新日期：2026-11-07（Asia/Taipei）。新增的頂層文件描述正式 Demo baseline；舊版架構、release、migration 文件保留原日期作為歷史證據，不自動代表現行部署設定。
+更新於 2026-11-09（Asia/Taipei）。重建從公開 repository 與讀者自行建立的資源開始。正式 Demo 的帳號與部署座標放在歷史參考。
+
+## Rebuild Instructions
+
+| 文件 | 用途 |
+|---|---|
+| [FROM_SCRATCH_SETUP](FROM_SCRATCH_SETUP.md) | 13 步總流程與固定 source SHA |
+| [ENVIRONMENT_REFERENCE](ENVIRONMENT_REFERENCE.md) | 原始碼掃描的 runtime 設定、預設與故障行為 |
+| [DATABASE_SETUP](DATABASE_SETUP.md) | 空 PostgreSQL／Supabase、migration 順序與 schema 驗證 |
+| [STORAGE_SETUP](STORAGE_SETUP.md) | 新 GCS／IAM／Maps 與降級行為 |
+| [LOCAL_DEVELOPMENT](LOCAL_DEVELOPMENT.md) | Windows／Linux／macOS 本機指令 |
+| [DEPLOY_FROM_SCRATCH](DEPLOY_FROM_SCRATCH.md) | 新 Render／generic HTTPS 與 WSS hosting |
+| [FIRST_NODE_GUIDE](FIRST_NODE_GUIDE.md) | 第一個節點 hello、heartbeat 與 Dashboard WS |
+| [FIRST_EVENT_GUIDE](FIRST_EVENT_GUIDE.md) | 最小 HTTP event、DB／Dashboard、融合及軌跡 |
+| [SYSTEM_ACCEPTANCE_CHECKLIST](SYSTEM_ACCEPTANCE_CHECKLIST.md) | Core／Simulation／選用／研究驗收 |
+| [FEATURE_REBUILD_MATRIX](FEATURE_REBUILD_MATRIX.md) | 每個功能的依賴與測法 |
+| [REBUILD_VALIDATION](REBUILD_VALIDATION.md) | 從零驗收證據、外部資源及待驗收缺口 |
+
+## Current Baseline / Historical Reference
 
 | 文件 | 用途 |
 |---|---|
 | [HANDOFF](HANDOFF.md) | 10 分鐘了解現況、禁區與下一步 |
 | [DEMO_BASELINE_2026-11-07](DEMO_BASELINE_2026-11-07.md) | 正式 commit、展示範圍、flags、smoke、回退點 |
 | [ARCHITECTURE](ARCHITECTURE.md) | 系統邊界、Backend 模組與資料流 |
-| [DEPLOYMENT](DEPLOYMENT.md) | staging-first、promotion、Render 與 rollback |
+| [DEPLOYMENT](DEPLOYMENT.md) | 既有 Demo 的 staging-first、promotion、Render 與 rollback 參考 |
 | [API_CONTRACT](API_CONTRACT.md) | HTTP／WSS、Gateway、冪等、ACK／retry |
 | [RESEARCH_STATUS](RESEARCH_STATUS.md) | Implemented／Simulation-only／Not field validated／Future work |
 | [TESTING](TESTING.md) | Python／JS／CI、runtime smoke、驗證界限 |
@@ -16,11 +34,9 @@
 | [CODE_ARCHIVE_PLAN](CODE_ARCHIVE_PLAN.md) | KEEP／REVIEW／LIKELY ARCHIVABLE／DO NOT TOUCH |
 | [ARCHIVE_VALIDATION_2026-11-07](ARCHIVE_VALIDATION_2026-11-07.md) | 本次檢查結果、證據來源與未執行項目 |
 
-## 閱讀優先順序
+## Research Status
 
-1. 以 [Demo baseline](DEMO_BASELINE_2026-11-07.md) 的 immutable commit 與 runtime 核對結果確認版本。
-2. 操作與介接從 [Deployment](DEPLOYMENT.md)、[API Contract](API_CONTRACT.md) 開始；遇到矛盾，回看該 commit source，不照抄舊 runbook 執行。
-3. [`archive/`](archive/) 與 [`release_notes/`](release_notes/) 是歷史檔案。舊文件中的「final」「validated」只適用當時範圍，不能擴大成真實定位／ETA 實地驗證。
+研究原型、Simulation-only、真實定位／ETA 待驗證項目以 [Research Status](RESEARCH_STATUS.md) 為準。[`archive/`](archive/) 與 [`release_notes/`](release_notes/) 保留當時證據與適用範圍。
 
 ## 既有深入文件
 

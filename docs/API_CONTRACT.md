@@ -1,6 +1,6 @@
 # HTTP／WebSocket／Gateway contract
 
-以 2026-11-07 baseline 的 [`../main.py`](../main.py)、[`../app/protocol/`](../app/protocol/) 為準。Production／staging base URL 見 [Deployment](DEPLOYMENT.md)。本次不新增 route、不修改 schema、不執行 test ingest。
+以 2026-11-07 baseline 的 [`../main.py`](../main.py)、[`../app/protocol/`](../app/protocol/) 為準。重建與合成測試使用自己的 `https://<YOUR_BACKEND_HOST>` 或本機 loopback。 [First Node](FIRST_NODE_GUIDE.md) · [First Event](FIRST_EVENT_GUIDE.md)
 
 ## 常用讀取介面
 

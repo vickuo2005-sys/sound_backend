@@ -1,5 +1,7 @@
 # Testing
 
+從自己的空庫開始驗收時，先走 [從零重建](FROM_SCRATCH_SETUP.md) 與 [系統驗收表](SYSTEM_ACCEPTANCE_CHECKLIST.md)。本次實測的版本和結果收錄於 [重建驗證](REBUILD_VALIDATION.md)。
+
 測試必須區分 unit／合成／本機 integration、staging runtime、真實硬體 field validation。本次文件整理的實際執行結果見 [Archive validation](ARCHIVE_VALIDATION_2026-11-07.md)。
 
 ## Python

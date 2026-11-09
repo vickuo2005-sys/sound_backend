@@ -40,7 +40,7 @@ Rollback refs：
 
 責任邊界見 [Architecture](ARCHITECTURE.md)，候選 legacy／duplicate／experimental 檔案見 [Code archive plan](CODE_ARCHIVE_PLAN.md)。
 
-## Render services／環境 flags
+## 2026-11-07 Render 歷史參考
 
 | 資源 | 用途／識別 | 來源與限制 |
 |---|---|---|

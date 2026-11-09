@@ -1,4 +1,6 @@
-# Deployment、promotion 與 rollback
+# Current Demo Baseline 的 deployment、promotion 與 rollback
+
+本頁記錄既有 Demo 與歷史部署。用自己的帳號、資料庫與網址建置時，從 [Deploy From Scratch](DEPLOY_FROM_SCRATCH.md) 開始。
 
 此為操作說明；本次文件整理不部署、不改 Render、不改 DB／secrets。
 

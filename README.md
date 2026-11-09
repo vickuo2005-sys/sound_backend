@@ -1,8 +1,8 @@
 # Drone Acoustic Monitoring｜無人機聲學監控系統
 
-此 repository 負責 FastAPI Backend、事件融合、節點狀態、PostgreSQL 歷史資料與 Dashboard。MCU、Wi-SUN 韌體與 Gateway implementation 由各自專案負責；目前也保留 Android 節點介接協定。
+此 repository 負責 FastAPI Backend、事件融合、節點狀態、PostgreSQL 歷史資料與 Dashboard。MCU、Wi-SUN 韌體與 Gateway implementation 由各自專案負責。這裡也保留 Android 節點介接協定。
 
-2026-11-07 正式 Demo baseline：`01f35377bcb1314d9f7f879d015920f79c9297f5`，production 使用 **`staging` branch**。GitHub 預設的 `main` 是歷史版本，不能當作目前正式版。
+新開發者從 [13 步重建指南](docs/FROM_SCRATCH_SETUP.md) 開始，使用自己建立的 PostgreSQL、hosting 與選用雲端資源。重建驗收範圍見 [Feature Matrix](docs/FEATURE_REBUILD_MATRIX.md)。
 
 ## Architecture
 
@@ -16,7 +16,7 @@ Microphone → Low-power MCU → Feature processing / AI → Wi-SUN
 
 ## Local run
 
-建議 Python 3.11；JS 回歸測試使用 Node.js 20。下列啟動器使用獨立 SQLite，並移除繼承的雲端 DB、bucket 與 token 設定，不連 production。
+建議 Python 3.11。JS 回歸測試使用 Node.js 20。以下使用本機 SQLite。完整命令與 PostgreSQL profile 見 [Local Development](docs/LOCAL_DEVELOPMENT.md)。
 
 ```powershell
 py -3.11 -m venv .venv
@@ -26,14 +26,9 @@ py -3.11 -m venv .venv
 
 開啟 [本機 Dashboard](http://127.0.0.1:8786/dashboard)。`.local-runtime/` 包含本機憑證，不得加入 Git。未配置地圖時可用模擬相對座標圖；SQLite 不代表 PostgreSQL 完整驗證。
 
-## Production / Staging
+## Deployment
 
-| 用途 | Render service | Branch | Dashboard |
-|---|---|---|---|
-| 正式專題 Demo | `sound_backend` | `staging` | [Production](https://sound-backend.onrender.com/dashboard) |
-| 開發驗證 | `sound-backend-staging` | `fix/dashboard-alert-map-latency` | [Staging](https://sound-backend-staging.onrender.com/dashboard) |
-
-新功能先經 feature/fix branch、CI 與 staging，再經 PR 進入正式分支。禁止直接在 production 試新功能；本次文件整理不部署、不改 Render、不動資料庫。
+先建立自己的空庫與 runtime env，再建立 HTTPS／WSS Web Service。 [Deploy From Scratch](docs/DEPLOY_FROM_SCRATCH.md)
 
 ## API
 
@@ -52,4 +47,4 @@ py -3.11 -m venv .venv
 - [研究狀態](docs/RESEARCH_STATUS.md)／[測試方式](docs/TESTING.md)
 - [Repository inventory](docs/REPOSITORY_INVENTORY.md)
 - [Branch archive plan](docs/BRANCH_ARCHIVE_PLAN.md)／[Code archive plan](docs/CODE_ARCHIVE_PLAN.md)
-- [本次歸檔驗證](docs/ARCHIVE_VALIDATION_2026-11-07.md)
+- [重建驗證結果](docs/REBUILD_VALIDATION.md)／[系統驗收表](docs/SYSTEM_ACCEPTANCE_CHECKLIST.md)
