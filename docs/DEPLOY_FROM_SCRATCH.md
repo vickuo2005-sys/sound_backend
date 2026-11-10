@@ -1,6 +1,6 @@
 # 用自己的 hosting 從零部署
 
-先完成 [空庫 migration](DATABASE_SETUP.md)，再建立自己的 Web Service。部署程式來源為 [從零重建](FROM_SCRATCH_SETUP.md) 的固定 SHA。建立自己 repository 的 release branch 指向該 SHA，Render 或其他 hosting 選該 branch。用一次 bootstrap 啟動驗證，記錄實際部署 SHA。
+先完成 [空庫 migration](DATABASE_SETUP.md)，再建立自己的 Web Service。從 [從零重建](FROM_SCRATCH_SETUP.md) 的歸檔 tag 取得程式，在自己的 repository 建立 release branch 指向該 commit，再於 hosting 選取該 branch。啟動後驗證服務並記錄實際部署 SHA。
 
 ## Render Web Service
 

@@ -2,7 +2,7 @@
 
 ## A. 結論
 
-PARTIAL
+**Core rebuild：YES。Full Demo rebuild：PARTIAL。**
 
 Core 已從空白 PostgreSQL 重建並實測。完整 Demo 驗收還包含自己的雲端 HTTPS／WSS、Google Maps 和 GCS 音訊。這三條路徑已補操作流程與驗收條件，尚待在新資源上實跑。
 
@@ -10,7 +10,7 @@ Core 已從空白 PostgreSQL 重建並實測。完整 Demo 驗收還包含自己
 
 | 範圍 | 待完成項目 |
 |---|---|
-| 自建雲端 | 在自己的 hosting 部署固定 SHA，核對 TLS、proxy 的 WebSocket Upgrade、外部 WSS、DB provider 的路由／pooler／TLS。已實跑的 DB 是本機 PostgreSQL 18.6。 |
+| 自建雲端 | 在自己的 hosting 部署歸檔 commit，核對 TLS、proxy 的 WebSocket Upgrade、外部 WSS、DB provider 的路由／pooler／TLS。已實跑的 DB 是本機 PostgreSQL 18.6。 |
 | 地理底圖 | 建自己的 Maps JavaScript key、設定 referrer 並驗收 Google 底圖及選點。此次瀏覽器實跑相對座標圖。 |
 | Audio Evidence | 建私有 GCS、service account 及 bucket IAM，完成 upload、read、signed GET、UI 播放。若組織禁止 service account key，現行 JSON-key client 需要另外接上組織核准的認證方式。其他 object storage 需要 adapter。 |
 | 真實設備整合（若納入範圍） | 取得自有 MCU／Wi-SUN／Android／Gateway client 與 vendor schema，驗證其網路、事件 mapping、時鐘、重送與音訊串流。已驗收合成節點和 Gateway HTTP echo。 |
@@ -45,23 +45,14 @@ Core 已從空白 PostgreSQL 重建並實測。完整 Demo 驗收還包含自己
 | Python 基本套件 | 83 passed，涵蓋 protocol、Gateway、Dashboard／Simulation、融合、group track 與分類 |
 | JavaScript | Node v24.22.1 上 28 個既有 suite 檔案通過 |
 
-Windows 路徑已實跑。Linux／macOS 指令已撰寫，當次驗證環境為 Windows。Python 測試出現 TestClient／httpx、Pydantic 及 pytest-asyncio 的棄用提示。現行版本可跑通，requirements 尚未鎖定完整相依圖。以下是本次驗證用的直接套件與 Starlette 版本。
+Windows 路徑已實跑。Linux／macOS 已有啟動指令，仍待獨立實跑。Python 測試出現 TestClient／httpx、Pydantic 及 pytest-asyncio 的棄用提示。
 
-```text
-fastapi==0.162.2
-uvicorn==0.54.0
-starlette==1.10.0
-pydantic==2.14.3
-google-cloud-storage==3.17.1
-python-multipart==0.0.33
-psycopg2-binary==2.9.13
-websockets==17.4
-scipy==1.17.1
-numpy==2.4.6
-httpx==0.28.1
-pytest==9.2.0
-pytest-asyncio==1.4.1.post1
-```
+### 2026-11-10 歸檔複驗
+
+- [依賴快照](../requirements-rebuild-2026-11-09.txt) 以 `python -m pip freeze --all` 從上表的原始 Windows Python 3.11.9 venv 匯出，共 48 個套件，含直接與間接依賴、測試工具、pip 和 setuptools。這是 baseline reproducibility snapshot，日常開發沿用 `requirements.txt` 與 `requirements-dev.txt`。
+- 只用快照在另一個全新的 Windows Python 3.11.9 venv 安裝，`pip check` 通過，`pip freeze --all` 的套件及版本與原始環境完全一致。
+- 使用新 venv 重跑 SQLite smoke、空白 PostgreSQL 18.6 的 16 檔 migration 與 postcheck、兩個後端的八個 HTTP 讀取端點、節點及 Dashboard WebSocket、事件寫入、融合與軌跡、Gateway echo、PostgreSQL 分類與去重。83 項既有 Python 測試通過，棄用提示仍存在。上表的瀏覽器和 JavaScript 結果來自 2026-11-09。
+- 重建 tag `rebuild-baseline-2026-11-09` 將上述 production source SHA 的 runtime 檔案、重建文件和依賴快照收在同一個 commit。與 production source 比對，只有 Markdown 文件及快照有差異。[從零重建](FROM_SCRATCH_SETUP.md#取得重建歸檔)
 
 ## F. 需由重建者決定的外部設定
 

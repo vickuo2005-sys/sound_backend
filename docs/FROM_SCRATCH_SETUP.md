@@ -8,10 +8,10 @@
 
 | 步驟 | 操作 | 完成訊號 |
 |---|---|---|
-| 1 | 準備 Git、Python 3.11、pip／venv、現代瀏覽器及 PostgreSQL（本次驗證 18.6）。可裝 psql 查 schema。Node.js 20 僅 JS tests 需要。地圖或音訊驗收需自己的 Google Cloud project，雲端驗收需可連 DB 的 FastAPI hosting。 | 可建立 venv，資料庫可使用 |
-| 2 | Clone 公開 repository，checkout 下方固定 source SHA。 | `git rev-parse HEAD` 符合固定版本 |
-| 3 | 建立並啟用隔離 Python venv。 | `python --version` 顯示 3.11 |
-| 4 | 安裝 runtime 與驗收套件。 | pip 安裝成功 |
+| 1 | 準備 Git、Python 3.11、pip／venv、現代瀏覽器及 PostgreSQL（本次驗證 18.6）。重跑歸檔驗證時使用 Python 3.11.9。可裝 psql 查 schema。Node.js 20 僅 JS tests 需要。地圖或音訊驗收需自己的 Google Cloud project，雲端驗收需可連 DB 的 FastAPI hosting。 | 可建立 venv，資料庫可使用 |
+| 2 | Clone 公開 repository，checkout 下方重建 tag。 | 同一份 checkout 有 Demo 原始碼、重建文件和依賴快照 |
+| 3 | 建立隔離 Python venv。 | venv 的 Python 版本符合驗收目標 |
+| 4 | 安裝 runtime 與驗收套件。重跑歸檔驗證時使用依賴快照。 | 安裝與 `pip check` 成功 |
 | 5 | 建立自己的 PostgreSQL 或 Supabase 空庫。依 16 檔順序建 schema，檢查 tables／indexes。 | postcheck 通過，分類欄位存在 |
 | 6 | 建立自己管理的 GCS bucket／service account（音訊）與 Maps JavaScript API key（地圖）。 | bucket IAM／referrer 設定完成，待功能測試 |
 | 7 | 用自己的 DB 連線設定及新產生的 token 填入 env。對照完整 env 表，選定地圖／音訊 profile。 | app process 可以讀取設定 |
@@ -20,18 +20,30 @@
 | 10 | 用 `node_A01` 做節點 WSS hello／heartbeat。Gateway 供應商可另做 token 驗證的 echo。 | `hello_ack`、`ONLINE`、Dashboard heartbeat |
 | 11 | 送第一筆帶唯一 ID 的 HTTP event，查 DB 與 Dashboard。 | HTTP 200、`db_id`、UI 出現同一事件 |
 | 12 | 加第二節點與新鮮事件，觀察 fusion、region、track point。驗收 Simulation Lab reset／replay，測試選用的地圖、音訊與雲端路徑。 | 有多節點 group、非空 track points、模擬三軌跡 |
-| 13 | 填寫驗收表，保存 source SHA、套件版本及結果摘要。 | 適用項目皆通過，證據可重跑 |
+| 13 | 填寫驗收表，記錄 checkout 的 commit（`git rev-parse HEAD`）、套件版本及結果摘要。 | 適用項目皆通過，證據可重跑 |
 
-## 取得 source 與環境
+## 取得重建歸檔
 
 ```sh
 git clone https://github.com/vickuo2005-sys/sound_backend.git
 cd sound_backend
-git checkout --detach 01f35377bcb1314d9f7f879d015920f79c9297f5
-git rev-parse HEAD
+git checkout rebuild-baseline-2026-11-09
 ```
 
-固定 SHA 用於重建程式。閱讀這批較新的文件時，可保留文件頁面或下載快照再 checkout。此專案用 pip 與 venv，Python 3.11 為既有 CI 版本。從 [Local Development](LOCAL_DEVELOPMENT.md) 複製 Windows／Linux／macOS 命令。歷史 requirements 沒有完整 lock，使用 [驗證紀錄](REBUILD_VALIDATION.md) 保存已實跑的版本。
+這個 tag 對應一個固定的 Git commit，內含 Demo baseline 原始碼、重建指南、[環境參考](ENVIRONMENT_REFERENCE.md)、[重建驗證](REBUILD_VALIDATION.md)及 Python 依賴快照。往後的歸檔使用新 tag。歷史 production source SHA 留在驗證紀錄，供核對原始碼。
+
+## 重現已驗證的 Python 環境
+
+先確認使用 Python 3.11.9。Windows PowerShell 的安裝流程如下。
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe --version
+.\.venv\Scripts\python.exe -m pip install -r requirements-rebuild-2026-11-09.txt
+.\.venv\Scripts\python.exe -m pip check
+```
+
+若版本檢查顯示其他 3.11 patch，使用 Python 3.11.9 的可執行檔建立新的 venv，再安裝快照。[requirements-rebuild-2026-11-09.txt](../requirements-rebuild-2026-11-09.txt) 是 baseline reproducibility snapshot，包含已驗證的 Windows runtime、測試與安裝工具版本。日常開發與其他平台的標準安裝流程見 [Local Development](LOCAL_DEVELOPMENT.md)，可繼續使用 repo 的一般 requirements。
 
 ## 依序填入新環境
 

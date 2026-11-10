@@ -1,12 +1,14 @@
 # 文件入口
 
-更新於 2026-11-09（Asia/Taipei）。重建從公開 repository 與讀者自行建立的資源開始。正式 Demo 的帳號與部署座標放在歷史參考。
+更新於 2026-11-10（Asia/Taipei）。
+
+**從零重建功能等價系統 → [FROM_SCRATCH_SETUP.md](FROM_SCRATCH_SETUP.md)**。從公開 repository checkout 一個 Git 歸檔 tag，即可取得 Demo 原始碼、重建文件和依賴快照。重建時使用自己建立的資源。正式 Demo 的帳號與部署座標見歷史參考。
 
 ## Rebuild Instructions
 
 | 文件 | 用途 |
 |---|---|
-| [FROM_SCRATCH_SETUP](FROM_SCRATCH_SETUP.md) | 13 步總流程與固定 source SHA |
+| [FROM_SCRATCH_SETUP](FROM_SCRATCH_SETUP.md) | 歸檔 tag、安裝依賴和 13 步重建流程 |
 | [ENVIRONMENT_REFERENCE](ENVIRONMENT_REFERENCE.md) | 原始碼掃描的 runtime 設定、預設與故障行為 |
 | [DATABASE_SETUP](DATABASE_SETUP.md) | 空 PostgreSQL／Supabase、migration 順序與 schema 驗證 |
 | [STORAGE_SETUP](STORAGE_SETUP.md) | 新 GCS／IAM／Maps 與降級行為 |
@@ -17,6 +19,7 @@
 | [SYSTEM_ACCEPTANCE_CHECKLIST](SYSTEM_ACCEPTANCE_CHECKLIST.md) | Core／Simulation／選用／研究驗收 |
 | [FEATURE_REBUILD_MATRIX](FEATURE_REBUILD_MATRIX.md) | 每個功能的依賴與測法 |
 | [REBUILD_VALIDATION](REBUILD_VALIDATION.md) | 從零驗收證據、外部資源及待驗收缺口 |
+| [requirements-rebuild-2026-11-09.txt](../requirements-rebuild-2026-11-09.txt) | Windows Python 3.11.9 的 baseline reproducibility snapshot |
 
 ## Current Baseline / Historical Reference
 

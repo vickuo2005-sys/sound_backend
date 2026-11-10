@@ -2,7 +2,7 @@
 
 此 repository 負責 FastAPI Backend、事件融合、節點狀態、PostgreSQL 歷史資料與 Dashboard。MCU、Wi-SUN 韌體與 Gateway implementation 由各自專案負責。這裡也保留 Android 節點介接協定。
 
-新開發者從 [13 步重建指南](docs/FROM_SCRATCH_SETUP.md) 開始，使用自己建立的 PostgreSQL、hosting 與選用雲端資源。重建驗收範圍見 [Feature Matrix](docs/FEATURE_REBUILD_MATRIX.md)。
+**從零重建功能等價系統 → [FROM_SCRATCH_SETUP.md](docs/FROM_SCRATCH_SETUP.md)**。指南提供單一 Git 歸檔 tag、已驗證的 Python 依賴快照和 13 步驗收流程。重建驗收範圍見 [Feature Matrix](docs/FEATURE_REBUILD_MATRIX.md)。
 
 ## Architecture
 

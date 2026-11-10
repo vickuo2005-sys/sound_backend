@@ -1,6 +1,8 @@
 # 本機開發與乾淨啟動
 
-先按 [從零重建](FROM_SCRATCH_SETUP.md) 取得固定 source，進入 repo 根目錄。使用 Python 3.11 和瀏覽器。Node 20 僅 JS 回歸需要。以新的 terminal session 操作，並使用自己的本機測試設定。所有範例工作在 loopback。
+先按 [從零重建](FROM_SCRATCH_SETUP.md) checkout 重建 tag，進入 repo 根目錄。使用 Python 3.11 和瀏覽器。Node 20 僅 JS 回歸需要。以新的 terminal session 操作，並使用自己的本機測試設定。所有範例工作在 loopback。
+
+以下安裝指令使用一般開發依賴。如果已按 [重現已驗證的 Python 環境](FROM_SCRATCH_SETUP.md#重現已驗證的-python-環境) 安裝歸檔快照，沿用該 venv，直接執行本機設定與啟動指令。
 
 ## Windows PowerShell
 
