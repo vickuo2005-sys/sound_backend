@@ -1,170 +1,50 @@
-# Sound Detector Backend
+# Drone Acoustic Monitoring｜無人機聲學監控系統
 
-Sound Detector Backend 是一個 FastAPI 後端，第一階段用途是接收多台 Android 手機聲音偵測節點上傳的事件資料。
+此 repository 負責 FastAPI Backend、事件融合、節點狀態、PostgreSQL 歷史資料與 Dashboard。MCU、Wi-SUN 韌體與 Gateway implementation 由各自專案負責。這裡也保留 Android 節點介接協定。
 
-目前使用 SQLite (`sound_events.db`) 作為測試用資料庫。這個資料庫檔案不要上傳到 GitHub，之後可再改成 PostgreSQL。
+**從零重建功能等價系統 → [FROM_SCRATCH_SETUP.md](docs/FROM_SCRATCH_SETUP.md)**。指南提供單一 Git 歸檔 tag、已驗證的 Python 依賴快照和 13 步驗收流程。重建驗收範圍見 [Feature Matrix](docs/FEATURE_REBUILD_MATRIX.md)。
 
-## 專案結構
-
-```text
-sound_backend/
-├─ main.py
-├─ requirements.txt
-├─ .gitignore
-└─ README.md
-```
-
-本機執行後可能會產生 `sound_events.db`，這是測試資料庫，已透過 `.gitignore` 排除。
-
-## 本機啟動方式
-
-建議先建立並啟用虛擬環境：
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-安裝套件：
-
-```bash
-pip install -r requirements.txt
-```
-
-啟動開發伺服器：
-
-```bash
-uvicorn main:app --reload
-```
-
-啟動後可開啟：
+## Architecture
 
 ```text
-http://127.0.0.1:8000/
-http://127.0.0.1:8000/health
-http://127.0.0.1:8000/events
+Microphone → Low-power MCU → Feature processing / AI → Wi-SUN
+→ Border Router → Industrial PC / Raspberry Pi Gateway → HTTP / WSS
+→ FastAPI → PostgreSQL / Event Fusion / Tracking → Dashboard
 ```
 
-## Render 部署方式
+節點位置與多節點覆蓋區域不等於真實無人機座標。責任邊界與既有 Android 路徑見 [Architecture](docs/ARCHITECTURE.md)。
 
-在 Render 建立 Web Service，連接此 GitHub repository。
+## Local run
 
-Render 設定：
+建議 Python 3.11。JS 回歸測試使用 Node.js 20。以下使用本機 SQLite。完整命令與 PostgreSQL profile 見 [Local Development](docs/LOCAL_DEVELOPMENT.md)。
 
-```text
-Build Command:
-pip install -r requirements.txt
-
-Start Command:
-uvicorn main:app --host 0.0.0.0 --port $PORT
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
+.\.venv\Scripts\python.exe tools/run_local.py --port 8786
 ```
 
-環境變數建議設定：
+開啟 [本機 Dashboard](http://127.0.0.1:8786/dashboard)。`.local-runtime/` 包含本機憑證，不得加入 Git。未配置地圖時可用模擬相對座標圖；SQLite 不代表 PostgreSQL 完整驗證。
 
-```text
-UPLOAD_TOKEN=你的上傳 token
-```
+## Deployment
 
-如果沒有設定 `UPLOAD_TOKEN`，程式會暫時使用預設值：
-
-```text
-test-token-123
-```
+先建立自己的空庫與 runtime env，再建立 HTTPS／WSS Web Service。 [Deploy From Scratch](docs/DEPLOY_FROM_SCRATCH.md)
 
 ## API
 
-### GET /
+[API Contract](docs/API_CONTRACT.md) 包含事件、節點、固定位置、歷史軌跡與 HTTP／WSS 協定。Gateway 的 `POST /api/test-gateway` 是授權後的 JSON 連通性 echo，**不寫入事件 DB**，不能當作正式 ingest 或持久化 ACK。
 
-確認後端是否正常啟動。
+## Demo / Research status
 
-回傳範例：
+正式監控可展示節點、分類結果、事件、可用音訊證據、多節點事件群組、歷史軌跡、據點／警戒圈與 CSV。Simulation Lab 可展示自訂場景、Alpha-Beta、Kalman CV 比較、預測、ETA、警示與回放。
 
-```json
-{
-  "status": "ok",
-  "message": "Sound detector backend is running"
-}
-```
+**Simulation 是模擬；Kalman CV 僅作 comparison/shadow。正式 Demo 的 ETA／Approach／Alert 沿用既有 Alpha-Beta 邏輯，未完成實地驗證。** repo 雖有 TDOA 原型，尚未完成硬體同步與真實 acoustic TDOA 定位鏈路。
 
-### GET /health
+## Documentation
 
-確認線上服務目前是否正常。
-
-回傳範例：
-
-```json
-{
-  "status": "healthy",
-  "time": "2026-06-02T03:00:00+00:00"
-}
-```
-
-### POST /events
-
-接收 Android APP 上傳的聲音事件資料，並先寫入 SQLite 測試資料庫。
-
-Header 範例：
-
-```text
-x-upload-token: test-token-123
-```
-
-JSON 範例：
-
-```json
-{
-  "event_id": "event-001",
-  "device_id": "android-phone-01",
-  "timestamp": "2026-06-02T11:30:00+08:00",
-  "latitude": 25.033,
-  "longitude": 121.5654,
-  "duration_s": 1.25,
-  "rms_peak": 0.82,
-  "label": "loud_sound",
-  "audio_file_name": null,
-  "local_audio_path": null,
-  "note": "first test event"
-}
-```
-
-curl 測試：
-
-```bash
-curl -X POST "http://127.0.0.1:8000/events" \
-  -H "Content-Type: application/json" \
-  -H "x-upload-token: test-token-123" \
-  -d '{
-    "event_id": "event-001",
-    "device_id": "android-phone-01",
-    "timestamp": "2026-06-02T11:30:00+08:00",
-    "latitude": 25.033,
-    "longitude": 121.5654,
-    "duration_s": 1.25,
-    "rms_peak": 0.82,
-    "label": "loud_sound",
-    "audio_file_name": null,
-    "local_audio_path": null,
-    "note": "first test event"
-  }'
-```
-
-成功回傳範例：
-
-```json
-{
-  "status": "success",
-  "message": "Event received",
-  "event_id": "event-001",
-  "db_id": 1
-}
-```
-
-如果上傳驗證碼錯誤，會回傳 `401 Unauthorized`。
-
-### GET /events
-
-取得 SQLite 中最近 50 筆事件，方便測試。
-
-```bash
-curl "http://127.0.0.1:8000/events"
-```
+- [文件入口](docs/README.md)／[10 分鐘交接](docs/HANDOFF.md)
+- [Demo baseline](docs/DEMO_BASELINE_2026-11-07.md)／[部署與 rollback](docs/DEPLOYMENT.md)
+- [研究狀態](docs/RESEARCH_STATUS.md)／[測試方式](docs/TESTING.md)
+- [Repository inventory](docs/REPOSITORY_INVENTORY.md)
+- [Branch archive plan](docs/BRANCH_ARCHIVE_PLAN.md)／[Code archive plan](docs/CODE_ARCHIVE_PLAN.md)
+- [重建驗證結果](docs/REBUILD_VALIDATION.md)／[系統驗收表](docs/SYSTEM_ACCEPTANCE_CHECKLIST.md)
