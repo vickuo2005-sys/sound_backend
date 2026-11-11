@@ -10636,11 +10636,11 @@ async def create_gateway_event(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
 
     normalized_at_ms = utc_wall_time_ms()
-    normalized = normalize_gateway_event(
-        gateway_event,
-        normalized_at_ms=normalized_at_ms,
-    )
     try:
+        normalized = normalize_gateway_event(
+            gateway_event,
+            normalized_at_ms=normalized_at_ms,
+        )
         sound_event = SoundEvent(**normalized)
     except Exception as exc:
         logger.info(
