@@ -313,3 +313,21 @@ def test_demo_stable_hides_engineering_only_controls() -> None:
     assert "NOT FIELD VALIDATED" not in html
     assert "Exit simulation" not in html
     assert ">READY<" not in html
+
+
+def test_fusion_tracking_diagnostics_are_present_and_non_destructive() -> None:
+    html = render_dashboard_v2_4(
+        maps_api_key="",
+        experimental_motion_enabled=False,
+        simulation_enabled=True,
+        demo_stable_mode=True,
+    )
+
+    assert 'id="fusionTrackDiagnosticBody"' in html
+    assert 'id="fusionTrackDiagnosticBadge"' in html
+    assert "融合 / 軌跡診斷" in html
+    assert "data-diagnose-group" in html
+    assert "data-diagnose-track" in html
+    assert "innovation_gate_exceeded" in html
+    assert "speed_limit_exceeded" in html
+    assert "不代表真實無人機定位精度或場域驗證結果" in html
