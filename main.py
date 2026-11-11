@@ -9724,6 +9724,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
             "event_fusion",
             (monotonic() - fusion_started) * 1000.0,
         )
+        critical_mark("fusion_done")
 
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
@@ -10103,6 +10104,14 @@ async def runtime_status():
             pool, min_size=pool_min, max_size=pool_max
         )
     pending_jobs = latency_snapshot.get("pending_jobs", {})
+    active_jobs = latency_snapshot.get("active_jobs", {})
+    peak_active_jobs = latency_snapshot.get("peak_active_jobs", {})
+    post_ingest_stage = latency_snapshot.get("stages", {}).get("post_ingest_queue_wait", {})
+    post_ingest_active = int(active_jobs.get("post_ingest", 0) or 0)
+    post_ingest_pending = int(pending_jobs.get("post_ingest", 0) or 0)
+    post_ingest_saturation_ratio = (
+        post_ingest_active / POST_INGEST_WORKERS if POST_INGEST_WORKERS else 0.0
+    )
     active_write_requests = staging_active_write_request_count()
     event_bus_snapshot = event_driven_shadow.snapshot()
     if event_bus_snapshot is not None:
@@ -10125,6 +10134,14 @@ async def runtime_status():
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
         "device_status_workers": DEVICE_STATUS_WORKERS,
+        "post_ingest_executor": {
+            "workers": POST_INGEST_WORKERS,
+            "active": post_ingest_active,
+            "peak_active": int(peak_active_jobs.get("post_ingest", 0) or 0),
+            "queued": post_ingest_pending,
+            "saturation_ratio": round(post_ingest_saturation_ratio, 3),
+            "queue_wait_p95_ms": post_ingest_stage.get("p95_ms"),
+        },
         "postgres_pool_min": pool_min,
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
