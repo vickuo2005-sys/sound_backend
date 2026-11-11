@@ -87,6 +87,7 @@ from services.latency_diagnostics import latency_diagnostics
 from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
 from services.events import shadow as event_driven_shadow
 from services.events import redis_shadow
+from services.gateway_ingestion import GatewayEventV1, normalize_gateway_event
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -378,6 +379,9 @@ DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS = float(
 )
 FAST_EVENT_INGEST_ENABLED = (
     os.getenv("FAST_EVENT_INGEST_ENABLED", "true").lower() == "true"
+)
+GATEWAY_EVENT_V1_ENABLED = (
+    os.getenv("GATEWAY_EVENT_V1_ENABLED", "false").lower() == "true"
 )
 POST_INFERENCE_LATENCY_TRACING_ENABLED = (
     os.getenv("POST_INFERENCE_LATENCY_TRACING_ENABLED", "true").lower() == "true"
@@ -723,6 +727,8 @@ LATENCY_TRACE_TIMESTAMP_KEYS = {
     "metadata_enqueue_finished_at",
     "http_request_started_at",
     "http_response_received_at",
+    "gateway_received_at",
+    "gateway_normalized_at",
     "backend_received_at",
     "backend_received",
     "db_started_at",
@@ -10611,6 +10617,50 @@ def shadow_observation_metrics(
         ),
         "control_tracking": tracking_discard_metrics_snapshot(),
     }
+
+
+@app.post("/api/gateway/events")
+async def create_gateway_event(
+    gateway_event: GatewayEventV1,
+    response: Response,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    """Versioned Pi/Wi-SUN gateway ingestion boundary.
+
+    Disabled by default. The transport-specific payload is normalized into the
+    existing SoundEvent path so persistence, deduplication, Fusion, Tracking
+    and Dashboard behavior remain single-sourced.
+    """
+
+    if not GATEWAY_EVENT_V1_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+
+    normalized_at_ms = utc_wall_time_ms()
+    normalized = normalize_gateway_event(
+        gateway_event,
+        normalized_at_ms=normalized_at_ms,
+    )
+    try:
+        sound_event = SoundEvent(**normalized)
+    except Exception as exc:
+        logger.info(
+            "Gateway event normalization rejected gateway_id=%s node_id=%s event_id=%s",
+            gateway_event.gateway_id,
+            gateway_event.node_id,
+            gateway_event.event_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="gateway_event_normalization_failed",
+        ) from exc
+
+    result = await create_event(sound_event, response, upload_token)
+    if isinstance(result, dict):
+        result = dict(result)
+        result["ingestion_contract"] = gateway_event.schema_version
+        result["gateway_id"] = gateway_event.gateway_id
+        result["sequence"] = gateway_event.sequence
+    return result
 
 
 @app.post("/events")
