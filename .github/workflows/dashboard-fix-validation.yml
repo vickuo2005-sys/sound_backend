@@ -5,6 +5,7 @@ on:
     branches:
       - fix/dashboard-alert-map-latency
       - demo-stable-v1
+      - feat/fusion-tracking-diagnostics
   pull_request:
     branches:
       - feat/event-driven-redis-staging-shadow
