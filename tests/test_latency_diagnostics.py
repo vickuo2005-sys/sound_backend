@@ -25,6 +25,8 @@ def test_latency_diagnostics_percentiles_and_queue_state() -> None:
     assert queue["last_ms"] == 125.0
     assert snapshot["pending_jobs"]["post_ingest"] == 1
     assert snapshot["peak_pending_jobs"]["post_ingest"] == 2
+    assert snapshot["active_jobs"]["post_ingest"] == 0
+    assert snapshot["peak_active_jobs"]["post_ingest"] == 1
     diagnostics.job_cancelled("post_ingest")
     assert diagnostics.snapshot()["pending_jobs"]["post_ingest"] == 0
 
@@ -166,3 +168,40 @@ def test_fusion_transaction_commit_accounting_uses_fusion_commits_only():
     aggregate = diagnostics.snapshot()["stages"]
     assert aggregate["fusion_transaction_commit_ms"]["count"] == 1
     assert aggregate["fusion_transaction_commit_ms"]["p50_ms"] == 12
+
+
+def test_active_worker_accounting_tracks_saturation_without_mixing_queue_depth():
+    diagnostics = LatencyDiagnostics()
+    diagnostics.job_enqueued("post_ingest")
+    diagnostics.job_enqueued("post_ingest")
+    diagnostics.job_started("post_ingest", 10)
+    diagnostics.job_started("post_ingest", 20)
+
+    snapshot = diagnostics.snapshot()
+    assert snapshot["pending_jobs"]["post_ingest"] == 0
+    assert snapshot["active_jobs"]["post_ingest"] == 2
+    assert snapshot["peak_active_jobs"]["post_ingest"] == 2
+
+    diagnostics.job_finished("post_ingest", 100)
+    assert diagnostics.snapshot()["active_jobs"]["post_ingest"] == 1
+    diagnostics.job_finished("post_ingest", 200)
+    assert diagnostics.snapshot()["active_jobs"]["post_ingest"] == 0
+
+
+def test_critical_trace_derives_queue_processing_and_fusion_spans(monkeypatch):
+    diagnostics = LatencyDiagnostics()
+    ticks = iter([10.0, 10.1, 10.4, 10.5, 11.0])
+    monkeypatch.setattr("services.latency_diagnostics.monotonic", lambda: next(ticks))
+
+    trace = diagnostics.new_critical_trace("evt-critical")
+    diagnostics.critical_mark("post_ingest_enqueued", trace)
+    diagnostics.critical_mark("post_ingest_started", trace)
+    diagnostics.critical_mark("fusion_started", trace)
+    diagnostics.critical_mark("fusion_done", trace)
+    diagnostics.critical_mark("post_ingest_done", trace)
+    diagnostics.finish_critical_trace(trace)
+
+    stages = diagnostics.snapshot()["stages"]
+    assert stages["post_ingest_queue_critical"]["last_ms"] == pytest.approx(300)
+    assert stages["fusion_processing_critical"]["last_ms"] == pytest.approx(100)
+    assert stages["post_ingest_processing_critical"]["last_ms"] == pytest.approx(600)
