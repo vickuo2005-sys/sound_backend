@@ -190,7 +190,7 @@ def test_active_worker_accounting_tracks_saturation_without_mixing_queue_depth()
 
 def test_critical_trace_derives_queue_processing_and_fusion_spans(monkeypatch):
     diagnostics = LatencyDiagnostics()
-    ticks = iter([10.0, 10.1, 10.4, 10.5, 11.0])
+    ticks = iter([10.0, 10.1, 10.4, 10.5, 10.6, 11.0])
     monkeypatch.setattr("services.latency_diagnostics.monotonic", lambda: next(ticks))
 
     trace = diagnostics.new_critical_trace("evt-critical")
