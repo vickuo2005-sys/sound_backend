@@ -87,6 +87,7 @@ from services.latency_diagnostics import latency_diagnostics
 from services.latency_diagnostics import critical_trace, critical_mark, CountingCursor, CountingSQLiteConnection
 from services.events import shadow as event_driven_shadow
 from services.events import redis_shadow
+from services.gateway_ingestion import GatewayEventV1, normalize_gateway_event
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -378,6 +379,9 @@ DEVICE_FIXED_LOCATION_CACHE_TTL_SECONDS = float(
 )
 FAST_EVENT_INGEST_ENABLED = (
     os.getenv("FAST_EVENT_INGEST_ENABLED", "true").lower() == "true"
+)
+GATEWAY_EVENT_V1_ENABLED = (
+    os.getenv("GATEWAY_EVENT_V1_ENABLED", "false").lower() == "true"
 )
 POST_INFERENCE_LATENCY_TRACING_ENABLED = (
     os.getenv("POST_INFERENCE_LATENCY_TRACING_ENABLED", "true").lower() == "true"
@@ -723,6 +727,8 @@ LATENCY_TRACE_TIMESTAMP_KEYS = {
     "metadata_enqueue_finished_at",
     "http_request_started_at",
     "http_response_received_at",
+    "gateway_received_at",
+    "gateway_normalized_at",
     "backend_received_at",
     "backend_received",
     "db_started_at",
@@ -9718,6 +9724,7 @@ def process_event_post_ingest(event_id: str, label: Optional[str], is_existing_e
             "event_fusion",
             (monotonic() - fusion_started) * 1000.0,
         )
+        critical_mark("fusion_done")
 
     is_alert = is_alert_event_label(label)
     if event_group and is_alert and not is_existing_event:
@@ -10097,6 +10104,14 @@ async def runtime_status():
             pool, min_size=pool_min, max_size=pool_max
         )
     pending_jobs = latency_snapshot.get("pending_jobs", {})
+    active_jobs = latency_snapshot.get("active_jobs", {})
+    peak_active_jobs = latency_snapshot.get("peak_active_jobs", {})
+    post_ingest_stage = latency_snapshot.get("stages", {}).get("post_ingest_queue_wait", {})
+    post_ingest_active = int(active_jobs.get("post_ingest", 0) or 0)
+    post_ingest_pending = int(pending_jobs.get("post_ingest", 0) or 0)
+    post_ingest_saturation_ratio = (
+        post_ingest_active / POST_INGEST_WORKERS if POST_INGEST_WORKERS else 0.0
+    )
     active_write_requests = staging_active_write_request_count()
     event_bus_snapshot = event_driven_shadow.snapshot()
     if event_bus_snapshot is not None:
@@ -10119,6 +10134,14 @@ async def runtime_status():
         ],
         "post_ingest_workers": POST_INGEST_WORKERS,
         "device_status_workers": DEVICE_STATUS_WORKERS,
+        "post_ingest_executor": {
+            "workers": POST_INGEST_WORKERS,
+            "active": post_ingest_active,
+            "peak_active": int(peak_active_jobs.get("post_ingest", 0) or 0),
+            "queued": post_ingest_pending,
+            "saturation_ratio": round(post_ingest_saturation_ratio, 3),
+            "queue_wait_p95_ms": post_ingest_stage.get("p95_ms"),
+        },
         "postgres_pool_min": pool_min,
         "postgres_pool_max": pool_max,
         "latency_diagnostics": latency_snapshot,
@@ -10611,6 +10634,50 @@ def shadow_observation_metrics(
         ),
         "control_tracking": tracking_discard_metrics_snapshot(),
     }
+
+
+@app.post("/api/gateway/events")
+async def create_gateway_event(
+    gateway_event: GatewayEventV1,
+    response: Response,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    """Versioned Pi/Wi-SUN gateway ingestion boundary.
+
+    Disabled by default. The transport-specific payload is normalized into the
+    existing SoundEvent path so persistence, deduplication, Fusion, Tracking
+    and Dashboard behavior remain single-sourced.
+    """
+
+    if not GATEWAY_EVENT_V1_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+
+    normalized_at_ms = utc_wall_time_ms()
+    try:
+        normalized = normalize_gateway_event(
+            gateway_event,
+            normalized_at_ms=normalized_at_ms,
+        )
+        sound_event = SoundEvent(**normalized)
+    except Exception as exc:
+        logger.info(
+            "Gateway event normalization rejected gateway_id=%s node_id=%s event_id=%s",
+            gateway_event.gateway_id,
+            gateway_event.node_id,
+            gateway_event.event_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="gateway_event_normalization_failed",
+        ) from exc
+
+    result = await create_event(sound_event, response, upload_token)
+    if isinstance(result, dict):
+        result = dict(result)
+        result["ingestion_contract"] = gateway_event.schema_version
+        result["gateway_id"] = gateway_event.gateway_id
+        result["sequence"] = gateway_event.sequence
+    return result
 
 
 @app.post("/events")
