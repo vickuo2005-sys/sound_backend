@@ -48,6 +48,8 @@ class LatencyDiagnostics:
         self._samples: dict[str, deque[float]] = {}
         self._pending: dict[str, int] = {}
         self._peak_pending: dict[str, int] = {}
+        self._active: dict[str, int] = {}
+        self._peak_active: dict[str, int] = {}
         self._traces: deque[dict[str, Any]] = deque(maxlen=32)
         self._trace_local = threading.local()
         self._critical_traces: deque[dict[str, Any]] = deque(maxlen=32)
@@ -256,6 +258,9 @@ class LatencyDiagnostics:
                 ("first_position_backend", "backend_event_received", "websocket_event_group_sent"),
                 ("fusion_to_position", "fusion_started", "websocket_event_group_sent"),
                 ("tracking_followup", "tracking_started", "websocket_track_update_sent"),
+                ("post_ingest_queue_critical", "post_ingest_enqueued", "post_ingest_started"),
+                ("post_ingest_processing_critical", "post_ingest_started", "post_ingest_done"),
+                ("fusion_processing_critical", "fusion_started", "fusion_done"),
             ):
                 if name == end and start in times and times[end] >= times[start]:
                     self.record(stage, times[end] - times[start])
@@ -304,6 +309,9 @@ class LatencyDiagnostics:
         with self._lock:
             self.record(f"{key}_queue_wait", queue_wait_ms)
             self._pending[key] = max(0, self._pending.get(key, 0) - 1)
+            active = self._active.get(key, 0) + 1
+            self._active[key] = active
+            self._peak_active[key] = max(self._peak_active.get(key, 0), active)
 
     def job_cancelled(self, kind: str) -> None:
         key = str(kind or "unknown")
@@ -311,8 +319,11 @@ class LatencyDiagnostics:
             self._pending[key] = max(0, self._pending.get(key, 0) - 1)
 
     def job_finished(self, kind: str, duration_ms: float | None = None) -> None:
+        key = str(kind or "unknown")
         if duration_ms is not None:
-            self.record(f"{str(kind or 'unknown')}_worker", duration_ms)
+            self.record(f"{key}_worker", duration_ms)
+        with self._lock:
+            self._active[key] = max(0, self._active.get(key, 0) - 1)
 
     def _summary(self, values: list[float]) -> StageSummary:
         return StageSummary(
@@ -330,6 +341,8 @@ class LatencyDiagnostics:
             samples = {key: list(values) for key, values in self._samples.items() if values}
             pending = dict(self._pending)
             peak_pending = dict(self._peak_pending)
+            active = dict(self._active)
+            peak_active = dict(self._peak_active)
             traces = [dict(item, stages=dict(item["stages"])) for item in self._traces]
             pool_stats = dict(self._pool_stats)
             critical = deepcopy(list(self._critical_traces))
@@ -343,6 +356,8 @@ class LatencyDiagnostics:
             },
             "pending_jobs": pending,
             "peak_pending_jobs": peak_pending,
+            "active_jobs": active,
+            "peak_active_jobs": peak_active,
             "pool": pool_stats,
             "recent_traces": traces,
             "critical_path_traces": critical,
@@ -355,6 +370,8 @@ class LatencyDiagnostics:
             self._samples.clear()
             self._pending.clear()
             self._peak_pending.clear()
+            self._active.clear()
+            self._peak_active.clear()
             self._traces.clear()
             self._critical_traces.clear()
             self._critical_counts.clear()
