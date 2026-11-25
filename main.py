@@ -7126,30 +7126,41 @@ def delete_device_status_row(device_id: str) -> dict:
     if not normalized_device_id:
         raise HTTPException(status_code=400, detail="device_id is required")
 
-    deleted_location = delete_device_fixed_location(normalized_device_id)
+    if node_manager.get(normalized_device_id) is not None:
+        raise HTTPException(status_code=409, detail="Device is still connected")
+
+    def delete_rows(cursor, placeholder: str, lock_clause: str = "") -> tuple[bool, bool]:
+        identity = (normalized_device_id,)
+        cursor.execute(
+            f"SELECT last_seen, status FROM device_status WHERE device_id = {placeholder}{lock_clause}",
+            identity,
+        )
+        current = cursor.fetchone()
+        if current and status_from_last_seen(current["last_seen"], current["status"]).lower() in {
+            "online", "event", "connected", "listening",
+        }:
+            raise HTTPException(status_code=409, detail="Device is still online")
+
+        cursor.execute(f"DELETE FROM device_status WHERE device_id = {placeholder}", identity)
+        deleted_status = cursor.rowcount > 0
+        cursor.execute(f"DELETE FROM device_locations WHERE device_id = {placeholder}", identity)
+        return deleted_status, cursor.rowcount > 0
 
     if not use_postgres():
         with get_sqlite_connection() as connection:
-            cursor = connection.execute(
-                "DELETE FROM device_status WHERE device_id = ?",
-                (normalized_device_id,),
-            )
-            deleted_status = cursor.rowcount > 0
-            connection.commit()
+            connection.execute("BEGIN IMMEDIATE")
+            deleted_status, deleted_location = delete_rows(connection.cursor(), "?")
     else:
         connection = get_postgres_connection()
         try:
             with connection:
                 with connection.cursor() as cursor:
-                    cursor.execute(
-                        "DELETE FROM device_status WHERE device_id = %s",
-                        (normalized_device_id,),
-                    )
-                    deleted_status = cursor.rowcount > 0
+                    deleted_status, deleted_location = delete_rows(cursor, "%s", " FOR UPDATE")
         finally:
             connection.close()
 
     remove_device_status_cache_row(normalized_device_id)
+    invalidate_device_fixed_location_cache()
     return {
         "status": "success",
         "device_id": normalized_device_id,
@@ -11301,13 +11312,18 @@ async def delete_device_status(
     device_id: str,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
 ):
-    verify_dashboard_write_token(upload_token)
+    admin_token = os.getenv("DASHBOARD_ADMIN_TOKEN", "").strip()
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="Dashboard admin token is not configured")
+    if not upload_token or not secrets.compare_digest(upload_token.encode(), admin_token.encode()):
+        raise HTTPException(status_code=401, detail="Invalid dashboard admin token")
     result = delete_device_status_row(device_id)
-    await dashboard_manager.broadcast(
+    await safe_dashboard_broadcast(
         {
             "type": "device_status_deleted",
             "device_id": result["device_id"],
-        }
+        },
+        context="device status deletion",
     )
     return result
 
