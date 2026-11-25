@@ -91,3 +91,16 @@ def test_replayed_event_never_replaces_full_metadata(client):
             (event["event_id"],),
         ).fetchall()
     assert [(row["audio_path"], row["duration_s"]) for row in rows] == [("telemetry-test.mp3", 3)]
+
+
+def test_recent_telemetry_protects_a_node_from_removal(client, monkeypatch):
+    monkeypatch.setenv("DASHBOARD_ADMIN_TOKEN", "telemetry-admin-unit-test")
+    assert client.post("/telemetry/v1", json=packet(), headers=AUTH).status_code == 200
+
+    response = client.delete(
+        f"/device-status/{DEVICE}",
+        headers={"x-upload-token": "telemetry-admin-unit-test"},
+    )
+
+    assert response.status_code == 409
+    assert client.get(f"/telemetry/v1/latest/{DEVICE}", headers=AUTH).status_code == 200

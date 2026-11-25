@@ -570,6 +570,52 @@ def test_device_location_api_crud_allows_internal_dashboard_without_token(tmp_pa
     assert fallback_status["effective_location_source"] == "event_gps"
 
 
+def test_admin_removes_only_the_selected_offline_node(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(main, "DB_NAME", str(tmp_path / "node-removal.db"))
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("DASHBOARD_ADMIN_TOKEN", raising=False)
+    monkeypatch.setenv("DASHBOARD_WRITE_TOKEN_REQUIRED", "false")
+    monkeypatch.setenv("UPLOAD_TOKEN", "test-node-upload")
+    main.init_sqlite_db()
+    old = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    with main.get_sqlite_connection() as connection:
+        connection.executemany(
+            "INSERT INTO device_status (device_id, last_seen, status) VALUES (?, ?, ?)",
+            [("node_old", old, "online"), ("node_keep", old, "offline"), ("node_live", now, "online")],
+        )
+        insert_fixed_location(connection, "node_old", 25, 121)
+        insert_fixed_location(connection, "node_live", 26, 122)
+        insert_fixed_location(connection, "node_fixed_only", 27, 123)
+        connection.execute(
+            "INSERT INTO events (event_id, device_id, timestamp, audio_path) VALUES (?, ?, ?, ?)",
+            ("historical-event", "node_old", old, "historical.wav"),
+        )
+
+    client = TestClient(main.app)
+    route = "/device-status/node_old"
+    assert client.delete(route).status_code == 503
+    monkeypatch.setenv("DASHBOARD_ADMIN_TOKEN", "test-admin")
+    assert client.delete(route).status_code == 401
+    assert client.delete(route, headers={"x-upload-token": "test-node-upload"}).status_code == 401
+    headers = {"x-upload-token": "test-admin"}
+    assert client.delete("/device-status/node_live", headers=headers).status_code == 409
+    assert client.get("/device-locations/node_live").json()["has_fixed_location"] is True
+
+    removed = client.delete(route, headers=headers)
+    assert removed.status_code == 200
+    assert removed.json()["deleted_device_status"] is True
+    assert removed.json()["deleted_device_location"] is True
+    assert client.delete(route, headers=headers).json()["deleted"] is False
+    assert client.delete("/device-status/node_fixed_only", headers=headers).json()["deleted"] is True
+    devices = {row["device_id"] for row in client.get("/device-status").json()["devices"]}
+    assert devices == {"node_keep", "node_live"}
+    with main.get_sqlite_connection() as connection:
+        assert connection.execute(
+            "SELECT audio_path FROM events WHERE event_id = 'historical-event'"
+        ).fetchone()["audio_path"] == "historical.wav"
+
+
 def test_location_development_policy_is_scoped_to_staging(monkeypatch):
     monkeypatch.setenv('DASHBOARD_WRITE_TOKEN_REQUIRED', 'true')
     monkeypatch.setenv('UPLOAD_TOKEN', 'test-only-token')
