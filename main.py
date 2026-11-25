@@ -37,7 +37,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from google.cloud import storage
 from google.oauth2 import service_account
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.protocol import ProtocolError, build_envelope, parse_node_message
 from services.audio_evidence import read_audio_evidence
@@ -88,6 +88,7 @@ from services.latency_diagnostics import critical_trace, critical_mark, Counting
 from services.events import shadow as event_driven_shadow
 from services.events import redis_shadow
 from services.gateway_ingestion import GatewayEventV1, normalize_gateway_event
+from services.telemetry_v1 import LatestTelemetry, TelemetryV1, telemetry_timestamp
 from services.staging_write_freeze import (
     RouteClass,
     classify_route,
@@ -707,6 +708,9 @@ class DeviceFixedLocationUpsert(BaseModel):
     longitude: float
     location_source: str = "manual_map"
     accuracy_m: Optional[float] = None
+
+
+latest_telemetry = LatestTelemetry()
 
 
 def current_time_iso() -> str:
@@ -3169,6 +3173,7 @@ def upsert_event_sqlite_with_inserted(event: SoundEvent, created_at: str) -> tup
             (monotonic() - started) * 1000.0,
         )
         started = monotonic()
+        connection.execute("BEGIN IMMEDIATE")
         existing = connection.execute(
             "SELECT id FROM events WHERE event_id = ? LIMIT 1",
             (event.event_id,),
@@ -3224,6 +3229,58 @@ def save_event_with_inserted(event: SoundEvent, created_at: str) -> tuple[int, b
     if use_postgres():
         return upsert_event_postgres_with_inserted(event, created_at)
     return upsert_event_sqlite_with_inserted(event, created_at)
+
+
+def insert_event_without_overwriting(event: SoundEvent, created_at: str) -> tuple[int, bool]:
+    columns = event_write_columns()
+    values = event_values(event, created_at)
+
+    def find_existing(cursor, placeholder: str):
+        cursor.execute(
+            f"SELECT id, device_id FROM events WHERE event_id = {placeholder}",
+            (event.event_id,),
+        )
+        row = cursor.fetchone()
+        if row and row["device_id"] != event.device_id:
+            raise HTTPException(status_code=409, detail="event_id conflict")
+        return int(row["id"]) if row else None
+
+    def insert(cursor, placeholder: str) -> tuple[int, bool]:
+        placeholders = ", ".join([placeholder] * len(columns))
+        cursor.execute(
+            f"INSERT INTO events ({', '.join(columns)}) VALUES ({placeholders}) "
+            "ON CONFLICT (event_id) DO NOTHING RETURNING id",
+            values,
+        )
+        row = cursor.fetchone()
+        if row:
+            return int(row["id"]), True
+        event_id = find_existing(cursor, placeholder)
+        if event_id is None:
+            raise HTTPException(status_code=409, detail="event_id conflict")
+        return event_id, False
+
+    if not use_postgres():
+        with get_sqlite_connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.cursor()
+            existing = find_existing(cursor, "?")
+            if existing is not None:
+                return existing, False
+            placeholders = ", ".join(["?"] * len(columns))
+            cursor.execute(
+                f"INSERT INTO events ({', '.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+            return int(cursor.lastrowid), True
+
+    connection = get_postgres_connection()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                return insert(cursor, "%s")
+    finally:
+        connection.close()
 
 
 def update_event_audio_path(
@@ -7126,7 +7183,7 @@ def delete_device_status_row(device_id: str) -> dict:
     if not normalized_device_id:
         raise HTTPException(status_code=400, detail="device_id is required")
 
-    if node_manager.get(normalized_device_id) is not None:
+    if node_manager.get(normalized_device_id) is not None or normalized_device_id in latest_telemetry.snapshot():
         raise HTTPException(status_code=409, detail="Device is still connected")
 
     def delete_rows(cursor, placeholder: str, lock_clause: str = "") -> tuple[bool, bool]:
@@ -9661,7 +9718,7 @@ def fast_saved_event_payload(event: SoundEvent, db_id: int, created_at: str) -> 
     }
 
 
-def process_event_initial_submission(event: SoundEvent) -> dict:
+def process_event_initial_submission(event: SoundEvent, *, insert_only: bool = False) -> dict:
     created_at = current_time_iso()
     latency_trace = event.latency_trace if isinstance(event.latency_trace, dict) else {}
     db_started_monotonic = monotonic()
@@ -9671,7 +9728,8 @@ def process_event_initial_submission(event: SoundEvent) -> dict:
         latency_trace["db_start"] = db_started_at
     http_rtt_mark("S2_db_start")
     try:
-        db_id, inserted = save_event_with_inserted(event, created_at)
+        save = insert_event_without_overwriting if insert_only else save_event_with_inserted
+        db_id, inserted = save(event, created_at)
     finally:
         http_rtt_mark("S3_db_complete")
     db_duration_ms = (monotonic() - db_started_monotonic) * 1000.0
@@ -10718,6 +10776,8 @@ async def _create_event(
     event: SoundEvent,
     response: Response,
     upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+    *,
+    insert_only: bool = False,
 ):
     request_started_monotonic = monotonic()
     backend_received_at = utc_wall_time_ms()
@@ -10732,7 +10792,10 @@ async def _create_event(
         latency_trace["backend_received_at"] = backend_received_at
         latency_trace["backend_received"] = backend_received_at
     try:
-        result = await asyncio.to_thread(process_event_initial_submission, event)
+        if insert_only:
+            result = await asyncio.to_thread(process_event_initial_submission, event, insert_only=True)
+        else:
+            result = await asyncio.to_thread(process_event_initial_submission, event)
     except HTTPException:
         raise
     except Exception as exc:
@@ -10913,6 +10976,85 @@ async def _create_event(
             "ingest": round(ingest_duration_ms, 2),
         }
     return payload
+
+
+async def ingest_telemetry(packet: TelemetryV1, token: str | None) -> dict:
+    if packet.detected:
+        event_time = packet.event_time_ms
+        event = SoundEvent(
+            event_id=packet.event_id,
+            device_id=packet.device_id,
+            timestamp=telemetry_timestamp(event_time),
+            device_event_time_ms=event_time,
+            latitude=packet.latitude,
+            longitude=packet.longitude,
+            label=packet.label,
+            note=f"telemetry_v1 confidence={packet.confidence}" if packet.confidence is not None else "telemetry_v1",
+        )
+        await _create_event(event, Response(), token, insert_only=True)
+    latest_telemetry.record(packet)
+    return {
+        "status": "accepted",
+        "device_id": packet.device_id,
+        "sequence": packet.sequence,
+        "event_id": packet.event_id,
+    }
+
+
+@app.post("/telemetry/v1")
+async def http_telemetry(
+    packet: TelemetryV1,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+    return await ingest_telemetry(packet, upload_token)
+
+
+@app.get("/telemetry/v1/latest/{device_id}")
+def read_latest_telemetry(
+    device_id: str,
+    upload_token: Optional[str] = Header(default=None, alias="x-upload-token"),
+):
+    verify_upload_token(upload_token)
+    latest = latest_telemetry.snapshot().get(device_id)
+    if latest is None:
+        raise HTTPException(status_code=404, detail="No recent telemetry")
+    return latest[1].model_dump()
+
+
+@app.websocket("/ws/telemetry/v1")
+async def websocket_telemetry(websocket: WebSocket):
+    token = websocket.headers.get("x-upload-token")
+    try:
+        verify_upload_token(token)
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+    if staging_write_freeze_active():
+        await websocket.close(code=1013)
+        return
+
+    await websocket.accept()
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            if len(raw) > 8192:
+                await websocket.close(code=1009)
+                return
+            try:
+                packet = TelemetryV1.model_validate_json(raw)
+            except ValidationError:
+                await websocket.send_json({"status": "rejected", "code": 422})
+                continue
+            try:
+                reply = await ingest_telemetry(packet, token)
+            except HTTPException as error:
+                reply = {"status": "rejected", "code": error.status_code, "sequence": packet.sequence}
+            await websocket.send_json(reply)
+    except WebSocketDisconnect:
+        return
+    except KeyError:
+        await websocket.close(code=1003)
 
 
 @app.get("/target-estimates")
@@ -11289,6 +11431,21 @@ def device_status():
         devices = list_device_status_rows()
         devices = filter_diagnostic_device_rows(devices)
         devices = merge_device_status_rows_with_live_nodes(devices)
+        devices_by_id = {device["device_id"]: device for device in devices}
+        for device_id, (received_at, packet) in latest_telemetry.snapshot().items():
+            if is_diagnostic_device_id(device_id):
+                continue
+            device = devices_by_id.setdefault(device_id, {"device_id": device_id})
+            device["status"] = "online"
+            device["last_seen"] = received_at
+            device["gps_time_ms"] = packet.gps_time_ms
+            device["telemetry_sequence"] = packet.sequence
+            device["latitude"] = packet.latitude
+            device["longitude"] = packet.longitude
+            device["raw_latitude"] = packet.latitude
+            device["raw_longitude"] = packet.longitude
+            device["battery"] = packet.battery
+        devices = [devices_by_id[device_id] for device_id in sorted(devices_by_id)]
         devices = enrich_device_status_rows(devices)
         devices = dashboard_device_location_payloads(devices)
         devices = [serialize_node_for_dashboard(device) for device in devices]
