@@ -1,0 +1,3587 @@
+{
+  "columns": [
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "stream_id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 2,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "connection_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "codec",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "sample_rate_hz",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "channel_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "frame_duration_ms",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "started_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "stopped_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_frame_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "0",
+      "column_name": "received_frames",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "dropped_frames",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "sequence_gaps",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "out_of_order_frames",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "malformed_frames",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "bytes_received",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "subscriber_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "'ACTIVE'::text",
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "audio_stream_sessions",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "nextval('device_commands_id_seq'::regclass)",
+      "column_name": "id",
+      "data_type": "bigint",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "device_commands",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 2,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "command",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 3,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "value",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "'pending'::text",
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "issued_by",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "device_commands",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "executed_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "device_commands",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "ack_message",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "command_type",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "args_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "device_commands",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "issued_at_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "device_commands",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "expires_at_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "device_commands",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "idempotency_key",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "acked_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "device_commands",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "result_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "device_commands",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "result_message",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "delivery_channel",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "device_commands",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "0",
+      "column_name": "delivery_attempts",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "device_commands",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "device_connections",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 2,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "connection_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 3,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "1",
+      "column_name": "protocol_version",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "device_connections",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "connected_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "device_connections",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "last_heartbeat_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "device_connections",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "disconnected_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "device_connections",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "disconnect_reason",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "'ONLINE'::text",
+      "column_name": "availability_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "true",
+      "column_name": "websocket_connected",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "device_connections",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": "false",
+      "column_name": "recording",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "device_connections",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": "false",
+      "column_name": "detection_enabled",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "device_connections",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": "false",
+      "column_name": "streaming",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "device_connections",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "battery_percent",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "device_connections",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_available",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "device_connections",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "network_type",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "app_version",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "device_connections",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "0",
+      "column_name": "reconnect_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "device_connections",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "1",
+      "column_name": "generation",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "device_connections",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "device_connections",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "device_connections",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "device_locations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "latitude",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "ordinal_position": 2,
+      "table_name": "device_locations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "longitude",
+      "data_type": "double precision",
+      "is_nullable": "NO",
+      "ordinal_position": 3,
+      "table_name": "device_locations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "location_source",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 4,
+      "table_name": "device_locations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "accuracy_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "device_locations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "NO",
+      "ordinal_position": 6,
+      "table_name": "device_locations",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "NO",
+      "ordinal_position": 7,
+      "table_name": "device_locations",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "latitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "longitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "last_seen",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "'online'::text",
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "is_listening",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "device_status",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "upload_mode",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "battery",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "device_status",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "ai_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "backend_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "app_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_ai_label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_upload_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_event_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_event_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_command_id",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "device_status",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_offset_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_rtt_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_time_sync_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 22,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_speed_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 23,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_heading_deg",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 24,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_accuracy_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 25,
+      "table_name": "device_status",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "backend_http_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 26,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "node_websocket_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 27,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "metadata_upload_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 28,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_upload_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 29,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_upload_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 30,
+      "table_name": "device_status",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_location_upload_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 31,
+      "table_name": "device_status",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "event_group_observations",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "group_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "event_group_observations",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_db_id",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_timestamp",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "event_group_observations",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "latitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "longitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "ai_probability",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "aircraft_probability",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_path",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "event_group_observations",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "'fusion'::text",
+      "column_name": "observation_kind",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "weight",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "corrected_arrival_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_rtt_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "false",
+      "column_name": "tdoa_used",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "event_group_observations",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_residual_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "timing_version",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "event_group_observations",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "timing_source",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 22,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "capture_start_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 23,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_start_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 24,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_end_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 25,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 26,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "sample_rate_hz",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 27,
+      "table_name": "event_group_observations",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "channel_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 28,
+      "table_name": "event_group_observations",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_duration_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 29,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_event_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 30,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_end_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 31,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 32,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_format",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 33,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 34,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "source_pcm_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 35,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_encoding_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 36,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_path",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 37,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_format",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 38,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 39,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_start_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 40,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_end_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 41,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_peak_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 42,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_duration_ms",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 43,
+      "table_name": "event_group_observations",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_source",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 44,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_version",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 45,
+      "table_name": "event_group_observations",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_offset_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 46,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 47,
+      "table_name": "event_group_observations",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_synced_at_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 48,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_age_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 49,
+      "table_name": "event_group_observations",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "avg_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 50,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "peak_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 51,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_avg_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 52,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_peak_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 53,
+      "table_name": "event_group_observations",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "event_groups",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": "'fusion'::text",
+      "column_name": "group_kind",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "group_label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "'ACTIVE'::text",
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "first_event_time",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_event_time",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "start_time",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "end_time",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "0",
+      "column_name": "node_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "event_groups",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_method",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "method",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "confidence",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "uncertainty_radius_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_residual_rmse_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_node_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "event_groups",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 22,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_version",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 23,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "residual_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 24,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "geometry_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 25,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "reference_device_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 26,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_node_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 27,
+      "table_name": "event_groups",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "localized_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 28,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "region_type",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 29,
+      "table_name": "event_groups",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "region_center_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 30,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "region_center_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 31,
+      "table_name": "event_groups",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "region_geojson",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 32,
+      "table_name": "event_groups",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "reporting_node_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 33,
+      "table_name": "event_groups",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "reporting_device_ids",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 34,
+      "table_name": "event_groups",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "region_updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 35,
+      "table_name": "event_groups",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "nextval('events_id_seq'::regclass)",
+      "column_name": "id",
+      "data_type": "bigint",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_id",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 2,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "timestamp",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "latitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "longitude",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "duration_s",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "avg_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "peak_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_avg_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_peak_db",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_speed_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_heading_deg",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "gps_accuracy_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_file_name",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "local_audio_path",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_path",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_format",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "source_pcm_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 22,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_encoding_status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 23,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_path",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 24,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_format",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 25,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_size_bytes",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 26,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_start_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 27,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_end_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 28,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_peak_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 29,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_duration_ms",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 30,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "tdoa_clip_source",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 31,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "note",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 32,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "created_at",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 33,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "timing_version",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 34,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "timing_source",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 35,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "capture_start_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 36,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_start_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 37,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_end_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 38,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak_sample",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 39,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "sample_rate_hz",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 40,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "channel_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 41,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_event_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 42,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_start_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 43,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_end_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 44,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak_time_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 45,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "rms_peak_offset_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 46,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "sample_rate",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 47,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "audio_duration_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 48,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_version",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 49,
+      "table_name": "events",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_offset_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 50,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_rtt_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 51,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 52,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_synced_at_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 53,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "time_sync_age_ms",
+      "data_type": "bigint",
+      "is_nullable": "YES",
+      "ordinal_position": 54,
+      "table_name": "events",
+      "udt_name": "int8"
+    },
+    {
+      "column_default": null,
+      "column_name": "corrected_arrival_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 55,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "timing_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 56,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "classification_schema_version",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 57,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "model_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 58,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "model_version",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 59,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "model_label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 60,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "model_confidence",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 61,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "operational_class",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 62,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "aircraft_probability",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 63,
+      "table_name": "events",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "drone_subtype",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 64,
+      "table_name": "events",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "class_scores_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 65,
+      "table_name": "events",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "localization_pair_results",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_result_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "localization_pair_results",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "group_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "localization_pair_results",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_a",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 4,
+      "table_name": "localization_pair_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "device_b",
+      "data_type": "text",
+      "is_nullable": "NO",
+      "ordinal_position": 5,
+      "table_name": "localization_pair_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "lag_samples",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "localization_pair_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "lag_seconds",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "localization_pair_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "correlation_score",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "localization_pair_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "false",
+      "column_name": "accepted",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "localization_pair_results",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "rejection_reason",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "localization_pair_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "max_physical_lag_seconds",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "localization_pair_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "localization_pair_results",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "localization_results",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "group_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "localization_results",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "method",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "version",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "estimated_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "confidence",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "residual_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "uncertainty_radius_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "geometry_quality",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "reference_device_id",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "node_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "localization_results",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "event_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "localization_results",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "input_signature",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "localization_results",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "diagnostics_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "localization_results",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "localization_results",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "target_track_points",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "track_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "target_track_points",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "group_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "target_track_points",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "localization_result_id",
+      "data_type": "uuid",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "target_track_points",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "measurement_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "measured_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "measured_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "filtered_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "filtered_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "predicted_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "predicted_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "velocity_east_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "velocity_north_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "speed_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "heading_deg",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "uncertainty_radius_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "confidence",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "false",
+      "column_name": "rejected_as_outlier",
+      "data_type": "boolean",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "target_track_points",
+      "udt_name": "bool"
+    },
+    {
+      "column_default": null,
+      "column_name": "innovation_m",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 19,
+      "table_name": "target_track_points",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "state_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 20,
+      "table_name": "target_track_points",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "covariance_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 21,
+      "table_name": "target_track_points",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": null,
+      "column_name": "diagnostics_json",
+      "data_type": "jsonb",
+      "is_nullable": "YES",
+      "ordinal_position": 22,
+      "table_name": "target_track_points",
+      "udt_name": "jsonb"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 23,
+      "table_name": "target_track_points",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "gen_random_uuid()",
+      "column_name": "id",
+      "data_type": "uuid",
+      "is_nullable": "NO",
+      "ordinal_position": 1,
+      "table_name": "target_tracks",
+      "udt_name": "uuid"
+    },
+    {
+      "column_default": null,
+      "column_name": "label",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 2,
+      "table_name": "target_tracks",
+      "udt_name": "text"
+    },
+    {
+      "column_default": "'ACTIVE'::text",
+      "column_name": "status",
+      "data_type": "text",
+      "is_nullable": "YES",
+      "ordinal_position": 3,
+      "table_name": "target_tracks",
+      "udt_name": "text"
+    },
+    {
+      "column_default": null,
+      "column_name": "origin_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 4,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "origin_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 5,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "created_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 6,
+      "table_name": "target_tracks",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": "now()",
+      "column_name": "updated_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 7,
+      "table_name": "target_tracks",
+      "udt_name": "timestamptz"
+    },
+    {
+      "column_default": null,
+      "column_name": "first_event_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 8,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_event_time_ms",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 9,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": "0",
+      "column_name": "point_count",
+      "data_type": "integer",
+      "is_nullable": "YES",
+      "ordinal_position": 10,
+      "table_name": "target_tracks",
+      "udt_name": "int4"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_lat",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 11,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_lng",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 12,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_speed_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 13,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_heading_deg",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 14,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "last_confidence",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 15,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "velocity_east_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 16,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "velocity_north_mps",
+      "data_type": "double precision",
+      "is_nullable": "YES",
+      "ordinal_position": 17,
+      "table_name": "target_tracks",
+      "udt_name": "float8"
+    },
+    {
+      "column_default": null,
+      "column_name": "closed_at",
+      "data_type": "timestamp with time zone",
+      "is_nullable": "YES",
+      "ordinal_position": 18,
+      "table_name": "target_tracks",
+      "udt_name": "timestamptz"
+    }
+  ],
+  "constraints": [
+    {
+      "constraint_name": "audio_stream_sessions_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (stream_id)",
+      "schema_name": "public",
+      "table_name": "audio_stream_sessions"
+    },
+    {
+      "constraint_name": "device_commands_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "constraint_name": "device_connections_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "device_connections"
+    },
+    {
+      "constraint_name": "device_locations_accuracy_check",
+      "constraint_type": "CHECK",
+      "definition": "CHECK (((accuracy_m IS NULL) OR (accuracy_m >= (0)::double precision)))",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "constraint_name": "device_locations_latitude_range",
+      "constraint_type": "CHECK",
+      "definition": "CHECK (((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)))",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "constraint_name": "device_locations_longitude_range",
+      "constraint_type": "CHECK",
+      "definition": "CHECK (((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision)))",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "constraint_name": "device_locations_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (device_id)",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "constraint_name": "device_locations_source_check",
+      "constraint_type": "CHECK",
+      "definition": "CHECK ((location_source = ANY (ARRAY['manual_map'::text, 'current_gps'::text])))",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "constraint_name": "device_status_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (device_id)",
+      "schema_name": "public",
+      "table_name": "device_status"
+    },
+    {
+      "constraint_name": "event_group_observations_event_db_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (event_db_id) REFERENCES events(id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "constraint_name": "event_group_observations_event_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (event_id) REFERENCES events(event_id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "constraint_name": "event_group_observations_group_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (group_id) REFERENCES event_groups(id) ON DELETE CASCADE",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "constraint_name": "event_group_observations_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "constraint_name": "event_groups_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "constraint_name": "events_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "constraint_name": "localization_pair_results_group_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (group_id) REFERENCES event_groups(id) ON DELETE CASCADE",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "constraint_name": "localization_pair_results_localization_result_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (localization_result_id) REFERENCES localization_results(id) ON DELETE CASCADE",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "constraint_name": "localization_pair_results_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "constraint_name": "localization_results_group_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (group_id) REFERENCES event_groups(id) ON DELETE SET NULL",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "constraint_name": "localization_results_input_signature_key",
+      "constraint_type": "UNIQUE",
+      "definition": "UNIQUE (input_signature)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "constraint_name": "localization_results_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "constraint_name": "target_track_points_group_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (group_id) REFERENCES event_groups(id) ON DELETE SET NULL",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "constraint_name": "target_track_points_localization_result_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (localization_result_id) REFERENCES localization_results(id) ON DELETE SET NULL",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "constraint_name": "target_track_points_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "constraint_name": "target_track_points_track_id_fkey",
+      "constraint_type": "FOREIGN KEY",
+      "definition": "FOREIGN KEY (track_id) REFERENCES target_tracks(id) ON DELETE CASCADE",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "constraint_name": "target_tracks_pkey",
+      "constraint_type": "PRIMARY KEY",
+      "definition": "PRIMARY KEY (id)",
+      "schema_name": "public",
+      "table_name": "target_tracks"
+    }
+  ],
+  "extensions": [
+    {
+      "extname": "pg_stat_statements",
+      "extversion": "1.11",
+      "schema_name": "extensions"
+    },
+    {
+      "extname": "pgcrypto",
+      "extversion": "1.3",
+      "schema_name": "extensions"
+    },
+    {
+      "extname": "plpgsql",
+      "extversion": "1.0",
+      "schema_name": "pg_catalog"
+    },
+    {
+      "extname": "supabase_vault",
+      "extversion": "0.3.1",
+      "schema_name": "vault"
+    },
+    {
+      "extname": "uuid-ossp",
+      "extversion": "1.1",
+      "schema_name": "extensions"
+    }
+  ],
+  "functions": [],
+  "indexes": [
+    {
+      "index_name": "audio_stream_sessions_device_idx",
+      "indexdef": "CREATE INDEX audio_stream_sessions_device_idx ON public.audio_stream_sessions USING btree (device_id, started_at DESC)",
+      "schema_name": "public",
+      "table_name": "audio_stream_sessions"
+    },
+    {
+      "index_name": "audio_stream_sessions_pkey",
+      "indexdef": "CREATE UNIQUE INDEX audio_stream_sessions_pkey ON public.audio_stream_sessions USING btree (stream_id)",
+      "schema_name": "public",
+      "table_name": "audio_stream_sessions"
+    },
+    {
+      "index_name": "device_commands_idempotency_idx",
+      "indexdef": "CREATE UNIQUE INDEX device_commands_idempotency_idx ON public.device_commands USING btree (idempotency_key) WHERE (idempotency_key IS NOT NULL)",
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "index_name": "device_commands_pending_idx",
+      "indexdef": "CREATE INDEX device_commands_pending_idx ON public.device_commands USING btree (device_id, status, created_at)",
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "index_name": "device_commands_pkey",
+      "indexdef": "CREATE UNIQUE INDEX device_commands_pkey ON public.device_commands USING btree (id)",
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "index_name": "device_commands_status_idx",
+      "indexdef": "CREATE INDEX device_commands_status_idx ON public.device_commands USING btree (device_id, status, created_at DESC)",
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "index_name": "device_connections_device_idx",
+      "indexdef": "CREATE INDEX device_connections_device_idx ON public.device_connections USING btree (device_id, updated_at DESC)",
+      "schema_name": "public",
+      "table_name": "device_connections"
+    },
+    {
+      "index_name": "device_connections_live_connection_idx",
+      "indexdef": "CREATE UNIQUE INDEX device_connections_live_connection_idx ON public.device_connections USING btree (device_id, connection_id)",
+      "schema_name": "public",
+      "table_name": "device_connections"
+    },
+    {
+      "index_name": "device_connections_pkey",
+      "indexdef": "CREATE UNIQUE INDEX device_connections_pkey ON public.device_connections USING btree (id)",
+      "schema_name": "public",
+      "table_name": "device_connections"
+    },
+    {
+      "index_name": "device_locations_pkey",
+      "indexdef": "CREATE UNIQUE INDEX device_locations_pkey ON public.device_locations USING btree (device_id)",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "index_name": "device_locations_updated_at_idx",
+      "indexdef": "CREATE INDEX device_locations_updated_at_idx ON public.device_locations USING btree (updated_at DESC)",
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "index_name": "device_status_pkey",
+      "indexdef": "CREATE UNIQUE INDEX device_status_pkey ON public.device_status USING btree (device_id)",
+      "schema_name": "public",
+      "table_name": "device_status"
+    },
+    {
+      "index_name": "device_status_time_sync_quality_idx",
+      "indexdef": "CREATE INDEX device_status_time_sync_quality_idx ON public.device_status USING btree (time_sync_quality)",
+      "schema_name": "public",
+      "table_name": "device_status"
+    },
+    {
+      "index_name": "event_group_observations_clip_idx",
+      "indexdef": "CREATE INDEX event_group_observations_clip_idx ON public.event_group_observations USING btree (tdoa_clip_path) WHERE (tdoa_clip_path IS NOT NULL)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_corrected_arrival_time_ms_idx",
+      "indexdef": "CREATE INDEX event_group_observations_corrected_arrival_time_ms_idx ON public.event_group_observations USING btree (corrected_arrival_time_ms)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_device_event_time_ms_idx",
+      "indexdef": "CREATE INDEX event_group_observations_device_event_time_ms_idx ON public.event_group_observations USING btree (device_event_time_ms)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_device_idx",
+      "indexdef": "CREATE INDEX event_group_observations_device_idx ON public.event_group_observations USING btree (device_id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_event_id_idx",
+      "indexdef": "CREATE INDEX event_group_observations_event_id_idx ON public.event_group_observations USING btree (event_id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_fusion_event_id_key",
+      "indexdef": "CREATE UNIQUE INDEX event_group_observations_fusion_event_id_key ON public.event_group_observations USING btree (event_id) WHERE (observation_kind = 'fusion'::text)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_group_idx",
+      "indexdef": "CREATE INDEX event_group_observations_group_idx ON public.event_group_observations USING btree (group_id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_pkey",
+      "indexdef": "CREATE UNIQUE INDEX event_group_observations_pkey ON public.event_group_observations USING btree (id)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_timestamp_idx",
+      "indexdef": "CREATE INDEX event_group_observations_timestamp_idx ON public.event_group_observations USING btree (event_timestamp)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_group_observations_timing_source_idx",
+      "indexdef": "CREATE INDEX event_group_observations_timing_source_idx ON public.event_group_observations USING btree (timing_source)",
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "index_name": "event_groups_label_status_last_time_idx",
+      "indexdef": "CREATE INDEX event_groups_label_status_last_time_idx ON public.event_groups USING btree (label, status, last_event_time)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "index_name": "event_groups_pkey",
+      "indexdef": "CREATE UNIQUE INDEX event_groups_pkey ON public.event_groups USING btree (id)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "index_name": "event_groups_region_type_idx",
+      "indexdef": "CREATE INDEX event_groups_region_type_idx ON public.event_groups USING btree (region_type)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "index_name": "event_groups_region_updated_at_idx",
+      "indexdef": "CREATE INDEX event_groups_region_updated_at_idx ON public.event_groups USING btree (region_updated_at DESC)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "index_name": "event_groups_updated_at_idx",
+      "indexdef": "CREATE INDEX event_groups_updated_at_idx ON public.event_groups USING btree (updated_at DESC)",
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "index_name": "events_corrected_arrival_time_ms_idx",
+      "indexdef": "CREATE INDEX events_corrected_arrival_time_ms_idx ON public.events USING btree (corrected_arrival_time_ms)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_device_event_time_ms_idx",
+      "indexdef": "CREATE INDEX events_device_event_time_ms_idx ON public.events USING btree (device_event_time_ms)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_event_id_key",
+      "indexdef": "CREATE UNIQUE INDEX events_event_id_key ON public.events USING btree (event_id)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_gps_movement_idx",
+      "indexdef": "CREATE INDEX events_gps_movement_idx ON public.events USING btree (device_id, gps_speed_mps, gps_heading_deg)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_model_label_idx",
+      "indexdef": "CREATE INDEX events_model_label_idx ON public.events USING btree (model_label, id DESC) WHERE (model_label IS NOT NULL)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_operational_class_idx",
+      "indexdef": "CREATE INDEX events_operational_class_idx ON public.events USING btree (operational_class, id DESC) WHERE (operational_class IS NOT NULL)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_pkey",
+      "indexdef": "CREATE UNIQUE INDEX events_pkey ON public.events USING btree (id)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "events_timing_source_idx",
+      "indexdef": "CREATE INDEX events_timing_source_idx ON public.events USING btree (timing_source)",
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "index_name": "localization_pair_results_group_idx",
+      "indexdef": "CREATE INDEX localization_pair_results_group_idx ON public.localization_pair_results USING btree (group_id)",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "index_name": "localization_pair_results_pkey",
+      "indexdef": "CREATE UNIQUE INDEX localization_pair_results_pkey ON public.localization_pair_results USING btree (id)",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "index_name": "localization_pair_results_result_idx",
+      "indexdef": "CREATE INDEX localization_pair_results_result_idx ON public.localization_pair_results USING btree (localization_result_id)",
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "index_name": "localization_results_created_idx",
+      "indexdef": "CREATE INDEX localization_results_created_idx ON public.localization_results USING btree (created_at DESC)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "localization_results_group_idx",
+      "indexdef": "CREATE INDEX localization_results_group_idx ON public.localization_results USING btree (group_id)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "localization_results_input_signature_key",
+      "indexdef": "CREATE UNIQUE INDEX localization_results_input_signature_key ON public.localization_results USING btree (input_signature)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "localization_results_method_idx",
+      "indexdef": "CREATE INDEX localization_results_method_idx ON public.localization_results USING btree (method, status, created_at DESC)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "localization_results_pkey",
+      "indexdef": "CREATE UNIQUE INDEX localization_results_pkey ON public.localization_results USING btree (id)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "localization_results_signature_idx",
+      "indexdef": "CREATE UNIQUE INDEX localization_results_signature_idx ON public.localization_results USING btree (input_signature)",
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "index_name": "target_track_points_group_idx",
+      "indexdef": "CREATE INDEX target_track_points_group_idx ON public.target_track_points USING btree (group_id)",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "index_name": "target_track_points_pkey",
+      "indexdef": "CREATE UNIQUE INDEX target_track_points_pkey ON public.target_track_points USING btree (id)",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "index_name": "target_track_points_time_idx",
+      "indexdef": "CREATE INDEX target_track_points_time_idx ON public.target_track_points USING btree (measurement_time_ms DESC)",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "index_name": "target_track_points_track_idx",
+      "indexdef": "CREATE INDEX target_track_points_track_idx ON public.target_track_points USING btree (track_id, measurement_time_ms)",
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "index_name": "target_tracks_pkey",
+      "indexdef": "CREATE UNIQUE INDEX target_tracks_pkey ON public.target_tracks USING btree (id)",
+      "schema_name": "public",
+      "table_name": "target_tracks"
+    },
+    {
+      "index_name": "target_tracks_status_label_idx",
+      "indexdef": "CREATE INDEX target_tracks_status_label_idx ON public.target_tracks USING btree (status, label, updated_at DESC)",
+      "schema_name": "public",
+      "table_name": "target_tracks"
+    }
+  ],
+  "policies": [],
+  "schemas": [
+    {
+      "schema_name": "auth"
+    },
+    {
+      "schema_name": "extensions"
+    },
+    {
+      "schema_name": "graphql"
+    },
+    {
+      "schema_name": "graphql_public"
+    },
+    {
+      "schema_name": "public"
+    },
+    {
+      "schema_name": "realtime"
+    },
+    {
+      "schema_name": "storage"
+    },
+    {
+      "schema_name": "vault"
+    }
+  ],
+  "sequences": [
+    {
+      "cache_size": 1,
+      "cycle": false,
+      "increment_by": 1,
+      "last_value": null,
+      "schema_name": "public",
+      "sequence_name": "device_commands_id_seq",
+      "start_value": 1
+    },
+    {
+      "cache_size": 1,
+      "cycle": false,
+      "increment_by": 1,
+      "last_value": null,
+      "schema_name": "public",
+      "sequence_name": "events_id_seq",
+      "start_value": 1
+    }
+  ],
+  "server_version": {
+    "server_version": "17.6"
+  },
+  "tables": [
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "audio_stream_sessions"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "device_commands"
+    },
+    {
+      "estimated_rows": 1,
+      "relkind": "S",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "device_commands_id_seq"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "device_connections"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "device_locations"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "device_status"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "event_group_observations"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "event_groups"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "events"
+    },
+    {
+      "estimated_rows": 1,
+      "relkind": "S",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "events_id_seq"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "localization_pair_results"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "localization_results"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "target_track_points"
+    },
+    {
+      "estimated_rows": -1,
+      "relkind": "r",
+      "rls_enabled": false,
+      "rls_forced": false,
+      "schema_name": "public",
+      "table_name": "target_tracks"
+    }
+  ],
+  "triggers": []
+}

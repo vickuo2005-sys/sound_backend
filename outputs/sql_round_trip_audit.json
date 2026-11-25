@@ -1,0 +1,345 @@
+{
+  "unit": "per-event attempted cursor execute statements; executemany counts API calls; no SQL or bind payload retained",
+  "scope": "ingestion + inline post-ingest; excludes independent device-status worker and uncorrelated reorder emissions",
+  "db_round_trip_count": "NOT_MEASURED; implicit transaction protocol and server statements excluded",
+  "changes": [
+    {
+      "operation": "rollup payload devices + relative times",
+      "before_queries": 2,
+      "after_queries": 1,
+      "dialects": [
+        "SQLite",
+        "PostgreSQL"
+      ],
+      "semantics": "legacy overrides preserved, including empty device IDs on rollup only"
+    },
+    {
+      "operation": "PostgreSQL region save + group reload",
+      "before_queries": 2,
+      "after_queries": 1,
+      "method": "UPDATE RETURNING *",
+      "sqlite": "existing SELECT retained",
+      "local_postgresql_test": "PASS",
+      "Singapore_event_groups_user_triggers": 0
+    },
+    {
+      "operation": "stale-track point enrichment on ignored return-value caller",
+      "before_queries": "one per closed track",
+      "after_queries": 0,
+      "updates_preserved": true,
+      "other_callers": "default enrichment unchanged"
+    }
+  ],
+  "retained": [
+    "advisory lock",
+    "merge/cleanup order",
+    "candidate lookup priority/limit",
+    "fixed-location batched SELECT",
+    "track reload after point insert",
+    "full REST/WebSocket group payload"
+  ],
+  "join_applied": false,
+  "two_phase_broadcast_applied": false,
+  "per_scenario": {
+    "single_event": {
+      "before": {
+        "total": {
+          "n": 50,
+          "p50": 28.0,
+          "p95": 28.0,
+          "max": 28
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 19.0,
+          "p95": 19.0,
+          "max": 19
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after": {
+        "total": {
+          "n": 50,
+          "p50": 27.0,
+          "p95": 27.0,
+          "max": 27
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 18.0,
+          "p95": 18.0,
+          "max": 18
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "2_node_burst": {
+      "before": {
+        "total": {
+          "n": 100,
+          "p50": 34.0,
+          "p95": 46.0,
+          "max": 49
+        },
+        "fusion": {
+          "n": 100,
+          "p50": 19.0,
+          "p95": 39.0,
+          "max": 39
+        },
+        "tracking": {
+          "n": 100,
+          "p50": 7.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      },
+      "after": {
+        "total": {
+          "n": 100,
+          "p50": 33.0,
+          "p95": 46.0,
+          "max": 46
+        },
+        "fusion": {
+          "n": 100,
+          "p50": 18.0,
+          "p95": 36.0,
+          "max": 36
+        },
+        "tracking": {
+          "n": 100,
+          "p50": 8.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      }
+    },
+    "4_node_burst": {
+      "before": {
+        "total": {
+          "n": 200,
+          "p50": 27.5,
+          "p95": 49.0,
+          "max": 49
+        },
+        "fusion": {
+          "n": 200,
+          "p50": 17.0,
+          "p95": 39.0,
+          "max": 39
+        },
+        "tracking": {
+          "n": 200,
+          "p50": 7.0,
+          "p95": 12.0,
+          "max": 12
+        }
+      },
+      "after": {
+        "total": {
+          "n": 200,
+          "p50": 26.0,
+          "p95": 46.0,
+          "max": 46
+        },
+        "fusion": {
+          "n": 200,
+          "p50": 16.0,
+          "p95": 36.0,
+          "max": 36
+        },
+        "tracking": {
+          "n": 200,
+          "p50": 6.5,
+          "p95": 12.0,
+          "max": 12
+        }
+      }
+    },
+    "repeated_same_group": {
+      "before": {
+        "total": {
+          "n": 50,
+          "p50": 26.0,
+          "p95": 26.0,
+          "max": 26
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 17.0,
+          "p95": 17.0,
+          "max": 17
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after": {
+        "total": {
+          "n": 50,
+          "p50": 25.0,
+          "p95": 25.0,
+          "max": 25
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 16.0,
+          "p95": 16.0,
+          "max": 16
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "new_group": {
+      "before": {
+        "total": {
+          "n": 50,
+          "p50": 28.0,
+          "p95": 28.0,
+          "max": 28
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 19.0,
+          "p95": 19.0,
+          "max": 19
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after": {
+        "total": {
+          "n": 50,
+          "p50": 27.0,
+          "p95": 27.0,
+          "max": 27
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 18.0,
+          "p95": 18.0,
+          "max": 18
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    },
+    "merge_case": {
+      "before": {
+        "total": {
+          "n": 50,
+          "p50": 47.0,
+          "p95": 47.0,
+          "max": 47
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 37.0,
+          "p95": 37.0,
+          "max": 37
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 7.0,
+          "p95": 7.0,
+          "max": 7
+        }
+      },
+      "after": {
+        "total": {
+          "n": 50,
+          "p50": 44.0,
+          "p95": 44.0,
+          "max": 44
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 34.0,
+          "p95": 34.0,
+          "max": 34
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 7.0,
+          "p95": 7.0,
+          "max": 7
+        }
+      }
+    },
+    "tracking_update": {
+      "before": {
+        "total": {
+          "n": 50,
+          "p50": 26.0,
+          "p95": 26.0,
+          "max": 26
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 17.0,
+          "p95": 17.0,
+          "max": 17
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      },
+      "after": {
+        "total": {
+          "n": 50,
+          "p50": 25.0,
+          "p95": 25.0,
+          "max": 25
+        },
+        "fusion": {
+          "n": 50,
+          "p50": 16.0,
+          "p95": 16.0,
+          "max": 16
+        },
+        "tracking": {
+          "n": 50,
+          "p50": 6.0,
+          "p95": 6.0,
+          "max": 6
+        }
+      }
+    }
+  },
+  "rollup_unit_fixture": {
+    "legacy_queries": 8,
+    "SQLite_after": 7,
+    "PostgreSQL_after": 6,
+    "result_equivalence": "PASS"
+  }
+}

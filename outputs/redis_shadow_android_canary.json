@@ -1,0 +1,10 @@
+{
+  "status": "NOT_RUN",
+  "reason": "Four physical nodes unavailable, per user",
+  "target_events_min": 30,
+  "target_events_max": 50,
+  "actual_real_events": 0,
+  "comparable_shadow_off_baseline_available": false,
+  "performance_gate_established": false,
+  "ready_for_v2c": false
+}

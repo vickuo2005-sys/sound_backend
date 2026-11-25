@@ -1,0 +1,68 @@
+{
+  "staging": {
+    "captured_at_utc": "2026-09-09T02:30:41.257127+00:00",
+    "url": "https://sound-backend-staging.onrender.com",
+    "runtime": {
+      "status": "success",
+      "build": {
+        "render_git_commit": "d7aa87de16fcc72c225025a48f8ba0366c4465dc",
+        "render_git_branch": "feat/v2-4-dashboard-simulation",
+        "render_service_name": "sound-backend-staging",
+        "render_service_id": "srv-da6kdn61egvs7392r92g",
+        "runtime_marker": "archived-dashboard-alerts-15s-v12"
+      },
+      "database": "postgres",
+      "node_websocket_connections": 0,
+      "post_ingest_workers": 2,
+      "fast_event_ingest_enabled": true,
+      "post_inference_latency_tracing_enabled": true,
+      "staging_db_latency_probe_enabled": false,
+      "classification_v1_enabled": true,
+      "classification_v1_persistence_enabled": true,
+      "classification_v1_websocket_enabled": true,
+      "dashboard_v2_enabled": true,
+      "dashboard_v2_experimental_motion_enabled": false,
+      "dashboard_simulation_enabled": true,
+      "node_websocket_enabled": true,
+      "command_websocket_enabled": true,
+      "live_audio_enabled": false,
+      "motion_shadow_enabled": false,
+      "motion_field_telemetry_enabled": false,
+      "motion_outlier_speed_guard_enabled": false,
+      "dashboard_event_order_guard_enabled": true,
+      "tracking_enabled": true,
+      "tracking_reorder_buffer_enabled": false,
+      "observation_shadow_enabled": true,
+      "observation_tracking_enabled": true,
+      "localization_enabled": false,
+      "gcs_configured": false
+    }
+  },
+  "production": {
+    "captured_at_utc": "2026-09-09T02:31:12.546237+00:00",
+    "url": "https://sound-backend.onrender.com",
+    "runtime": {
+      "status": "success",
+      "build": {
+        "render_git_commit": "5babe2bafaffbb77b48d16a5e1675f202ae7286b",
+        "render_git_branch": "staging",
+        "render_service_name": "sound-backend",
+        "render_service_id": "srv-d8f572eq1p3s73dimgig",
+        "runtime_marker": "archived-dashboard-alerts-15s-v12"
+      },
+      "database": "postgres",
+      "node_websocket_connections": 0,
+      "post_ingest_workers": 2,
+      "fast_event_ingest_enabled": true,
+      "post_inference_latency_tracing_enabled": true,
+      "staging_db_latency_probe_enabled": false,
+      "dashboard_event_order_guard_enabled": true,
+      "tracking_enabled": true,
+      "tracking_reorder_buffer_enabled": false,
+      "observation_shadow_enabled": false,
+      "observation_tracking_enabled": false,
+      "localization_enabled": false,
+      "gcs_configured": true
+    }
+  }
+}

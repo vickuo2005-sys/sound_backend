@@ -13,9 +13,7 @@ Android AudioRecord PCM
   -> POST /events immediately for dashboard alert
   -> background smart audio pipeline
        -> full event WAV -> MP3 primary audio
-       -> rms_peak_sample +/- 1 second -> short PCM 16-bit WAV clip
        -> POST /upload-audio
-       -> POST /upload-tdoa-clip
        -> POST /events again with the same event_id to refresh audio metadata
 ```
 
@@ -30,15 +28,21 @@ The primary event audio is used for Dashboard playback and human review.
 - Format: MP3 when encoding succeeds.
 - Bitrate: 64 kbps CBR.
 - Channel: mono.
-- Fallback: original WAV when MP3 encoding fails.
-- GCS path: `audio/{drone|other}/{device_id}/{YYYYMMDD}/{event_id}.mp3|wav`
+- Fallback: none for current production nodes. If MP3 encoding fails, metadata
+  remains saved and the audio upload is retried/flagged instead of uploading WAV.
+- GCS path: `audio/{drone|other}/{device_id}/{YYYYMMDD}/{event_id}.mp3`
 
 MP3 is not used for timing, TDOA, GCC-PHAT, or AI. It is only a storage and
 playback artifact.
 
-## TDOA Clip
+## TDOA Clip Compatibility
 
-The short WAV clip is kept for future GCC-PHAT / cross-correlation work.
+Current production nodes no longer upload the short WAV clip because the system
+is not using WAV cross-correlation. The backend keeps nullable `tdoa_clip_*`
+fields and the legacy `/upload-tdoa-clip` endpoint so older records remain
+readable, but new app uploads should leave those fields empty.
+
+Historical V3.1b clip behavior was:
 
 - Source: original PCM WAV.
 - Center: `rms_peak_sample` when available.

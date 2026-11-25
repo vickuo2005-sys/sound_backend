@@ -1,0 +1,23 @@
+{
+  "status": "controlled_exact_json_measurement",
+  "observation": {
+    "legacy_bytes": 737,
+    "classification_v1_bytes": 1095,
+    "increase_bytes": 358,
+    "increase_percent": 48.5753
+  },
+  "event": {
+    "legacy_bytes": 175,
+    "classification_v1_bytes": 526,
+    "increase_bytes": 351,
+    "increase_percent": 200.5714
+  },
+  "observation_overhead_at_1_5_second_hop": {
+    "per_node_bytes_per_second": 238.6667,
+    "per_node_kilobits_per_second": 1.9093,
+    "nodes_1_mib_per_hour": 0.8194,
+    "nodes_2_mib_per_hour": 1.6388,
+    "nodes_4_mib_per_hour": 3.2776
+  },
+  "audio_bandwidth_included": false
+}

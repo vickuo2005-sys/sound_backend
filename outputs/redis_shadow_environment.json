@@ -1,0 +1,30 @@
+{
+  "provider": "Render",
+  "product": "managed Key Value / Valkey",
+  "service_name": "sound-backend-staging-shadow-v2b",
+  "service_id": "red-db0vpj2d0e5s73debji0",
+  "region": "Singapore",
+  "provider_ui_version": "Valkey 8.1.10",
+  "redis_info_compatibility_version": "7.2.4",
+  "tls": {
+    "required": true,
+    "certificate_validation": "redis-py default CERT_REQUIRED",
+    "verified_connection_from": "Render staging runtime"
+  },
+  "authentication": "provider password in REDIS_SHADOW_URL Render secret",
+  "endpoint_type": "external authenticated rediss",
+  "network_path": "Render Singapore public TLS endpoint, same region; private plaintext not used",
+  "allowed_cidrs": [
+    "74.220.52.0/24",
+    "74.220.60.0/24"
+  ],
+  "cidr_scope": "shared Render Singapore egress; authentication still mandatory",
+  "max_memory_mb": 25,
+  "connections_limit": 50,
+  "eviction_policy": "noeviction",
+  "persistence": "OFF (Free tier)",
+  "tier_price_usd_month": 0,
+  "idle_memory_observed_bytes": 786232,
+  "observed_at": "2026-10-05T09:23:18.276270+00:00",
+  "production_shared": false
+}

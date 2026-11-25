@@ -1,0 +1,68 @@
+{
+  "status": "partial_pass",
+  "flutter_head": "5c2b951506d0131721ccd21225f4d802ea077fbd",
+  "apk": {
+    "package": "com.example.sound_detector_clean.staging",
+    "version": "1.0.2-staging",
+    "size_bytes": 186369035,
+    "sha256": "8f6a32ffac995e434ada5b7a3ca26deb5e5feb464a8c02f78b1d88ffe8c5a53e"
+  },
+  "android_device_count": 1,
+  "complete_inference_samples": 51,
+  "contract_valid_samples": 51,
+  "model_output_counts": {
+    "Airplane": 0,
+    "Car": 0,
+    "Drone": 11,
+    "Electric_saw": 40,
+    "Rainfall": 0
+  },
+  "field_transport_roundtrip_classes": [
+    "Drone"
+  ],
+  "android_inference_only_classes": [
+    "Electric_saw"
+  ],
+  "not_validated_classes": [
+    "Airplane",
+    "Car",
+    "Rainfall"
+  ],
+  "source_ground_truth_caveat": "Speaker playback was described as airplane audio, but the model emitted Drone and Electric_saw only; no Airplane claim is made.",
+  "contract_checks": {
+    "five_keys": "51/51",
+    "finite_scores": "51/51",
+    "top_label_equals_argmax": "51/51",
+    "confidence_equals_top_score": "51/51",
+    "aircraft_probability_equals_airplane_plus_drone": "51/51",
+    "drone_subtype_null": "51/51"
+  },
+  "normal_network": {
+    "target_observations": 2,
+    "http_202": 2,
+    "final_queue_depth": 0
+  },
+  "offline_retry": {
+    "queued": 7,
+    "http_202": 7,
+    "final_queue_depth": 0,
+    "directly_joined_exact_samples": 1,
+    "identity_and_classification_unchanged": true,
+    "classification_sha256": "68057321eed53a32ba98ab0bf9bb179dddc9240dc3cad9ae2d7991fd440e00d3",
+    "expired": 0,
+    "overflow": 0,
+    "permanent_failure": 0
+  },
+  "app_restart_retry": {
+    "restored_queue_depth": 6,
+    "http_202": 6,
+    "final_queue_depth": 0,
+    "directly_joined_exact_samples": 1,
+    "identity_and_classification_unchanged": true,
+    "classification_sha256": "e362d3065b70b420b75a7c3365dd37b75e6ff6324fecdeeeba34f72dd38ff8d7",
+    "expired": 0,
+    "overflow": 0,
+    "permanent_failure": 0,
+    "telemetry_counter_caveat": "observation_recovered_after_restart_total remained zero despite functional restoration; session-local raw_to_upload_loss_count became negative while draining restored rows"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "baseline_commit": "c57c0260ecdaee5f3d514e184a75bd929092ab8a",
+  "working_tree_clean_before_start": true,
+  "v1_report_exists": true,
+  "python": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "16",
+    "tests": "397",
+    "time": "5.368",
+    "timestamp": "2026-10-04T14:44:33.536068+08:00",
+    "hostname": "LAPTOP-NQ89NMR9"
+  },
+  "postgres_local": {
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0
+  },
+  "js": [
+    {
+      "file": "test_critical_path.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_audio_analysis.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_audio_viewer.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_context_loading.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_context.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_event_sync.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_history_replay.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_latency.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_live_prediction.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_location_picker.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_location_sync.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_map_visuals.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_node_geometry.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_operations.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_overview.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_eta.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_lab_controls.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_lab.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_prediction.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_simulation_tracker.js",
+      "exit_code": 0
+    },
+    {
+      "file": "test_dashboard_status.js",
+      "exit_code": 0
+    }
+  ],
+  "inline_js_exit_codes": [
+    0,
+    0
+  ],
+  "compileall": true,
+  "diff_check": true
+}

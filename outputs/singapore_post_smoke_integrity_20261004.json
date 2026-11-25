@@ -1,0 +1,14 @@
+{
+  "Tokyo": {
+    "tls": true,
+    "fk_orphan_count": 0,
+    "event_count": 375,
+    "events_sequence": 532
+  },
+  "Singapore": {
+    "tls": true,
+    "fk_orphan_count": 0,
+    "event_count": 376,
+    "events_sequence": 533
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "status": "inconclusive",
+  "reason": "Only one real joined diagnostic event was collected; the required sample count is 50",
+  "count": 1,
+  "p50": null,
+  "p95": null,
+  "p99": null,
+  "max": null,
+  "diagnostic_sample_ms": {
+    "ai_finish_to_http_start": 10.775,
+    "http_rtt": 950.311,
+    "server_db": 540.38,
+    "server_ingest": 543.15,
+    "server_non_db": 2.77
+  },
+  "browser_ws_to_render": null,
+  "ai_to_final_render": null
+}

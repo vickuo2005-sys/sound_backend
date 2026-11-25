@@ -1,0 +1,27 @@
+{
+  "redis_version": "7.2.10",
+  "client_version": "6.4.0",
+  "host_mode": "local Windows Cygwin community Redis port (not official Linux binary)",
+  "binary_release": "https://github.com/redis-windows/redis-windows/releases/tag/7.2.10",
+  "archive_sha256": "15f13366dab1f302a78acf82770bcc4d6379310ae32bee597f6c667dc9ea4020",
+  "bind": "127.0.0.1",
+  "tls": false,
+  "authentication": "loopback isolated test only",
+  "persistence": "AOF appendfsync always",
+  "memory_limit_bytes": 134217728,
+  "eviction_policy": "noeviction",
+  "ping": true,
+  "started": {
+    "utc": "2026-10-04T06:50:53.113757+00:00",
+    "monotonic_ns": 811241106488800
+  },
+  "required_commands_supported": {
+    "XADD": true,
+    "XREADGROUP": true,
+    "XGROUP": true,
+    "XACK": true,
+    "XPENDING": true,
+    "XAUTOCLAIM": true,
+    "XCLAIM": true
+  }
+}

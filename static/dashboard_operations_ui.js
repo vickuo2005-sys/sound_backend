@@ -1,0 +1,262 @@
+(function() {
+    'use strict';
+    const O=DashboardOperations;
+    const el=id=>document.getElementById(id);
+    let config=null, seen=new Set(), entries=new O.Entries(), alerts=[], focused=null, noticeUntil=0;
+    const estimator=new DashboardLivePrediction.LiveEstimator();
+    let assessmentsById=new Map();
+    let targetMarker=null, siteMarker=null, zoneCircle=null;
+    let historyMap=null, historyLine=null, historyMarker=null, replay=null, request=0, animation=null, currentTarget=null;
+    let historyOverlays=[],historyFrameKey=null;
+    try { config=O.site(JSON.parse(localStorage.getItem('sound-dashboard-site-v1'))); } catch(_) {}
+    const panel=document.createElement('article');panel.id='operationalTarget';panel.className='card';panel.hidden=true;
+    document.querySelector('.overview-summary').prepend(panel);
+    const banner=document.createElement('button');banner.id='targetNotice';banner.className='target-notice';banner.hidden=true;
+    banner.setAttribute('aria-live','polite');banner.onclick=()=>{banner.hidden=true;noticeUntil=0;switchView('dashboard');};document.body.append(banner);
+    const dialog=document.createElement('dialog');dialog.id='zoneAlert';dialog.setAttribute('aria-labelledby','zoneAlertTitle');
+    dialog.innerHTML='<h2 id="zoneAlertTitle">目標估測進入警戒區</h2><div id="zoneAlertBody"></div><p>此警告依目標定位估測與不確定範圍產生。</p><button id="ackZoneAlert" class="action-button primary">確認警告</button>';
+    document.body.append(dialog);
+    function showAlert() {
+        if(document.getElementById('view-simulation')?.classList.contains('active'))return;
+        if(!alerts.length){if(dialog.open)dialog.close();return;}
+        const a=alerts[0];el('zoneAlertBody').textContent=`據點：${a.site}；目標：${a.id}；首次觀測於區內：${new Date(a.time).toLocaleString('zh-TW')}。待確認 ${alerts.length} 則。`;
+        if(!dialog.open)dialog.showModal();
+    }
+    function acknowledge(){alerts.shift();showAlert();}
+    el('ackZoneAlert').onclick=acknowledge;dialog.addEventListener('cancel',event=>{event.preventDefault();acknowledge();});
+    const siteCard=document.createElement('article');siteCard.id='siteSettingsCard';siteCard.className='card';
+    siteCard.innerHTML='<div class="card-body"><h2>據點與警戒區</h2><p id="siteSummary"></p><button id="openSitePicker" class="action-button primary">設定據點位置</button></div>';
+    document.querySelector('.overview-summary').append(siteCard);
+    const siteDialog=document.createElement('dialog');siteDialog.id='siteLocationDialog';siteDialog.setAttribute('aria-labelledby','sitePickerTitle');
+    siteDialog.innerHTML='<div class="card-header"><h2 id="sitePickerTitle">設定據點位置</h2><button id="closeSitePicker" class="action-button" aria-label="關閉據點設定">關閉</button></div><div class="site-picker-layout"><div><div id="sitePickerMap" role="application" aria-label="點擊地圖設定據點位置"></div><p id="sitePickerHint" role="status">點擊地圖選擇據點，也可以拖曳標記微調。</p></div><form id="siteForm" class="card-body"><p>據點儲存於此瀏覽器，獨立於手機節點位置。</p><label>據點名稱<input name="name" required maxlength="60"></label><label>緯度<input name="lat" type="number" min="-85" max="85" step="any" required></label><label>經度<input name="lng" type="number" min="-180" max="180" step="any" required></label><label>警戒半徑（公尺）<input name="radius" type="number" min="1" max="10000" required></label><label>抵達據點範圍（公尺）<input name="arrivalRadius" type="number" min="1" max="10000" required></label><p id="siteMessage" role="status"></p><button class="action-button primary" type="submit">儲存設定</button> <button id="clearSite" class="action-button" type="button">清除設定</button></form></div>';
+    document.body.append(siteDialog);
+    const form=el('siteForm');
+    let pickerMap=null,pickerMarker=null,pickerCircle=null,pickerListeners=[];
+    function siteMarkerIcon() {
+        const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">\n            <circle cx="22" cy="22" r="18" fill="#0f1f33" stroke="#ffffff" stroke-width="2.5"/>\n            <circle cx="22" cy="22" r="11" fill="#fb923c" fill-opacity=".18" stroke="#fb923c" stroke-width="2"/>\n            <circle cx="22" cy="22" r="3.5" fill="#fb923c"/>\n            <path d="M22 8v7M22 29v7M8 22h7M29 22h7" stroke="#fb923c" stroke-width="2.4" stroke-linecap="round"/>\n        </svg>`;
+        return {url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg),scaledSize:new google.maps.Size(44,44),anchor:new google.maps.Point(22,22)};
+    }
+    function summarySite(){el('siteSummary').textContent=config?`${config.name} · 警戒 ${config.radius} m · 抵達範圍 ${config.arrivalRadius} m`:'尚未設定。點選地圖位置，建立據點與警戒範圍。';}
+    function fillSite(){const values=config||{name:'主要據點',lat:'',lng:'',radius:150,arrivalRadius:20};for(const key of ['name','lat','lng','radius','arrivalRadius'])form.elements[key].value=values[key];}
+    function clearPicker(){pickerListeners.forEach(l=>l.remove());pickerListeners=[];pickerMarker?.setMap(null);pickerCircle?.setMap(null);pickerMap=null;pickerMarker=null;pickerCircle=null;el('sitePickerMap').replaceChildren();}
+    function syncPicker(){
+        if(!pickerMap)return;
+        const lat=form.elements.lat.value.trim(),lng=form.elements.lng.value.trim();
+        const position=lat&&lng?O.coordinate(Number(lat),Number(lng)):null;
+        if(!position){pickerMarker?.setMap(null);pickerCircle?.setMap(null);return;}
+        if(!pickerMarker){pickerMarker=new google.maps.Marker({map:pickerMap,position,draggable:true,icon:siteMarkerIcon(),title:'據點預覽（尚未儲存）'});pickerListeners.push(pickerMarker.addListener('dragend',e=>pickSite(e.latLng)));}
+        else{pickerMarker.setMap(pickerMap);pickerMarker.setPosition(position);}
+        const radius=Number(form.elements.radius.value);
+        if(radius>0 && radius<=10000){
+            if(!pickerCircle)pickerCircle=new google.maps.Circle({map:pickerMap,strokeColor:'#FB7185',strokeWeight:2,fillColor:'#FB7185',fillOpacity:.10,clickable:false});
+            pickerCircle.setMap(pickerMap);pickerCircle.setCenter(position);pickerCircle.setRadius(radius);
+        }else pickerCircle?.setMap(null);
+    }
+    function pickSite(latLng){
+        if(!latLng)return;const position=O.coordinate(latLng.lat(),latLng.lng());if(!position)return;
+        form.elements.lat.value=position.lat.toFixed(6);form.elements.lng.value=position.lng.toFixed(6);syncPicker();
+        el('sitePickerHint').textContent='已選擇據點位置，可拖曳微調；按「儲存設定」才會套用。';
+    }
+    function openSitePicker(){
+        fillSite();el('siteMessage').textContent='';clearPicker();siteDialog.showModal();
+        if(!window.google?.maps || mapsLoadFailed){el('sitePickerHint').textContent='Google 地圖未載入，仍可手動輸入經緯度設定據點。';return;}
+        const center=config?{lat:config.lat,lng:config.lng}:map?.getCenter()?.toJSON() || {lat:25.033,lng:121.565};
+        pickerMap=new google.maps.Map(el('sitePickerMap'),{center,zoom:16,mapTypeControl:false,streetViewControl:false,fullscreenControl:false,clickableIcons:false,gestureHandling:'cooperative'});
+        pickerListeners.push(pickerMap.addListener('click',e=>pickSite(e.latLng)));syncPicker();
+        el('sitePickerHint').textContent='點擊地圖選擇據點，也可以拖曳標記微調。';
+    }
+    summarySite();el('openSitePicker').onclick=openSitePicker;el('closeSitePicker').onclick=()=>siteDialog.close();siteDialog.addEventListener('close',clearPicker);
+    ['lat','lng','radius'].forEach(key=>form.elements[key].addEventListener('input',syncPicker));
+    form.onsubmit=event=>{
+        event.preventDefault();const data=Object.fromEntries(new FormData(form));
+        const next=O.site({name:data.name.trim(),lat:Number(data.lat),lng:Number(data.lng),radius:Number(data.radius),arrivalRadius:Number(data.arrivalRadius)});
+        if(!next){el('siteMessage').textContent='請輸入有效座標，抵達範圍須小於或等於警戒半徑。';return;}
+        try {localStorage.setItem('sound-dashboard-site-v1',JSON.stringify(next));config=next;entries=new O.Entries();summarySite();siteDialog.close();showToast('據點位置與警戒範圍已儲存');render();}
+        catch(_){el('siteMessage').textContent='瀏覽器無法儲存設定，請允許此網站使用儲存空間。';}
+    };
+    el('clearSite').onclick=()=>{try{localStorage.removeItem('sound-dashboard-site-v1');}catch(_){}config=null;entries=new O.Entries();summarySite();siteDialog.close();render();};
+    function setOverlayVisible(overlay,visible) {
+        if(!overlay)return;
+        const currentMap=overlay.getMap?.() ?? null;
+        const desired=visible?map:null;
+        if(currentMap!==desired)overlay.setMap(desired);
+    }
+    function mapObjects(target) {
+        currentTarget=target;
+        const operationalVisible=!simulationIsVisible();
+        if(!map || !window.google?.maps){
+            if(operationalVisible)renderCoordinateFallback();
+            return;
+        }
+
+        if(config){
+            const position={lat:config.lat,lng:config.lng};
+            const siteKey=JSON.stringify([position.lat,position.lng,config.name]);
+            const siteOptions={map:operationalVisible?map:null,position,title:config.name,icon:siteMarkerIcon(),zIndex:35};
+            if(!siteMarker){
+                siteMarker=new google.maps.Marker(siteOptions);
+                siteMarker.__dashboardRenderKey=siteKey;
+            }else if(siteMarker.__dashboardRenderKey!==siteKey){
+                siteMarker.setOptions(siteOptions);
+                siteMarker.__dashboardRenderKey=siteKey;
+            }else setOverlayVisible(siteMarker,operationalVisible);
+
+            const zoneKey=JSON.stringify([position.lat,position.lng,config.radius]);
+            const zoneOptions={map:operationalVisible?map:null,center:position,radius:config.radius,strokeColor:'#ef4444',strokeOpacity:.8,strokeWeight:2,fillColor:'#ef4444',fillOpacity:.09,clickable:false};
+            if(!zoneCircle){
+                zoneCircle=new google.maps.Circle(zoneOptions);
+                zoneCircle.__dashboardRenderKey=zoneKey;
+            }else if(zoneCircle.__dashboardRenderKey!==zoneKey){
+                zoneCircle.setOptions(zoneOptions);
+                zoneCircle.__dashboardRenderKey=zoneKey;
+            }else setOverlayVisible(zoneCircle,operationalVisible);
+        }else{
+            if(siteMarker){siteMarker.setMap(null);siteMarker=null;}
+            if(zoneCircle){zoneCircle.setMap(null);zoneCircle=null;}
+        }
+
+        // Live UAV ownership belongs to the main operational map renderer.
+        // This module owns only the fixed site and protected radius so duplicate
+        // target markers cannot fight each other during WebSocket updates.
+        if(targetMarker){targetMarker.setMap(null);targetMarker=null;}
+    }
+    function render() {
+        const now=Date.now();
+        const inLab=document.getElementById('view-simulation')?.classList.contains('active');
+        if(!inLab && alerts.length)showAlert();
+        const detections=state.events.filter(e=>isLiveTargetLabel(classLabel(e)) && now-eventTime(e)>=-2000 && now-eventTime(e)<120000);
+        const tracks=[...state.tracks.values()].filter(t=>isLiveTargetLabel(t.label));
+        estimator.prune(new Set(tracks.map(t=>String(t.id??t.track_id))));
+        const assessments=tracks.map(t=>estimator.assess(t,config,now,state.runtime?.localization_enabled===true,experimentalMotionEnabled));
+        assessmentsById=new Map(assessments.map(a=>[a.id,a]));
+        const valid=assessments.filter(a=>a.position).sort((a,b)=>(b.status==='inside')-(a.status==='inside') || b.time-a.time);
+        const newest=detections[0];
+        for(const d of detections.filter(e=>now-eventTime(e)<15000)) {
+            if(!seen.has(d.event_id)){seen.add(d.event_id);banner.textContent='偵測到目標聲音，點此查看即時資訊';banner.hidden=false;noticeUntil=now+8000;}
+        }
+        // Keep memory bounded without re-announcing records still in the active window.
+        if(seen.size>1000)seen=new Set(detections.map(d=>d.event_id));
+        if(now>noticeUntil || inLab)banner.hidden=true;
+        for(const a of valid)if(entries.update(a.id,a.status,a.time)){
+            alerts.push({id:a.id,time:a.time,site:config.name});focused=a.id;
+            banner.textContent='目標估測進入警戒區，點此查看目標';banner.hidden=!!inLab;showAlert();
+        }
+        const selected=valid.find(a=>a.id===focused) || valid[0];
+        const active=selected || newest;
+        panel.hidden=!active;
+        el('monitorStatus').hidden=false;
+        if(!active){banner.hidden=true;mapObjects(null);return;}
+        const lost=!selected && now-eventTime(newest)>15000;
+        const title=lost?'目標失去更新':selected?.status==='inside'?'目標估測進入警戒區':'偵測到目標聲音';
+        const eta=value=>value===null||value===undefined?'資料不足或路徑未相交':value===0?'已進入':`約 ${Math.ceil(value)} 秒`;
+        const names={inside:'位於警戒區內',outside:'位於警戒區外',boundary:'定位誤差跨越警戒邊界',located:'尚未設定據點'};
+        const quality=selected?.prediction?.display;
+        const reason=!config?'尚未設定據點':state.runtime?.localization_enabled!==true?'定位未啟用；目前僅呈現聲音回報與區域估測':!selected?'尚無新鮮且有效的目標定位':!experimentalMotionEnabled?'移動估算未啟用':quality?({STABLE:'ETA 穩定',HOLDING:'ETA 暫時保留',CLEARED:'ETA 已清除',UNSTABLE:'ETA 資料不足'}[quality.state]):'尚無可靠 ETA';
+        const markup=`<div class="card-header"><h2>${safe(title)}</h2></div><div class="card-body"><p>${safe(selected?`目標 ${selected.id}`:`回報節點 ${newest.device_id}`)}</p><p>${safe(selected?names[selected.status]:lost?'顯示最後偵測資訊；停止抵達估算。':'已收到目標聲音，尚無有效定位。')}</p><p>更新時間：${safe(new Date(selected?.time??eventTime(newest)).toLocaleTimeString('zh-TW'))}</p>${selected?'':`<p>模型分數：${formatPercent(modelScore(newest))}</p>`}<div class="detail-grid"><div class="detail-item"><span>與據點距離</span><strong>${selected?.distance!=null?`${selected.distance.toFixed(0)} m`:'—'}</strong></div><div class="detail-item"><span>移動狀態</span><strong>${safe({approaching:'往據點靠近',departing:'遠離據點',stationary:'接近分量不足'}[selected?.trend]||'資料不足')}</strong></div><div class="detail-item"><span>預估進入警戒區</span><strong>${eta(selected?.zoneEta)}</strong></div><div class="detail-item"><span>預估抵達據點範圍</span><strong>${eta(selected?.arrivalEta)}</strong></div></div><p>${safe(reason)}${quality?.displayEtaLowerSeconds!=null?` · 約 ${Math.floor(quality.displayEtaLowerSeconds)}–${Math.ceil(quality.displayEtaUpperSeconds)} 秒`:''}</p><p>抵達範圍：${config?`${config.arrivalRadius} m`:'尚未設定'}。使用與模擬工作區相同的追蹤與 ETA 穩定化核心，實測精度仍待驗證。</p>${valid.length>1?`<label>其他目標<select id="operationalTargetSelect">${valid.map(a=>`<option value="${safe(a.id)}" ${a.id===selected?.id?'selected':''}>${safe(a.id)}</option>`).join('')}</select></label>`:''}</div>`;
+        if(panel.innerHTML!==markup && !panel.contains(document.activeElement))panel.innerHTML=markup;
+        if(el('operationalTargetSelect'))el('operationalTargetSelect').onchange=e=>{focused=e.target.value;render();};
+        mapObjects(selected);
+    }
+    const history=document.createElement('article');history.className='card history-replay';
+    history.innerHTML='<div class="card-header"><h2>歷史事件回放</h2></div><div class="card-body"><p id="historyReplayStatus" role="status">選擇左側事件或軌跡，自動開始回放。</p><div id="historyMap" role="application" aria-label="歷史軌跡地圖"></div><div id="historyFallback" role="img" aria-label="歷史軌跡相對座標圖"></div><div class="history-controls"><button id="historyPlay" class="action-button" disabled>播放</button><button id="historyRestart" class="action-button" disabled>重播</button><button id="historyPrevious" class="action-button" disabled>上一筆</button><button id="historyNext" class="action-button" disabled>下一筆</button><label>倍速<select id="historySpeed"><option value="1">1×</option><option value="4">4×</option><option value="8" selected>8×</option><option value="16">16×</option></select></label><label><input id="historySmooth" type="checkbox" checked>平滑過場（示意）</label><input id="historySeek" type="range" min="0" max="1" step="0.001" value="0" aria-label="歷史回放時間軸" disabled></div><p id="historyTime"></p><p id="historyContext" role="status"></p><p>● 參與節點　◎ 區域估測中心　◆ 目標定位估測。橘色範圍為當時快照；灰色虛線為目前位置參照，非歷史範圍。警戒圈使用目前據點設定，非當時警戒紀錄。平滑過場與點間連線僅輔助閱讀，不代表已知飛行路徑。</p></div>';
+    const grid=document.querySelector('#view-tracks .intelligence-grid');
+    const list=document.createElement('div');list.className='history-selection';
+    while(grid.firstChild)list.append(grid.firstChild);grid.append(list,history);
+    function pause(){if(replay)replay.playing=false;cancelAnimationFrame(animation);animation=null;el('historyPlay').textContent='播放';}
+    function clearHistoryOverlays(){historyOverlays.forEach(o=>o.setMap(null));historyOverlays=[];historyFrameKey=null;}
+    function clear(){pause();request++;replay=null;clearHistoryOverlays();if(historyMarker)historyMarker.setMap(null);if(historyLine)historyLine.setMap(null);historyMarker=null;historyLine=null;el('historyFallback').innerHTML='';['historyPlay','historyRestart','historySeek','historyPrevious','historyNext'].forEach(id=>el(id).disabled=true);el('historySeek').value=0;el('historyTime').textContent='';el('historyContext').textContent='';el('historyReplayStatus').textContent='選擇左側事件或軌跡，自動開始回放。';}
+    function contextPath(context){
+        return context.historicalRegion?context.regionPath:DashboardNodeGeometry.convexHull(context.nodes.filter(n=>n.position).map(n=>n.position));
+    }
+    function drawHistoryContext(context,index){
+        if(historyFrameKey===index)return;
+        clearHistoryOverlays();historyFrameKey=index;
+        const api=google.maps,add=o=>historyOverlays.push(o),shape=contextPath(context);
+        context.nodes.filter(n=>n.position).forEach(n=>add(new api.Marker({map:historyMap,position:n.position,
+            label:{text:shortNodeId(n.id),color:'#fff',fontSize:'11px'},title:`${n.id} · ${n.historical?'當時參與節點':'目前位置參照（非歷史）'}`,
+            icon:{path:api.SymbolPath.CIRCLE,scale:15,fillColor:n.historical?'#f97316':'#64748b',fillOpacity:1,strokeColor:'#fff',strokeWeight:2}})));
+        if(shape.length>=2){
+            const historical=context.historicalRegion || context.nodes.every(n=>n.historical);
+            const path=shape.length>=3?[...shape,shape[0]]:shape;
+            if(historical && shape.length>=3)add(new api.Polygon({map:historyMap,paths:shape,...DashboardMapVisuals.regionStyle('polygon')}));
+            else add(new api.Polyline({map:historyMap,path,strokeColor:historical?'#f97316':'#94a3b8',strokeWeight:3,strokeOpacity:historical?1:0,
+                ...(historical?{}:{icons:[{icon:{path:'M 0,-1 0,1',strokeOpacity:1,scale:3},offset:'0',repeat:'12px'}]})}));
+        }
+        if(replay.site){
+            add(new api.Marker({map:historyMap,position:replay.site,...(typeof siteMarkerIcon==='function'?{icon:siteMarkerIcon()}:{}),title:`${replay.site.name}（目前設定）`}));
+            add(new api.Circle({map:historyMap,center:replay.site,radius:replay.site.radius,strokeColor:'#ef4444',strokeWeight:2,fillColor:'#ef4444',fillOpacity:.04}));
+        }
+    }
+    function draw() {
+        if(!replay)return;
+        const f=O.frame(replay.points,replay.progress,el('historySmooth').checked),context=O.replayContext(f.point,replay.nodes);el('historySeek').value=replay.progress;
+        el('historyTime').textContent=`${f.index+1} / ${replay.points.length} 筆觀測 · ${f.timed?new Date(f.time).toLocaleString('zh-TW'):'缺少完整時間，以觀測順序回放'}${f.interpolated?' · 平滑過場（示意）':''}`;
+        el('historyContext').textContent=`${context.label} · 參與節點：${context.nodes.map(n=>shortNodeId(n.id)).join('、')||'未記錄'}。${context.nodes.some(n=>!n.historical)?'缺少當時座標，灰色節點／虛線僅參照目前設定。':''}${context.missingNodes?`${context.missingNodes} 個節點缺少座標，無法繪製。`:''}${!replay.site?'尚未設定據點，未顯示警戒圈。':''}`;
+        el('historyPrevious').disabled=f.index===0;el('historyNext').disabled=f.index>=replay.points.length-1;
+        const displayPath=f.interpolated?[...f.path,f.displayPoint]:f.path;
+        if(historyMap){
+            historyLine.setPath(displayPath);historyMarker.setPosition(f.displayPoint);
+            historyMarker.setTitle(context.label+(f.interpolated?'（過場示意）':''));
+            historyMarker.setIcon({path:context.kind==='location'?'M 0,-9 9,0 0,9 -9,0 z':google.maps.SymbolPath.CIRCLE,
+                scale:context.kind==='location'?1:9,fillColor:context.kind==='region'?'#60a5fa':'#fbbf24',fillOpacity:.9,strokeColor:'#fff',strokeWeight:2});
+            drawHistoryContext(context,f.index);
+        }
+        else {
+            const all=replay.extent,lats=all.map(p=>p.lat),lngs=all.map(p=>p.lng),loLat=Math.min(...lats),loLng=Math.min(...lngs),spanLat=Math.max(...lats)-loLat||.001,spanLng=Math.max(...lngs)-loLng||.001;
+            const xy=p=>[45+(p.lng-loLng)/spanLng*510,275-(p.lat-loLat)/spanLat*230],pos=xy(f.displayPoint),shape=contextPath(context);
+            const historical=context.historicalRegion || context.nodes.every(n=>n.historical);
+            const region=shape.length>=2?`<polyline points="${(shape.length>=3?[...shape,shape[0]]:shape).map(p=>xy(p).join(',')).join(' ')}" fill="none" stroke="${historical?'#f97316':'#94a3b8'}" stroke-width="3" ${historical?'':'stroke-dasharray="6 5"'}/>`:'';
+            const nodes=context.nodes.filter(n=>n.position).map(n=>{const p=xy(n.position);return `<circle cx="${p[0]}" cy="${p[1]}" r="7" fill="${n.historical?'#f97316':'#64748b'}"/><text x="${p[0]+9}" y="${p[1]-9}" fill="currentColor">${safe(shortNodeId(n.id))}</text>`;}).join('');
+            const s=replay.site,sitePos=s?xy(s):null;
+            const siteSvg=s?`<ellipse cx="${sitePos[0]}" cy="${sitePos[1]}" rx="${s.radius/(111320*Math.max(.01,Math.cos(s.lat*Math.PI/180)))/spanLng*510}" ry="${s.radius/111320/spanLat*230}" fill="none" stroke="#ef4444"/><text x="${sitePos[0]}" y="${sitePos[1]}" fill="currentColor">據（目前）</text>`:'';
+            const marker=context.kind==='location'?`<path d="M ${pos[0]},${pos[1]-9} l 9,9 -9,9 -9,-9 z" fill="#fbbf24"/>`:`<circle cx="${pos[0]}" cy="${pos[1]}" r="9" fill="${context.kind==='region'?'#60a5fa':'#fbbf24'}"/>`;
+            el('historyFallback').innerHTML=`<p>相對座標圖（非地理底圖）</p><svg viewBox="0 0 600 320" aria-label="歷史事件回放">${siteSvg}${region}${nodes}<polyline points="${displayPath.map(p=>xy(p).join(',')).join(' ')}" fill="none" stroke="#f59e0b" stroke-width="3"/>${marker}</svg>`;
+        }
+    }
+    function play(){if(!replay)return;if(replay.progress>=1)replay.progress=0;pause();replay.playing=true;el('historyPlay').textContent='暫停';let last=performance.now();
+        const tick=now=>{if(!replay?.playing)return;replay.progress=Math.min(1,replay.progress+(now-last)*Number(el('historySpeed').value)/replay.duration);last=now;draw();if(replay.progress>=1)pause();else animation=requestAnimationFrame(tick);};animation=requestAnimationFrame(tick);
+    }
+    async function start(id) {
+        clear();const token=request;switchView('tracks');state.selectedTrackId=String(id);renderTracksView();el('historyReplayStatus').textContent='正在載入此軌跡…';
+        try{
+            const payload=await fetchJson(`/tracks/${encodeURIComponent(id)}/points?limit=500`);
+            if(token!==request)return;
+            if(!Array.isArray(payload.points))throw new Error('missing points');
+            const path=O.points({points:payload.points});
+            if(!path.length){el('historyReplayStatus').textContent='此軌跡沒有可顯示的有效觀測。';return;}
+            const nodes=canonicalDevices().map(n=>({device_id:n.device_id,...nodeLocation(n)}));
+            const extent=path.flatMap(p=>{const c=O.replayContext(p,nodes);return [p,...c.nodes.filter(n=>n.position).map(n=>n.position),...c.regionPath];});
+            if(config)extent.push(config);
+            replay={points:path,nodes,extent,site:config?{...config}:null,progress:0,duration:path.every(p=>p.time!==null)&&path.at(-1).time>path[0].time?path.at(-1).time-path[0].time:Math.max(4000,path.length*1000),playing:false};
+            if(window.google?.maps && !mapsLoadFailed){
+                if(!historyMap)historyMap=new google.maps.Map(el('historyMap'),{center:path[0],zoom:16,mapTypeControl:false,streetViewControl:false});
+                el('historyMap').hidden=false;el('historyFallback').hidden=true;
+                const bounds=new google.maps.LatLngBounds();extent.forEach(p=>bounds.extend(p));google.maps.event.trigger(historyMap,'resize');historyMap.fitBounds(bounds,40);
+                historyLine=new google.maps.Polyline({map:historyMap,path:[],strokeColor:'#f59e0b',strokeWeight:4});historyMarker=new google.maps.Marker({map:historyMap,position:path[0],title:'歷史觀測點'});
+            }else{historyMap=null;el('historyMap').hidden=true;el('historyFallback').hidden=false;}
+            el('historyReplayStatus').textContent=`軌跡 ${id}；${payload.points.length>=500?'最多顯示前 500 點，可能未含完整軌跡。':path.length===1?'僅一筆觀測，顯示事件背景。':'已載入事件背景與觀測時間軸。'}`;
+            ['historyPlay','historyRestart','historySeek'].forEach(key=>el(key).disabled=path.length<2);draw();if(path.length>1)play();
+        }catch(_){if(token===request)el('historyReplayStatus').textContent='讀取軌跡失敗，請重新選取重試。';}
+    }
+    async function group(id){
+        clear();const token=request;switchView('tracks');el('historyReplayStatus').textContent='正在查詢事件關聯軌跡…';
+        try {
+            const payload=await fetchJson(`/event-groups/${encodeURIComponent(id)}/tracks`);
+            if(token!==request)return;
+            if(!Array.isArray(payload.tracks))throw new Error('invalid response');
+            if(payload.tracks.length===1){start(String(payload.tracks[0].id));return;}
+            el('historyReplayStatus').textContent=payload.tracks.length?'此事件關聯多條軌跡，請選擇要回放的軌跡。':'此事件尚無已儲存的關聯軌跡，無法播放。';
+            payload.tracks.forEach(t=>{const button=document.createElement('button');button.className='action-button';button.textContent=`回放 ${t.id}`;button.onclick=()=>start(String(t.id));el('historyReplayStatus').append(button);});
+        } catch(_) {if(token===request)el('historyReplayStatus').textContent='事件關聯查詢失敗，請重新選取重試。';}
+    }
+    el('historyPlay').onclick=()=>replay?.playing?pause():play();el('historyRestart').onclick=()=>{if(replay){replay.progress=0;play();}};
+    el('historySeek').oninput=e=>{pause();if(replay){replay.progress=Number(e.target.value);draw();}};
+    function step(direction){
+        if(!replay)return;pause();const f=O.frame(replay.points,replay.progress),i=Math.max(0,Math.min(replay.points.length-1,f.index+direction));
+        replay.progress=f.timed?(replay.points[i].time-replay.points[0].time)/(replay.points.at(-1).time-replay.points[0].time):i/Math.max(1,replay.points.length-1);draw();
+    }
+    el('historyPrevious').onclick=()=>step(-1);el('historyNext').onclick=()=>step(1);el('historySmooth').onchange=draw;
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
+    window.DashboardOperationsUI={render,start,group,pause,clear,leave:()=>{pause();request++;},site:()=>config,target:()=>currentTarget,assessment:id=>assessmentsById.get(String(id))};
+    setInterval(()=>{if(!document.hidden){render();}},250);
+})();

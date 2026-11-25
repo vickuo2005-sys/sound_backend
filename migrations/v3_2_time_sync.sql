@@ -11,3 +11,27 @@ ADD COLUMN IF NOT EXISTS last_time_sync_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS device_status_time_sync_quality_idx
 ON device_status (time_sync_quality);
+
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS time_sync_version INTEGER,
+ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS time_sync_quality TEXT,
+ADD COLUMN IF NOT EXISTS time_sync_synced_at_ms BIGINT,
+ADD COLUMN IF NOT EXISTS time_sync_age_ms BIGINT,
+ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION;
+
+ALTER TABLE event_group_observations
+ADD COLUMN IF NOT EXISTS time_sync_version INTEGER,
+ADD COLUMN IF NOT EXISTS time_sync_offset_ms DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS time_sync_rtt_ms DOUBLE PRECISION,
+ADD COLUMN IF NOT EXISTS time_sync_quality TEXT,
+ADD COLUMN IF NOT EXISTS time_sync_synced_at_ms BIGINT,
+ADD COLUMN IF NOT EXISTS time_sync_age_ms BIGINT,
+ADD COLUMN IF NOT EXISTS corrected_arrival_time_ms DOUBLE PRECISION;
+
+CREATE INDEX IF NOT EXISTS events_corrected_arrival_time_ms_idx
+ON events (corrected_arrival_time_ms);
+
+CREATE INDEX IF NOT EXISTS event_group_observations_corrected_arrival_time_ms_idx
+ON event_group_observations (corrected_arrival_time_ms);
