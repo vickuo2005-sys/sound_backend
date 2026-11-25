@@ -617,6 +617,10 @@
         #locationPickerHint { margin:8px 0 0; color:var(--text-secondary); font-size:13px; }
         #locationEditorModal .location-form { margin:0; align-content:start; }
         #locationEditorModal .confirm-modal-actions { position:sticky; bottom:0; background:#0f1d2e; padding-top:12px; }
+        #nodeRemovalDialog { width:min(440px, calc(100% - 32px)); margin:auto; color:var(--text-primary); padding:0; }
+        #nodeRemovalDialog::backdrop { background:rgba(4, 11, 20, .76); }
+        #nodeRemovalTarget { overflow-wrap:anywhere; }
+        #nodeRemovalError { color:var(--danger); }
         @media(max-width:760px) { #locationEditorModal .confirm-modal-body { grid-template-columns:1fr; } #locationPickerMap { height:260px; } }
 
         [hidden] { display:none !important; }
@@ -835,6 +839,24 @@
             </div>
         </section>
     </div>
+
+    <dialog id="nodeRemovalDialog" class="confirm-modal" aria-labelledby="nodeRemovalTitle" aria-describedby="nodeRemovalDescription">
+        <form id="nodeRemovalForm">
+            <header><h2 id="nodeRemovalTitle">移除離線節點</h2></header>
+            <div class="confirm-modal-body">
+                <div id="nodeRemovalTarget" class="confirm-node"></div>
+                <p id="nodeRemovalDescription">會刪除此節點的狀態與固定位置，保留歷史事件與音檔。若裝置重新回報，節點會再次出現。</p>
+                <div class="location-form">
+                    <label>管理授權碼<input id="nodeRemovalToken" type="password" required autocomplete="off" spellcheck="false"></label>
+                </div>
+                <p id="nodeRemovalError" role="alert" hidden></p>
+            </div>
+            <div class="confirm-modal-actions">
+                <button id="nodeRemovalCancel" class="action-button" type="button" autofocus>取消</button>
+                <button id="nodeRemovalSubmit" class="action-button danger" type="submit">確認移除</button>
+            </div>
+        </form>
+    </dialog>
 
     __STATUS_SCRIPT__
     __EVENT_CONTEXT_SCRIPT__
@@ -1791,6 +1813,8 @@
             const startCommand = selected.is_listening === true ? 'stop_listening' : 'start_listening';
             const startDisabled = baseReason || (!listeningKnown ? '監聽狀態尚未確認' : '');
             const liveAudioEnabled = state.runtime?.live_audio_enabled === true;
+            const removable = state.backendConnected && !deviceOnline(selected)
+                && (state.devices.has(selected.device_id) || state.fixedLocations.has(selected.device_id));
             grid.innerHTML = `<div class="node-control-layout"><article class="card"><div class="card-header"><h2 class="card-title">節點清單</h2><span class="badge legacy">${devices.filter(device=>state.devices.has(device.device_id)).length} 台已回報</span></div><div class="node-picker">${nodeList}</div></article>
                 <article class="card selected-node-card"><div class="card-header"><div class="selected-node-title"><span class="node-shape" aria-hidden="true">${nodeShapeText(selected.device_id)}</span><div><h2 class="card-title">節點 ${safe(shortNodeId(selected.device_id))}</h2><span class="muted" style="font-size:11px">${safe(selected.device_id)}</span></div></div><span class="state-text ${status.css}">${status.text}</span></div><div class="selected-node-body">
                     <div class="node-detail-list"><div>監聽狀態<strong>${selected.is_listening === true ? '監聽中' : (selected.is_listening === false ? '已停止' : '—')}</strong></div><div>運作模式<strong>${mode === 'collection' ? '蒐集模式' : (mode === 'detection' ? '偵測模式' : '—')}</strong></div><div>目前採用位置 <span class="location-source-chip">${safe(displayLocationSource(selected))}</span><strong>${safe(formatCoordinate(location))}</strong></div><div>節點回報 GPS<strong>${safe(formatCoordinate(rawLocation))}${finite(selected.gps_accuracy_m) === null ? '' : ` · ${safe(formatMeters(selected.gps_accuracy_m))}`}</strong></div><div>AI 狀態<strong>${safe(selected.ai_status || '尚無回報')}</strong></div><div>後端連線<strong>${safe(selected.backend_status || '尚無回報')}</strong></div><div>最近回報<strong>${safe(formatDateTime(selected.last_seen))}</strong></div><div>最近事件<strong>${safe(formatDateTime(selected.last_event_at))}</strong></div><div>裝置識別碼<strong>${safe(selected.device_id)}</strong></div><div>目前固定位置<strong>${safe(formatCoordinate(fixedLocation))}</strong></div></div>
@@ -1800,12 +1824,73 @@
                     <section class="control-section"><h3 class="control-heading">指令狀態</h3>${commandStatusMarkup(selected)}</section>
                     <details class="advanced-control"><summary>進階控制</summary><div class="advanced-body"><strong>即時監聽</strong><p class="control-helper">${liveAudioEnabled ? '既有 live audio pipeline 已配置，但本頁尚未完成安全訂閱驗證；請暫用 Legacy Dashboard。' : '目前 staging 不可用。GCS 上傳狀態與 live monitoring 無關。'}</p><button class="action-button" type="button" disabled aria-disabled="true">開始即時監聽</button></div></details>
                     <button class="ghost-button" type="button" data-focus-selected style="margin-top:14px">在地圖查看</button>
+                    ${removable ? '<section class="control-section"><h3 class="control-heading">整理節點</h3><button class="action-button danger" type="button" data-remove-node>移除離線節點</button></section>' : ''}
                 </div></article></div>`;
             grid.querySelectorAll('[data-select-node]').forEach(button => button.addEventListener('click', () => { state.selectedNodeId = button.dataset.selectNode; renderNodesView(); }));
             grid.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.command)));
             grid.querySelectorAll('[data-command-retry]').forEach(button => button.addEventListener('click', () => openCommandConfirm(selected.device_id, button.dataset.commandRetry)));
             grid.querySelector('[data-edit-location]')?.addEventListener('click', () => openLocationEditor(selected.device_id));
+            grid.querySelector('[data-remove-node]')?.addEventListener('click', () => openNodeRemoval(selected.device_id));
             grid.querySelector('[data-focus-selected]')?.addEventListener('click', () => { switchView('dashboard'); focusNodeOnMap(selected.device_id); });
+        }
+
+        const nodeRemovalDialog = document.getElementById('nodeRemovalDialog');
+        const nodeRemovalToken = document.getElementById('nodeRemovalToken');
+        const nodeRemovalError = document.getElementById('nodeRemovalError');
+        const nodeRemovalSubmit = document.getElementById('nodeRemovalSubmit');
+        const nodeRemovalCancel = document.getElementById('nodeRemovalCancel');
+        let nodeRemovalTarget = null;
+        let nodeRemovalBusy = false;
+
+        function openNodeRemoval(deviceId) {
+            nodeRemovalTarget = deviceId;
+            document.getElementById('nodeRemovalTarget').textContent = deviceId;
+            nodeRemovalToken.value = '';
+            nodeRemovalError.hidden = true;
+            nodeRemovalDialog.showModal();
+        }
+
+        function removeNodeFromDashboard(deviceId) {
+            updateFixedLocationCache(null, deviceId);
+            if (state.selectedNodeId === deviceId) state.selectedNodeId = null;
+            state.lastUpdate = new Date();
+            renderAll();
+        }
+
+        async function submitNodeRemoval(event) {
+            event.preventDefault();
+            if (nodeRemovalBusy || !nodeRemovalTarget || !nodeRemovalToken.value.trim()) return;
+            const deviceId = nodeRemovalTarget;
+            nodeRemovalBusy = true;
+            nodeRemovalSubmit.disabled = nodeRemovalCancel.disabled = true;
+            nodeRemovalError.hidden = true;
+            const token = nodeRemovalToken.value.trim();
+            nodeRemovalToken.value = '';
+            try {
+                const response = await fetch(`/device-status/${encodeURIComponent(deviceId)}`, {
+                    method: 'DELETE',
+                    headers: {'x-upload-token': token},
+                    signal: AbortSignal.timeout(10000),
+                });
+                if (response.status === 401) throw new Error('管理授權碼不正確。');
+                if (response.status === 409) throw new Error('節點已上線或仍連線，請等它離線後再試。');
+                if (response.status === 503) throw new Error('後端尚未設定管理授權碼。');
+                if (!response.ok) throw new Error('移除失敗，請確認後端連線後重試。');
+                const result = await response.json();
+                if (result.status !== 'success' || result.device_id !== deviceId) {
+                    throw new Error('後端回覆異常，請重新整理後確認節點狀態。');
+                }
+                removeNodeFromDashboard(deviceId);
+                nodeRemovalDialog.close();
+                showToast(`已移除節點 ${deviceId}`);
+            } catch (error) {
+                nodeRemovalError.textContent = error.message || '移除失敗。';
+                nodeRemovalError.hidden = false;
+                nodeRemovalToken.focus();
+            } finally {
+                nodeRemovalBusy = false;
+                nodeRemovalSubmit.disabled = nodeRemovalCancel.disabled = false;
+            }
         }
 
         function openNodeControl(deviceId) {
@@ -2652,7 +2737,7 @@
                 }
                 state.lastUpdate = new Date(); renderMetrics(); renderNodeStatus(); renderNodesView(); renderHealth(); renderMap(); renderCommandBar();
             } else if (data.type === 'device_status_deleted') {
-                if (data.device_id) state.devices.delete(data.device_id); renderAll();
+                if (data.device_id) removeNodeFromDashboard(data.device_id);
             } else if (data.type === 'event_group') {
                 const groupReceivedAt=state.runtime?.critical_path_diagnostics_enabled === true?performance.now():null;
                 const group = data.group || data; const id = groupId(group); if (id) state.groups.set(id, group); state.lastUpdate = new Date(); renderOverview(); renderTracksView(); renderMap();
@@ -2730,6 +2815,13 @@
             else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
         });
         document.getElementById('locationCancel').addEventListener('click', closeLocationEditor);
+        document.getElementById('nodeRemovalForm').addEventListener('submit', submitNodeRemoval);
+        nodeRemovalCancel.addEventListener('click', () => nodeRemovalDialog.close());
+        nodeRemovalDialog.addEventListener('cancel', event => { if (nodeRemovalBusy) event.preventDefault(); });
+        nodeRemovalDialog.addEventListener('close', () => {
+            nodeRemovalTarget = null;
+            nodeRemovalToken.value = '';
+        });
         document.getElementById('locationSave').addEventListener('click', saveFixedLocation);
         document.getElementById('locationClear').addEventListener('click', clearFixedLocation);
         document.getElementById('locationUseGps').addEventListener('click', useCurrentGpsForLocation);

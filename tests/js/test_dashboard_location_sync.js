@@ -58,7 +58,7 @@ function harness(deleteDevice = null) {
         renderCommandBar: () => {}, renderOverview: () => {},
     });
     ['finite', 'upsertDevice', 'updateFixedLocationCache', 'refreshSnapshot', 'refreshDeviceSnapshot',
-        'clearFixedLocation', 'handleWebSocketMessage'].forEach(name => include(context, name));
+        'clearFixedLocation', 'removeNodeFromDashboard', 'handleWebSocketMessage'].forEach(name => include(context, name));
     return {context, state, pending, writes, toasts};
 }
 
@@ -132,6 +132,16 @@ async function clearDuringSnapshot(kind, hasStatus) {
     assertCleared(websocket, false);
     assert.equal(websocket.state.locationsVersion, 1, 'Null WebSocket payload also invalidates old requests');
     assert.equal(websocket.state.devices.has('node_A02'), true);
+
+    const removal = harness();
+    removal.state.selectedNodeId = 'node_A01';
+    const staleSnapshot = removal.context.refreshSnapshot();
+    removal.context.handleWebSocketMessage({type: 'device_status_deleted', device_id: 'node_A01'});
+    removal.pending.forEach(p => p.resolve(responseFor(p.url)));
+    await staleSnapshot;
+    assertCleared(removal, false);
+    assert.equal(removal.state.selectedNodeId, null);
+    assert.equal(removal.state.devices.has('node_A02'), true);
 
     for (const kind of ['full', 'device']) {
         for (const hasStatus of [false, true]) await clearDuringSnapshot(kind, hasStatus);
